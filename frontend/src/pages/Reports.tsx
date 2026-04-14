@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Plot from 'react-plotly.js';
-import { Table, Badge, Card, Alert, Row, Col, Form } from 'react-bootstrap';
-import { FaChartPie, FaChartLine } from 'react-icons/fa';
-import { eventsAPI, exportAPI } from '../services/api';
+import { Alert, Button, Form, Table } from 'react-bootstrap';
+import { FaChartLine, FaChartPie, FaDownload } from 'react-icons/fa';
+import { eventsAPI, exportAPI, getErrorMessage } from '../services/api';
 import type { Event } from '../types';
 import LoadingSpinner from '../components/LoadingSpinner';
 
@@ -10,221 +10,192 @@ const Reports: React.FC = () => {
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [eventFilter, setEventFilter] = useState<string>('all');
+  const [eventFilter, setEventFilter] = useState('all');
 
-  const fetchEvents = async () => {
+  const loadEvents = async () => {
     try {
       setLoading(true);
       const response = await eventsAPI.getEvents({ limit: 500 });
       setEvents(response.data);
       setError(null);
-    } catch (err: any) {
-      setError('Failed to load events');
-      console.error(err);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to load event analytics.'));
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchEvents();
+    void loadEvents();
   }, []);
+
+  const filteredEvents = useMemo(
+    () => events.filter((event) => eventFilter === 'all' || event.event_type === eventFilter),
+    [eventFilter, events]
+  );
+
+  const eventCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    filteredEvents.forEach((event) => {
+      counts.set(event.event_type, (counts.get(event.event_type) ?? 0) + 1);
+    });
+    return Array.from(counts.entries());
+  }, [filteredEvents]);
+
+  const activityByDate = useMemo(() => {
+    const counts = new Map<string, number>();
+    [...filteredEvents].reverse().forEach((event) => {
+      counts.set(event.sim_date, (counts.get(event.sim_date) ?? 0) + 1);
+    });
+    return Array.from(counts.entries());
+  }, [filteredEvents]);
 
   const handleExport = async (type: 'full' | 'inventory' | 'events') => {
     try {
-      let response;
-      switch (type) {
-        case 'full':
-          response = await exportAPI.exportFullState();
-          break;
-        case 'inventory':
-          response = await exportAPI.exportInventory();
-          break;
-        case 'events':
-          response = await exportAPI.exportEvents();
-          break;
-      }
-      
-      // Create download link
+      const response = type === 'full'
+        ? await exportAPI.exportFullState()
+        : type === 'inventory'
+          ? await exportAPI.exportInventory()
+          : await exportAPI.exportEvents();
       const blob = new Blob([JSON.stringify(response.data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${type}_export_${new Date().toISOString().split('T')[0]}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${type}_export_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
       URL.revokeObjectURL(url);
-    } catch (err: any) {
-      setError('Failed to export data');
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to export report data.'));
     }
   };
 
-  const getEventCounts = () => {
-    const counts: Record<string, number> = {};
-    events.forEach(event => {
-      counts[event.event_type] = (counts[event.event_type] || 0) + 1;
-    });
-    return counts;
-  };
-
-  if (loading) return <LoadingSpinner />;
-
-  const eventCounts = getEventCounts();
+  if (loading) {
+    return <LoadingSpinner label="Loading reports and analytics..." />;
+  }
 
   return (
     <div>
       <div className="page-header">
-        <h1>Reports & Analytics</h1>
-        <p>Analyze production performance and export data</p>
-      </div>
-
-      {error && <Alert variant="danger">{error}</Alert>}
-
-      {/* Export Buttons */}
-      <div className="action-bar mb-4">
-        <h3>Data Export</h3>
-        <div className="action-buttons">
-          <Button variant="primary" onClick={() => handleExport('full')}>
-            Export Full State
-          </Button>
-          <Button variant="success" onClick={() => handleExport('inventory')}>
-            Export Inventory
-          </Button>
-          <Button variant="info" onClick={() => handleExport('events')}>
-            Export Events
-          </Button>
+        <div>
+          <div className="section-kicker">Reports</div>
+          <h1>Analytics and exports</h1>
+          <p>Review the operational history, isolate specific event types, and export the simulator state for comparison across scenarios.</p>
         </div>
       </div>
 
-      {/* Charts */}
-      <Row>
-        <Col md={6}>
-          <div className="chart-container">
-            <h4 style={{ marginBottom: '20px', fontWeight: 600 }}>
-              <FaChartPie /> Event Type Distribution
-            </h4>
-            {Object.keys(eventCounts).length > 0 ? (
-              <Plot
-                data={[
-                  {
-                    type: 'pie',
-                    labels: Object.keys(eventCounts),
-                    values: Object.values(eventCounts),
-                    hole: 0.4,
-                    marker: {
-                      colors: [
-                        '#1976d2', '#4caf50', '#ff9800', '#f44336', 
-                        '#9c27b0', '#00bcd4', '#ffeb3b', '#795548',
-                        '#607d8b', '#e91e63', '#3f51b5', '#009688'
-                      ]
-                    },
-                    textinfo: 'label+percent',
-                    textposition: 'outside',
-                  }
-                ]}
-                layout={{ 
-                  showlegend: false,
-                  margin: { t: 20, b: 20, l: 20, r: 20 }
-                }}
-                config={{ displayModeBar: false }}
-                style={{ width: '100%' }}
-              />
-            ) : (
-              <p style={{ color: '#757575', textAlign: 'center', padding: '40px' }}>
-                No events to display.
-              </p>
-            )}
-          </div>
-        </Col>
+      {error ? <Alert variant="danger">{error}</Alert> : null}
 
-        <Col md={6}>
-          <div className="chart-container">
-            <h4 style={{ marginBottom: '20px', fontWeight: 600 }}>
-              <FaChartLine /> Events Over Time
-            </h4>
-            {events.length > 0 ? (
-              <Plot
-                data={[
-                  {
-                    x: events.map(e => e.sim_date).sort(),
-                    type: 'histogram',
-                    xbins: { size: 1 },
-                    marker: { color: '#1976d2' },
-                  }
-                ]}
-                layout={{
-                  xaxis: { title: 'Date' },
-                  yaxis: { title: 'Number of Events' },
-                  showlegend: false,
-                  margin: { t: 20, b: 50, l: 50, r: 20 }
-                }}
-                config={{ displayModeBar: false }}
-                style={{ width: '100%' }}
-              />
-            ) : (
-              <p style={{ color: '#757575', textAlign: 'center', padding: '40px' }}>
-                No events to display.
-              </p>
-            )}
-          </div>
-        </Col>
-      </Row>
+      <div className="action-bar">
+        <div>
+          <div className="section-kicker">Data exports</div>
+          <h3 className="mb-1">Download current simulator data</h3>
+          <p className="text-muted mb-0">Use full-state exports for scenario snapshots and smaller exports for targeted analysis.</p>
+        </div>
+        <div className="action-buttons">
+          <Button variant="primary" onClick={() => void handleExport('full')}><FaDownload className="me-2" />Full state</Button>
+          <Button variant="success" onClick={() => void handleExport('inventory')}><FaDownload className="me-2" />Inventory</Button>
+          <Button variant="warning" onClick={() => void handleExport('events')}><FaDownload className="me-2" />Events</Button>
+        </div>
+      </div>
 
-      {/* Event Log */}
+      <div className="two-column">
+        <div className="chart-container">
+          <div className="section-title">
+            <h4><FaChartPie className="me-2" />Event distribution</h4>
+          </div>
+          {eventCounts.length ? (
+            <Plot
+              data={[
+                {
+                  type: 'pie',
+                  labels: eventCounts.map(([label]) => label),
+                  values: eventCounts.map(([, value]) => value),
+                  hole: 0.45,
+                  marker: { colors: ['#be5b2d', '#1a6b67', '#d18a1a', '#b6463b', '#2f7d4a', '#705649', '#9d824f'] },
+                  textinfo: 'label+percent',
+                },
+              ]}
+              layout={{ paper_bgcolor: 'transparent', margin: { t: 10, r: 10, b: 10, l: 10 }, showlegend: false }}
+              config={{ displayModeBar: false, responsive: true }}
+              style={{ width: '100%', height: '320px' }}
+            />
+          ) : (
+            <div className="empty-state">No events match the current filter.</div>
+          )}
+        </div>
+
+        <div className="chart-container">
+          <div className="section-title">
+            <h4><FaChartLine className="me-2" />Activity over time</h4>
+          </div>
+          {activityByDate.length ? (
+            <Plot
+              data={[
+                {
+                  x: activityByDate.map(([date]) => date),
+                  y: activityByDate.map(([, value]) => value),
+                  type: 'scatter',
+                  mode: 'lines+markers',
+                  line: { color: '#1a6b67', width: 3 },
+                  marker: { color: '#be5b2d', size: 8 },
+                },
+              ]}
+              layout={{
+                paper_bgcolor: 'transparent',
+                plot_bgcolor: 'transparent',
+                margin: { t: 10, r: 14, b: 48, l: 48 },
+                xaxis: { title: { text: 'Simulation date' } },
+                yaxis: { title: { text: 'Events' } },
+              }}
+              config={{ displayModeBar: false, responsive: true }}
+              style={{ width: '100%', height: '320px' }}
+            />
+          ) : (
+            <div className="empty-state">No events match the current filter.</div>
+          )}
+        </div>
+      </div>
+
       <div className="card">
-        <div className="card-header d-flex justify-content-between align-items-center">
-          <span>Event Log</span>
-          <Form.Select 
-            style={{ width: '250px' }}
-            value={eventFilter}
-            onChange={(e) => setEventFilter(e.target.value)}
-          >
-            <option value="all">All Events</option>
-            <option value="ORDER_CREATED">Order Created</option>
-            <option value="ORDER_RELEASED">Order Released</option>
-            <option value="ORDER_COMPLETED">Order Completed</option>
-            <option value="PO_CREATED">PO Created</option>
-            <option value="PO_DELIVERED">PO Delivered</option>
-            <option value="MATERIAL_CONSUMED">Material Consumed</option>
-            <option value="DAY_ADVANCED">Day Advanced</option>
+        <div className="card-header d-flex justify-content-between align-items-center gap-3 flex-wrap">
+          <span>Event log</span>
+          <Form.Select style={{ maxWidth: 260 }} value={eventFilter} onChange={(event) => setEventFilter(event.target.value)}>
+            <option value="all">All events</option>
+            <option value="ORDER_CREATED">Order created</option>
+            <option value="ORDER_RELEASED">Order released</option>
+            <option value="ORDER_COMPLETED">Order completed</option>
+            <option value="PO_CREATED">PO created</option>
+            <option value="PO_DELIVERED">PO delivered</option>
+            <option value="MATERIAL_CONSUMED">Material consumed</option>
+            <option value="DAY_ADVANCED">Day advanced</option>
           </Form.Select>
         </div>
         <div className="card-body p-0">
-          {events.length > 0 ? (
+          {filteredEvents.length ? (
             <Table responsive hover>
               <thead>
                 <tr>
-                  <th>Event Type</th>
+                  <th>Type</th>
                   <th>Simulation Date</th>
                   <th>Timestamp</th>
                   <th>Details</th>
                 </tr>
               </thead>
               <tbody>
-                {events
-                  .filter(e => eventFilter === 'all' || e.event_type === eventFilter)
-                  .slice(0, 100)
-                  .map((event) => (
-                    <tr key={event.id}>
-                      <td>
-                        <Badge bg="primary">{event.event_type}</Badge>
-                      </td>
-                      <td>{event.sim_date}</td>
-                      <td>{new Date(event.timestamp).toLocaleString()}</td>
-                      <td>
-                        <code style={{ fontSize: '0.75rem' }}>
-                          {event.details ? JSON.stringify(event.details).substring(0, 150) + '...' : '-'}
-                        </code>
-                      </td>
-                    </tr>
-                  ))}
+                {filteredEvents.slice(0, 120).map((event) => (
+                  <tr key={event.id}>
+                    <td><span className="badge badge-neutral">{event.event_type}</span></td>
+                    <td>{event.sim_date}</td>
+                    <td>{new Date(event.timestamp).toLocaleString()}</td>
+                    <td><div className="event-details">{event.details ? JSON.stringify(event.details, null, 2) : 'No details'}</div></td>
+                  </tr>
+                ))}
               </tbody>
             </Table>
           ) : (
-            <div style={{ padding: '60px', textAlign: 'center', color: '#757575' }}>
-              <p>No events recorded yet.</p>
-            </div>
+            <div className="empty-state">No events recorded for this filter yet.</div>
           )}
         </div>
       </div>

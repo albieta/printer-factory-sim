@@ -1,194 +1,241 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Plot from 'react-plotly.js';
-import { Button, Row, Col, Alert, Table, Badge } from 'react-bootstrap';
-import { FaPlayCircle, FaCalendarAlt } from 'react-icons/fa';
-import { simulationAPI, eventsAPI } from '../services/api';
-import type { SimulationStatus, Event } from '../types';
+import { Alert, Button } from 'react-bootstrap';
+import { FaCalendarAlt, FaPlayCircle } from 'react-icons/fa';
+import { eventsAPI, getErrorMessage, inventoryAPI, simulationAPI } from '../services/api';
+import type { CapacityInfo, Event, SimulationStatus } from '../types';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 const Overview: React.FC = () => {
   const [status, setStatus] = useState<SimulationStatus | null>(null);
+  const [capacity, setCapacity] = useState<CapacityInfo | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [advancing, setAdvancing] = useState(false);
-  const [advanceResult, setAdvanceResult] = useState<{date: string; created: number; completed: number} | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchData = async () => {
+  const loadOverview = async () => {
     try {
       setLoading(true);
-      const [statusRes, eventsRes] = await Promise.all([
+      const [statusRes, capacityRes, eventsRes] = await Promise.all([
         simulationAPI.getStatus(),
-        eventsAPI.getEvents({ limit: 50 }),
+        inventoryAPI.getCapacity(),
+        eventsAPI.getEvents({ limit: 150 }),
       ]);
       setStatus(statusRes.data);
+      setCapacity(capacityRes.data);
       setEvents(eventsRes.data);
       setError(null);
-    } catch (err: any) {
-      setError('Failed to load simulation data');
-      console.error(err);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to load the overview dashboard.'));
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchData();
+    void loadOverview();
   }, []);
 
   const handleAdvanceDay = async () => {
     try {
       setAdvancing(true);
       const result = await simulationAPI.advanceDay();
-      setAdvanceResult({
-        date: result.data.sim_date,
-        created: result.data.orders_created,
-        completed: result.data.orders_completed,
-      });
-      await fetchData();
-    } catch (err: any) {
-      setError('Failed to advance day');
+      setNotice(
+        `Simulation advanced to ${result.data.sim_date}. Created ${result.data.orders_created} orders, completed ${result.data.orders_completed}, and delivered ${result.data.purchase_orders_delivered} purchase orders.`
+      );
+      await loadOverview();
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to advance the simulation by one day.'));
     } finally {
       setAdvancing(false);
     }
   };
 
-  if (loading) return <LoadingSpinner />;
+  const eventsByDate = useMemo(() => {
+    const counts = new Map<string, number>();
+    [...events].reverse().forEach((event) => {
+      counts.set(event.sim_date, (counts.get(event.sim_date) ?? 0) + 1);
+    });
+    return Array.from(counts.entries()).map(([date, value]) => ({ date, value }));
+  }, [events]);
+
+  const eventMix = useMemo(() => {
+    const counts = new Map<string, number>();
+    events.forEach((event) => {
+      counts.set(event.event_type, (counts.get(event.event_type) ?? 0) + 1);
+    });
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6);
+  }, [events]);
+
+  if (loading) {
+    return <LoadingSpinner label="Loading operations overview..." />;
+  }
 
   return (
     <div>
       <div className="page-header">
-        <h1>Overview</h1>
-        <p>Monitor your 3D printer production simulation</p>
-      </div>
-
-      {error && <Alert variant="danger">{error}</Alert>}
-      {advanceResult && (
-        <Alert variant="success">
-          <strong>Day Advanced!</strong> Simulation date is now {advanceResult.date}. 
-          Created {advanceResult.created} orders, completed {advanceResult.completed} orders.
-        </Alert>
-      )}
-
-      {/* KPI Cards */}
-      <Row>
-        <Col md={3}>
-          <div className="kpi-card info">
-            <div className="kpi-label">Current Date</div>
-            <div className="kpi-value">
-              <FaCalendarAlt style={{ fontSize: '2rem' }} />
-            </div>
-            <div className="kpi-subtext">{status?.current_date}</div>
-          </div>
-        </Col>
-        <Col md={3}>
-          <div className="kpi-card warning">
-            <div className="kpi-label">Pending Orders</div>
-            <div className="kpi-value">{status?.pending_orders || 0}</div>
-            <div className="kpi-subtext">Awaiting production</div>
-          </div>
-        </Col>
-        <Col md={3}>
-          <div className="kpi-card success">
-            <div className="kpi-label">Completed Orders</div>
-            <div className="kpi-value">{status?.completed_orders || 0}</div>
-            <div className="kpi-subtext">Successfully produced</div>
-          </div>
-        </Col>
-        <Col md={3}>
-          <div className="kpi-card">
-            <div className="kpi-label">Total Events</div>
-            <div className="kpi-value">{status?.total_events || 0}</div>
-            <div className="kpi-subtext">Simulation events logged</div>
-          </div>
-        </Col>
-      </Row>
-
-      {/* Simulation Control */}
-      <div className="action-bar">
-        <h3>Simulation Control</h3>
-        <div className="action-buttons">
-          <Button 
-            variant="primary" 
-            size="lg"
-            onClick={handleAdvanceDay}
-            disabled={advancing}
-          >
-            <FaPlayCircle /> {advancing ? 'Advancing...' : 'Advance Day'}
-          </Button>
+        <div>
+          <div className="section-kicker">Overview</div>
+          <h1>Factory pulse</h1>
+          <p>Advance the simulation, watch warehouse pressure, and keep an eye on demand and throughput from one place.</p>
         </div>
       </div>
 
-      {/* Charts */}
-      <Row>
-        <Col md={12}>
-          <div className="chart-container">
-            <h4 style={{ marginBottom: '20px', fontWeight: 600 }}>Event Activity Over Time</h4>
-            {events.length > 0 ? (
-              <Plot
-                data={[
-                  {
-                    x: events.map(e => e.sim_date),
-                    type: 'histogram',
-                    xbins: { start: events.length > 0 ? events[events.length - 1].sim_date : '', end: events.length > 0 ? events[0].sim_date : '', size: 1 },
-                    marker: { color: '#1976d2' },
-                    name: 'Events'
-                  }
-                ]}
-                layout={{
-                  xaxis: { title: 'Date' },
-                  yaxis: { title: 'Number of Events' },
-                  showlegend: false,
-                  margin: { t: 20, b: 50, l: 50, r: 20 }
-                }}
-                config={{ displayModeBar: false }}
-                style={{ width: '100%' }}
-              />
+      {error ? <Alert variant="danger">{error}</Alert> : null}
+      {notice ? <Alert variant="success">{notice}</Alert> : null}
+
+      <div className="hero-panel">
+        <div className="section-title">
+          <div>
+            <div className="section-kicker">Simulation control</div>
+            <h3>Run the next operating day</h3>
+          </div>
+          <Button variant="primary" size="lg" onClick={handleAdvanceDay} disabled={advancing}>
+            <FaPlayCircle className="me-2" />
+            {advancing ? 'Advancing day...' : 'Advance Day'}
+          </Button>
+        </div>
+        <p className="text-muted mb-0">
+          Every advance processes deliveries, generates fresh demand, executes production, and writes a new event trail for analytics.
+        </p>
+      </div>
+
+      <div className="kpi-grid">
+        <div className="kpi-card info">
+          <div className="kpi-label">Simulation Date</div>
+          <div className="kpi-value"><FaCalendarAlt /></div>
+          <div className="kpi-subtext">{status?.current_date ?? 'Unknown'}</div>
+        </div>
+        <div className="kpi-card warning">
+          <div className="kpi-label">Pending Orders</div>
+          <div className="kpi-value">{status?.pending_orders ?? 0}</div>
+          <div className="kpi-subtext">Demand waiting to be released</div>
+        </div>
+        <div className="kpi-card success">
+          <div className="kpi-label">Completed Orders</div>
+          <div className="kpi-value">{status?.completed_orders ?? 0}</div>
+          <div className="kpi-subtext">Finished units shipped through production</div>
+        </div>
+        <div className="kpi-card">
+          <div className="kpi-label">Warehouse Use</div>
+          <div className="kpi-value">{capacity ? `${capacity.usage_percentage.toFixed(0)}%` : '0%'}</div>
+          <div className="kpi-subtext">{capacity ? `${capacity.current_usage.toFixed(0)} / ${capacity.warehouse_capacity}` : 'No capacity data'}</div>
+        </div>
+      </div>
+
+      <div className="data-grid">
+        <div className="chart-container">
+          <div className="section-title">
+            <h4>Event volume by day</h4>
+          </div>
+          {eventsByDate.length ? (
+            <Plot
+              data={[
+                {
+                  x: eventsByDate.map((item) => item.date),
+                  y: eventsByDate.map((item) => item.value),
+                  type: 'bar',
+                  marker: { color: '#be5b2d' },
+                },
+              ]}
+              layout={{
+                paper_bgcolor: 'transparent',
+                plot_bgcolor: 'transparent',
+                margin: { t: 12, r: 12, b: 50, l: 48 },
+                xaxis: { title: { text: 'Simulation date' } },
+                yaxis: { title: { text: 'Events' } },
+              }}
+              config={{ displayModeBar: false, responsive: true }}
+              style={{ width: '100%', height: '320px' }}
+            />
+          ) : (
+            <div className="empty-state">Advance the simulation to generate activity history.</div>
+          )}
+        </div>
+
+        <div className="chart-container">
+          <div className="section-title">
+            <h4>Recent event mix</h4>
+          </div>
+          {eventMix.length ? (
+            <Plot
+              data={[
+                {
+                  type: 'pie',
+                  labels: eventMix.map(([label]) => label),
+                  values: eventMix.map(([, value]) => value),
+                  hole: 0.58,
+                  marker: { colors: ['#be5b2d', '#1a6b67', '#d18a1a', '#b6463b', '#2f7d4a', '#7c6250'] },
+                  textinfo: 'label+percent',
+                },
+              ]}
+              layout={{
+                paper_bgcolor: 'transparent',
+                margin: { t: 12, r: 12, b: 12, l: 12 },
+                showlegend: false,
+              }}
+              config={{ displayModeBar: false, responsive: true }}
+              style={{ width: '100%', height: '320px' }}
+            />
+          ) : (
+            <div className="empty-state">Event categories will appear here once the simulator is running.</div>
+          )}
+        </div>
+      </div>
+
+      <div className="two-column">
+        <div className="surface-panel card-body">
+          <div className="section-title">
+            <h4>Operational snapshot</h4>
+          </div>
+          <div className="metric-list">
+            <div className="metric-item stat-row">
+              <span>Total logged events</span>
+              <strong>{status?.total_events ?? 0}</strong>
+            </div>
+            <div className="metric-item stat-row">
+              <span>Tracked inventory SKUs</span>
+              <strong>{status?.inventory_items ?? 0}</strong>
+            </div>
+            <div className="metric-item stat-row">
+              <span>Available warehouse capacity</span>
+              <strong>{capacity ? capacity.available_capacity.toFixed(2) : '0.00'}</strong>
+            </div>
+            <div className="metric-item">
+              <div className="stat-row">
+                <span>Warehouse saturation</span>
+                <strong>{capacity ? `${capacity.usage_percentage.toFixed(1)}%` : '0%'}</strong>
+              </div>
+              <div className="progress-shell mt-2">
+                <div className="progress-fill" style={{ width: `${Math.min(capacity?.usage_percentage ?? 0, 100)}%` }} />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-header">Recent event stream</div>
+          <div className="card-body">
+            {events.length ? (
+              <div className="list-stack">
+                {events.slice(0, 6).map((event) => (
+                  <div className="metric-item" key={event.id}>
+                    <div className="inline-meta mb-2">
+                      <span className="badge badge-neutral">{event.event_type}</span>
+                      <span className="text-muted mono">{event.sim_date}</span>
+                    </div>
+                    <div className="event-details">{event.details ? JSON.stringify(event.details, null, 2) : 'No details provided.'}</div>
+                  </div>
+                ))}
+              </div>
             ) : (
-              <p style={{ color: '#757575', textAlign: 'center', padding: '40px' }}>
-                No events yet. Advance the simulation to generate events.
-              </p>
+              <div className="empty-state">No events recorded yet.</div>
             )}
           </div>
-        </Col>
-      </Row>
-
-      {/* Recent Events */}
-      <div className="card">
-        <div className="card-header">Recent Events</div>
-        <div className="card-body">
-          {events.length > 0 ? (
-            <Table responsive hover>
-              <thead>
-                <tr>
-                  <th>Event Type</th>
-                  <th>Simulation Date</th>
-                  <th>Timestamp</th>
-                  <th>Details</th>
-                </tr>
-              </thead>
-              <tbody>
-                {events.slice(0, 20).map((event) => (
-                  <tr key={event.id}>
-                    <td>
-                      <Badge bg="primary">{event.event_type}</Badge>
-                    </td>
-                    <td>{event.sim_date}</td>
-                    <td>{new Date(event.timestamp).toLocaleString()}</td>
-                    <td>
-                      <code style={{ fontSize: '0.8rem' }}>
-                        {event.details ? JSON.stringify(event.details).substring(0, 100) + '...' : '-'}
-                      </code>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          ) : (
-            <p style={{ color: '#757575', textAlign: 'center', padding: '40px' }}>
-              No events recorded yet.
-            </p>
-          )}
         </div>
       </div>
     </div>
