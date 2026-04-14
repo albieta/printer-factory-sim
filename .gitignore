@@ -1,0 +1,43 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+*.pyd
+*$py.class
+build/
+dist/
+wheels/
+*.egg-info
+.eggs/
+pip-wheel-metadata/
+
+# Virtual environments
+.venv
+venv/
+env/
+ENV/
+*.env
+S2/.env
+S3/function-calling/.env
+S3/math-solver/.env
+
+# Tool caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.hypothesis/
+.tox/
+.nox/
+
+# Coverage reports
+.coverage
+.coverage.*
+htmlcov/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Editors / IDEs
+.vscode/
+.idea/
+
+.DS_Store
