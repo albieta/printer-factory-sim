@@ -1,0 +1,26 @@
+# Core Framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# Database
+sqlalchemy==2.0.23
+alembic==1.13.0
+
+# Streamlit UI
+streamlit==1.28.2
+plotly==5.18.0
+
+# Utilities
+python-dateutil==2.8.2
+httpx==0.25.2
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.23.2
+pytest-cov==4.1.0
+
+# Linting & Type Checking
+ruff==0.1.6
+mypy==1.7.1

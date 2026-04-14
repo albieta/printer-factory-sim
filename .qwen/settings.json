@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir *)",
+      "Bash(pip install *)",
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "Bash(uvicorn *)",
+      "Bash(sleep *)",
+      "Bash(curl *)",
+      "Bash(kill *)",
+      "Bash(timeout *)",
+      "Bash(pkill *)",
+      "Bash(streamlit *)",
+      "Bash(npm create *)",
+      "Bash(npm install)",
+      "Bash(npm run *)"
+    ]
+  },
+  "$version": 3
+}
