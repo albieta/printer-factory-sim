@@ -13,8 +13,3 @@ sudo apt-get install -y --no-install-recommends \
 if ! command -v uv >/dev/null 2>&1; then
   curl -LsSf https://astral.sh/uv/install.sh | sh
 fi
-
-# Ensure current shell can find uv installed to ~/.local/bin.
-export PATH="$HOME/.local/bin:$PATH"
-
-uv sync
