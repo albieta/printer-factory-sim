@@ -11,7 +11,7 @@ wheels/
 pip-wheel-metadata/
 
 # Virtual environments
-.venv
+.venv/
 venv/
 env/
 ENV/
@@ -19,6 +19,15 @@ ENV/
 S2/.env
 S3/function-calling/.env
 S3/math-solver/.env
+
+# Node / frontend artifacts
+frontend/node_modules/
+frontend/node_modules/.vite/
+frontend/.vite/
+*.tsbuildinfo
+
+# Local app data
+backend/printer_factory_sim.db
 
 # Tool caches
 .pytest_cache/

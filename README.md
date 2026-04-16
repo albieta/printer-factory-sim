@@ -33,6 +33,10 @@ The devcontainer forwards ports `3000` and `8000`, so from your host machine you
 - FastAPI docs: `http://localhost:8000/docs`
 - FastAPI ReDoc: `http://localhost:8000/redoc`
 
+### Host Communication
+
+The app runs inside the dev container, but VS Code Dev Containers forwards container ports to matching ports on the host machine. That means the frontend listens on `0.0.0.0:3000` inside the container, VS Code exposes that port on the host, and your browser reaches it through `http://localhost:3000`. The backend works the same way on port `8000`, and the frontend talks to it through Vite's `/api` proxy inside the container.
+
 If you use VS Code Dev Containers, the Ports panel should show both forwarded ports automatically.
 
 ## Manual Run
