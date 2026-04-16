@@ -1,303 +1,133 @@
-# 🏭 3D Printer Production Simulator
+# 3D Printer Production Simulator
 
-A web-based manufacturing simulation system that models the end-to-end production workflow of a 3D printer factory. Configure production parameters, manage inventory and orders, execute day-by-day simulations, and analyze operational performance through dashboards and charts.
+A full-stack manufacturing simulation for a 3D printer factory. The app includes a React frontend for operations workflows and a FastAPI backend for simulation logic, inventory, suppliers, orders, and reporting data.
 
-## Features
-
-- **Production Simulation**: Day-by-day simulation of manufacturing workflows
-- **Order Management**: Manufacturing order lifecycle with material availability checks
-- **Inventory Tracking**: Real-time stock levels and warehouse capacity management
-- **Supplier Management**: Purchase orders with tiered pricing and lead times
-- **Event Logging**: Complete audit trail of all simulation events
-- **Interactive Dashboard**: Streamlit-based UI with real-time charts and KPIs
-- **REST API**: FastAPI backend with automatic Swagger documentation
-- **Data Portability**: JSON import/export for scenario comparison
-
-## Tech Stack
+## Stack
 
 | Layer | Technology |
-|-------|------------|
-| Backend Framework | FastAPI 0.104+ |
-| Data Validation | Pydantic v2 |
-| Frontend | Streamlit 1.28+ |
+| --- | --- |
+| Frontend | React 18 + Vite + TypeScript + Bootstrap |
+| Backend | FastAPI + SQLAlchemy + Pydantic |
 | Database | SQLite |
-| ORM | SQLAlchemy 2.0+ |
 | Charts | Plotly |
-| Testing | pytest + httpx |
+| Tooling | npm, Python venv, pytest, Ruff, mypy |
 
-## Quick Start
+## Dev Container Quick Start
 
-### Prerequisites
+Open the repository in the provided Docker dev container. On the first container creation, the devcontainer now does this automatically:
 
-- Python 3.11+
-- pip
+- installs Python, Node.js 20, and required OS packages
+- creates `.venv`
+- installs Python dependencies from `requirements.txt`
+- installs frontend dependencies with `npm ci`
+- seeds the SQLite database with starter data
 
-### Installation
+On every container start, the devcontainer also starts:
 
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd printer-factory-sim
-   ```
+- FastAPI on `http://localhost:8000`
+- Vite frontend on `http://localhost:3000`
 
-2. **Create virtual environment**
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
+The devcontainer forwards ports `3000` and `8000`, so from your host machine you can open:
 
-3. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
+- Frontend: `http://localhost:3000`
+- FastAPI docs: `http://localhost:8000/docs`
+- FastAPI ReDoc: `http://localhost:8000/redoc`
 
-4. **Seed the database with initial data**
-   ```bash
-   cd backend
-   python scripts/seed_data.py
-   ```
+If you use VS Code Dev Containers, the Ports panel should show both forwarded ports automatically.
 
-5. **Start the FastAPI backend**
-   ```bash
-   uvicorn main:app --reload --port 8000
-   ```
+## Manual Run
 
-6. **Start the Streamlit dashboard** (in a new terminal)
-   ```bash
-   cd backend
-   streamlit run app/ui/dashboard.py
-   ```
+If you want to run the app manually, or restart both services yourself, use:
 
-7. **Access the applications**
-   - Streamlit Dashboard: http://localhost:8501
-   - FastAPI Swagger UI: http://localhost:8000/docs
-   - FastAPI ReDoc: http://localhost:8000/redoc
-
-## Project Structure
-
+```bash
+bash scripts/dev-start.sh
 ```
+
+That command starts both the backend and frontend together and stops both when you press `Ctrl+C`.
+
+## Manual Setup Without The Dev Container
+
+If you are not using the devcontainer, set the project up with:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install --upgrade pip
+.venv/bin/pip install -r requirements.txt
+cd frontend && npm ci
+cd ../backend && ../.venv/bin/python scripts/seed_data.py
+cd ..
+bash scripts/dev-start.sh
+```
+
+## Auto-Start Logs
+
+When the devcontainer auto-starts the app, logs are written to:
+
+- `/tmp/printer-factory-sim/backend.log`
+- `/tmp/printer-factory-sim/frontend.log`
+
+Those files are useful if a service fails during container startup.
+
+## Project Layout
+
+```text
 printer-factory-sim/
-├── backend/
-│   ├── main.py                 # FastAPI application entry point
-│   ├── app/
-│   │   ├── api/
-│   │   │   └── routes/         # API route handlers
-│   │   │       ├── config.py
-│   │   │       ├── materials.py
-│   │   │       ├── suppliers.py
-│   │   │       ├── inventory.py
-│   │   │       ├── orders.py
-│   │   │       ├── purchase_orders.py
-│   │   │       ├── simulation.py
-│   │   │       ├── events.py
-│   │   │       └── import_export.py
-│   │   ├── models/
-│   │   │   └── models.py       # SQLAlchemy database models
-│   │   ├── schemas/
-│   │   │   └── schemas.py      # Pydantic request/response schemas
-│   │   ├── services/
-│   │   │   ├── config_service.py
-│   │   │   ├── inventory_service.py
-│   │   │   ├── order_service.py
-│   │   │   ├── supplier_service.py
-│   │   │   ├── production_service.py
-│   │   │   ├── simulation_service.py
-│   │   │   └── event_service.py
-│   │   ├── ui/
-│   │   │   └── dashboard.py    # Streamlit dashboard
-│   │   └── utils/
-│   │       └── database.py     # Database configuration
-│   ├── scripts/
-│   │   └── seed_data.py        # Database seeding script
-│   └── tests/                  # Test files
-├── requirements.txt
-├── README.md
-└── PRD.md
+├── .devcontainer/            # Devcontainer bootstrap and auto-start scripts
+├── backend/                  # FastAPI app, services, models, routes, seed script
+├── frontend/                 # React + Vite frontend
+├── scripts/dev-start.sh      # Manual one-command local runner
+├── requirements.txt          # Python dependencies
+└── README.md
 ```
 
-## API Endpoints
+## Main Application URLs
 
-### Configuration
-- `GET /api/config` - Get system configuration
-- `PUT /api/config` - Update system configuration
-- `GET /api/config/printer-models` - List printer models
-- `POST /api/config/printer-models` - Create printer model
-- `DELETE /api/config/printer-models/{id}` - Delete printer model
+- `/` shows the factory overview dashboard
+- `/orders` manages manufacturing orders
+- `/inventory` shows stock levels and capacity
+- `/suppliers` manages procurement sources
+- `/production` tracks production flow
+- `/reports` shows charts and historical metrics
+- `/settings` manages simulation configuration
 
-### Materials & BOM
-- `GET /api/materials` - List materials
-- `POST /api/materials` - Create material
-- `GET /api/bom` - List BOM entries
-- `POST /api/bom` - Create BOM entry
-- `DELETE /api/bom/{id}` - Delete BOM entry
+## API Highlights
 
-### Suppliers
-- `GET /api/suppliers` - List suppliers
-- `POST /api/suppliers` - Create supplier
-- `PUT /api/suppliers/{id}` - Update supplier
-- `DELETE /api/suppliers/{id}` - Delete supplier
+- `GET /api/config/` returns the current simulation configuration
+- `GET /api/materials/` lists materials
+- `GET /api/inventory/` returns stock levels
+- `GET /api/orders/mfg/` lists manufacturing orders
+- `POST /api/simulation/advance-day/` advances the simulation by one day
+- `GET /api/events/` returns event history
 
-### Inventory
-- `GET /api/inventory` - Get inventory levels
-- `GET /api/inventory/capacity` - Get capacity usage
-- `POST /api/inventory/manual-adjust` - Manual adjustment
+## Seed Data
 
-### Orders
-- `GET /api/orders/mfg` - List manufacturing orders
-- `POST /api/orders/mfg/release` - Release orders to production
-- `GET /api/orders/mfg/{id}` - Get order details
-- `GET /api/orders/mfg/{id}/requirements` - Get BOM requirements
-- `GET /api/orders/purchase` - List purchase orders
-- `POST /api/orders/purchase` - Create purchase order
+The seeded database includes:
 
-### Simulation
-- `GET /api/simulation/status` - Get simulation status
-- `POST /api/simulation/advance-day` - Advance one simulation day
-- `POST /api/simulation/reset` - Reset simulation
+- 3 printer models
+- 6 raw materials
+- 6 suppliers
+- starter inventory
+- a default simulation configuration
 
-### Events
-- `GET /api/events` - Query event history
-- `GET /api/events/timeseries/{metric}` - Get time series data
+The seed script is idempotent. If the database is already initialized, it exits without duplicating records.
 
-### Import/Export
-- `GET /api/export/full-state` - Export full simulation state
-- `POST /api/import/full-state` - Import simulation state
-- `GET /api/export/inventory-only` - Export inventory
-- `GET /api/export/events-only` - Export events
+## Development Commands
 
-## Usage Guide
-
-### Running a Simulation
-
-1. **Start with seed data**: The database comes pre-configured with:
-   - 3 printer models (Basic300, Pro450, Elite700)
-   - 6 raw materials
-   - 6 suppliers with tiered pricing
-   - Initial inventory stock
-
-2. **Advance the simulation day by day**:
-   - Click "Advance Day" in the Streamlit dashboard
-   - Or call `POST /api/simulation/advance-day`
-
-3. **Each day the simulation**:
-   - Processes purchase order deliveries
-   - Generates new manufacturing orders (based on demand distribution)
-   - Executes production within assembly hour limits
-   - Logs all events
-
-4. **Monitor progress**:
-   - View KPIs on the Overview page
-   - Check charts for production trends
-   - Review event logs for detailed history
-
-### Managing Orders
-
-- **Manufacturing Orders**: Automatically generated daily or manually created
-- **Release Orders**: Select pending orders and release them to production
-- **Material Checks**: System validates material availability before release
-- **Production**: Released orders are processed within daily assembly hour limits
-
-### Managing Inventory
-
-- **Automatic Updates**: Inventory changes with PO deliveries and production consumption
-- **Capacity Limits**: Warehouse capacity prevents overstocking
-- **Manual Adjustments**: Use the manual-adjust endpoint for corrections
-- **Low Stock Warnings**: Monitor capacity gauge on Inventory page
-
-### Purchase Orders
-
-- **Create POs**: Select supplier and quantity, system calculates pricing
-- **Tiered Pricing**: Larger quantities get better unit costs
-- **Lead Times**: Deliveries arrive after supplier-specific lead time days
-- **Capacity Checks**: Deliveries rejected if warehouse is full
-
-## Development
-
-### Running Tests
+Run tests:
 
 ```bash
 cd backend
-pytest
+../.venv/bin/pytest
 ```
 
-### Code Linting
+Run linting:
 
 ```bash
-ruff check .
+.venv/bin/ruff check .
 ```
 
-### Type Checking
+Run type checking:
 
 ```bash
-mypy --strict .
+.venv/bin/mypy --strict backend
 ```
-
-## Configuration
-
-The simulation is configured via `SimulationConfig` with these parameters:
-
-- **warehouse_capacity**: Total storage units (default: 1000)
-- **daily_assembly_hours**: Production capacity per day (default: 8.0)
-- **demand_distribution_mean**: Mean daily orders (default: 5.0)
-- **demand_distribution_variance**: Variance in daily orders (default: 2.0)
-
-Update configuration via:
-- Streamlit Settings page
-- `PUT /api/config` endpoint
-- Direct database editing
-
-## Data Model
-
-### Core Entities
-
-- **Product**: Printer models and raw materials
-- **BillOfMaterials (BOM)**: Material requirements per printer
-- **Supplier**: External sources for materials with pricing
-- **Inventory**: Current stock levels
-- **ManufacturingOrder**: Customer orders for printers
-- **PurchaseOrder**: Procurement requests to suppliers
-- **Event**: Audit log of all system actions
-- **SimulationConfig**: System-wide parameters
-
-See `PRD.md` for complete data model specifications.
-
-## Event Types
-
-The system logs these event types:
-
-- **ORDER_CREATED**: New manufacturing order generated
-- **ORDER_RELEASED**: Order moved to production
-- **ORDER_BLOCKED_MATERIALS**: Release failed due to insufficient materials
-- **ORDER_STARTED**: Production began
-- **ORDER_COMPLETED**: All units produced
-- **PO_CREATED**: Purchase order created
-- **PO_DELIVERED**: Shipment arrived
-- **PO_REJECTED_CAPACITY**: Delivery rejected (warehouse full)
-- **MATERIAL_CONSUMED**: Materials used in production
-- **INVENTORY_ADDED**: New stock received
-- **DAY_ADVANCED**: Simulation progressed
-- **PRODUCTION_BLOCKED_CAPACITY**: No assembly hours remaining
-
-## Troubleshooting
-
-### API won't start
-- Ensure port 8000 is available
-- Check that all dependencies are installed: `pip install -r requirements.txt`
-- Verify SQLite3 is available in your Python installation
-
-### Streamlit dashboard won't load
-- Ensure port 8501 is available
-- Verify the backend is running on port 8000
-- Check `API_BASE_URL` in `dashboard.py` matches your backend URL
-
-### Database errors
-- Run the seed script: `python scripts/seed_data.py`
-- Delete the existing database file and re-run the seed script
-
-## License
-
-This project is for educational and demonstration purposes.
-
-## Contributing
-
-Contributions are welcome! Please read the PRD.md for complete specifications before contributing.

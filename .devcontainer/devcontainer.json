@@ -2,6 +2,7 @@
   "name": "DGSI Lab (Ubuntu 22.04)",
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu-22.04",
   "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "postStartCommand": "bash .devcontainer/post-start.sh",
   "customizations": {
     "vscode": {
       "extensions": [
@@ -11,9 +12,9 @@
       ]
     }
   },
-  "forwardPorts": [8000, 5500],
+  "forwardPorts": [3000, 8000],
   "portsAttributes": {
-    "8000": { "label": "FastAPI" },
-    "5500": { "label": "UI" }
+    "3000": { "label": "Frontend" },
+    "8000": { "label": "FastAPI" }
   }
 }
