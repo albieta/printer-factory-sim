@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import Plot from 'react-plotly.js';
 import { Alert, Button, Form, Table } from 'react-bootstrap';
-import { FaChartLine, FaChartPie, FaDownload } from 'react-icons/fa';
+import { FaDownload } from 'react-icons/fa';
+import PageGuide from '../components/PageGuide';
+import ResponsivePlot from '../components/ResponsivePlot';
 import { eventsAPI, exportAPI, getErrorMessage } from '../services/api';
 import type { Event } from '../types';
+import { describeEventDetails, formatEventType, formatTimestamp } from '../utils/formatters';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 const Reports: React.FC = () => {
@@ -37,7 +39,8 @@ const Reports: React.FC = () => {
   const eventCounts = useMemo(() => {
     const counts = new Map<string, number>();
     filteredEvents.forEach((event) => {
-      counts.set(event.event_type, (counts.get(event.event_type) ?? 0) + 1);
+      const label = formatEventType(event.event_type);
+      counts.set(label, (counts.get(label) ?? 0) + 1);
     });
     return Array.from(counts.entries());
   }, [filteredEvents]);
@@ -72,26 +75,33 @@ const Reports: React.FC = () => {
   };
 
   if (loading) {
-    return <LoadingSpinner label="Loading reports and analytics..." />;
+    return <LoadingSpinner label="Loading analytics and exports..." />;
   }
 
   return (
     <div>
       <div className="page-header">
         <div>
-          <div className="section-kicker">Reports</div>
-          <h1>Analytics and exports</h1>
-          <p>Review the operational history, isolate specific event types, and export the simulator state for comparison across scenarios.</p>
+          <div className="section-kicker">Analytics</div>
+          <h1>Explain what happened across the flow</h1>
+          <p>Use analytics to understand how demand moved, where bottlenecks appeared, and which operating decisions changed inventory, procurement, and assembly outcomes over time.</p>
         </div>
       </div>
+
+      <PageGuide
+        title="Analytics"
+        controls="This screen summarizes the event history recorded by the simulator and gives you exports for comparing scenarios outside the app."
+        next="The event log helps explain why the workflow strip changed, which orders moved, and whether inventory or warehouse capacity caused procurement or manufacturing issues."
+        tip="Use filtered events when you want to focus on one subsystem, such as only order releases or only purchase-order receipts."
+      />
 
       {error ? <Alert variant="danger">{error}</Alert> : null}
 
       <div className="action-bar">
         <div>
           <div className="section-kicker">Data exports</div>
-          <h3 className="mb-1">Download current simulator data</h3>
-          <p className="text-muted mb-0">Use full-state exports for scenario snapshots and smaller exports for targeted analysis.</p>
+          <h3 className="mb-1">Download scenario snapshots</h3>
+          <p className="text-muted mb-0">Export the full simulator state or just the inventory and event history for deeper analysis.</p>
         </div>
         <div className="action-buttons">
           <Button variant="primary" onClick={() => void handleExport('full')}><FaDownload className="me-2" />Full state</Button>
@@ -100,61 +110,44 @@ const Reports: React.FC = () => {
         </div>
       </div>
 
-      <div className="two-column">
+      <div className="data-grid">
         <div className="chart-container">
-          <div className="section-title">
-            <h4><FaChartPie className="me-2" />Event distribution</h4>
-          </div>
-          {eventCounts.length ? (
-            <Plot
-              data={[
-                {
-                  type: 'pie',
-                  labels: eventCounts.map(([label]) => label),
-                  values: eventCounts.map(([, value]) => value),
-                  hole: 0.45,
-                  marker: { colors: ['#be5b2d', '#1a6b67', '#d18a1a', '#b6463b', '#2f7d4a', '#705649', '#9d824f'] },
-                  textinfo: 'label+percent',
-                },
-              ]}
-              layout={{ paper_bgcolor: 'transparent', margin: { t: 10, r: 10, b: 10, l: 10 }, showlegend: false }}
-              config={{ displayModeBar: false, responsive: true }}
-              style={{ width: '100%', height: '320px' }}
-            />
-          ) : (
-            <div className="empty-state">No events match the current filter.</div>
-          )}
+          <ResponsivePlot
+            data={[
+              {
+                type: 'pie',
+                labels: eventCounts.map(([label]) => label),
+                values: eventCounts.map(([, value]) => value),
+                hole: 0.45,
+                marker: { colors: ['#be5b2d', '#1a6b67', '#d18a1a', '#b6463b', '#2f7d4a', '#705649', '#9d824f'] },
+                textinfo: 'label+percent',
+              },
+            ]}
+            layout={{ title: { text: 'Event distribution' }, showlegend: false, margin: { t: 68, r: 20, b: 20, l: 20 } }}
+            minHeight={340}
+          />
         </div>
 
         <div className="chart-container">
-          <div className="section-title">
-            <h4><FaChartLine className="me-2" />Activity over time</h4>
-          </div>
-          {activityByDate.length ? (
-            <Plot
-              data={[
-                {
-                  x: activityByDate.map(([date]) => date),
-                  y: activityByDate.map(([, value]) => value),
-                  type: 'scatter',
-                  mode: 'lines+markers',
-                  line: { color: '#1a6b67', width: 3 },
-                  marker: { color: '#be5b2d', size: 8 },
-                },
-              ]}
-              layout={{
-                paper_bgcolor: 'transparent',
-                plot_bgcolor: 'transparent',
-                margin: { t: 10, r: 14, b: 48, l: 48 },
-                xaxis: { title: { text: 'Simulation date' } },
-                yaxis: { title: { text: 'Events' } },
-              }}
-              config={{ displayModeBar: false, responsive: true }}
-              style={{ width: '100%', height: '320px' }}
-            />
-          ) : (
-            <div className="empty-state">No events match the current filter.</div>
-          )}
+          <ResponsivePlot
+            data={[
+              {
+                x: activityByDate.map(([date]) => date),
+                y: activityByDate.map(([, value]) => value),
+                type: 'scatter',
+                mode: 'lines+markers',
+                line: { color: '#1a6b67', width: 3 },
+                marker: { color: '#be5b2d', size: 8 },
+              },
+            ]}
+            layout={{
+              title: { text: 'Activity over time' },
+              xaxis: { title: { text: 'Simulation date' } },
+              yaxis: { title: { text: 'Events logged' } },
+              margin: { t: 68, r: 24, b: 56, l: 56 },
+            }}
+            minHeight={340}
+          />
         </div>
       </div>
 
@@ -166,8 +159,10 @@ const Reports: React.FC = () => {
             <option value="ORDER_CREATED">Order created</option>
             <option value="ORDER_RELEASED">Order released</option>
             <option value="ORDER_COMPLETED">Order completed</option>
-            <option value="PO_CREATED">PO created</option>
-            <option value="PO_DELIVERED">PO delivered</option>
+            <option value="ORDER_BLOCKED_MATERIALS">Order blocked by materials</option>
+            <option value="PO_CREATED">Purchase order created</option>
+            <option value="PO_DELIVERED">Purchase order delivered</option>
+            <option value="PO_REJECTED_CAPACITY">Purchase order rejected</option>
             <option value="MATERIAL_CONSUMED">Material consumed</option>
             <option value="DAY_ADVANCED">Day advanced</option>
           </Form.Select>
@@ -179,17 +174,17 @@ const Reports: React.FC = () => {
                 <tr>
                   <th>Type</th>
                   <th>Simulation Date</th>
-                  <th>Timestamp</th>
-                  <th>Details</th>
+                  <th>Recorded At</th>
+                  <th>Summary</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredEvents.slice(0, 120).map((event) => (
                   <tr key={event.id}>
-                    <td><span className="badge badge-neutral">{event.event_type}</span></td>
+                    <td><span className="badge badge-neutral">{formatEventType(event.event_type)}</span></td>
                     <td>{event.sim_date}</td>
-                    <td>{new Date(event.timestamp).toLocaleString()}</td>
-                    <td><div className="event-details">{event.details ? JSON.stringify(event.details, null, 2) : 'No details'}</div></td>
+                    <td>{formatTimestamp(event.timestamp)}</td>
+                    <td><div className="event-summary">{describeEventDetails(event.details)}</div></td>
                   </tr>
                 ))}
               </tbody>

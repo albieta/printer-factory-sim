@@ -2,18 +2,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
-from app.utils.database import engine, Base
+from app.utils.database import bootstrap_database
 
-# Create database tables
-Base.metadata.create_all(bind=engine)
+bootstrap_database()
 
 app = FastAPI(
     title="3D Printer Production Simulator",
     description="A web-based manufacturing simulation system",
-    version="1.0.0"
+    version="1.0.0",
 )
 
-# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -22,8 +20,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routes
 app.include_router(router, prefix="/api")
+
 
 @app.get("/health")
 async def health_check():

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import {
   FaBars,
   FaBoxes,
@@ -11,6 +11,9 @@ import {
   FaTimes,
   FaTruck,
 } from 'react-icons/fa';
+import { getErrorMessage, simulationAPI } from '../services/api';
+import type { SimulationStatus } from '../types';
+import { onSimulationUpdate } from '../utils/simulationEvents';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -18,16 +21,19 @@ interface LayoutProps {
 
 const navItems = [
   { path: '/', icon: <FaChartLine />, label: 'Overview' },
-  { path: '/orders', icon: <FaClipboardList />, label: 'Orders' },
+  { path: '/orders', icon: <FaClipboardList />, label: 'Manufacturing Orders' },
   { path: '/inventory', icon: <FaBoxes />, label: 'Inventory' },
-  { path: '/suppliers', icon: <FaTruck />, label: 'Suppliers' },
-  { path: '/production', icon: <FaIndustry />, label: 'Production' },
-  { path: '/reports', icon: <FaFileAlt />, label: 'Reports' },
-  { path: '/settings', icon: <FaCog />, label: 'Setup' },
+  { path: '/suppliers', icon: <FaTruck />, label: 'Procurement' },
+  { path: '/production', icon: <FaIndustry />, label: 'Assembly' },
+  { path: '/reports', icon: <FaFileAlt />, label: 'Analytics' },
+  { path: '/settings', icon: <FaCog />, label: 'Configuration' },
 ];
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [status, setStatus] = useState<SimulationStatus | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const location = useLocation();
 
   useEffect(() => {
     const onResize = () => {
@@ -39,6 +45,25 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
+
+  useEffect(() => {
+    const loadStatus = async () => {
+      try {
+        const response = await simulationAPI.getStatus();
+        setStatus(response.data);
+        setStatusError(null);
+      } catch (error) {
+        setStatusError(getErrorMessage(error, 'Unable to load the workflow summary.'));
+      }
+    };
+
+    void loadStatus();
+    const clear = onSimulationUpdate(() => {
+      void loadStatus();
+    });
+
+    return clear;
+  }, [location.pathname]);
 
   return (
     <div className="app-shell">
@@ -59,7 +84,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         </div>
 
         <div className="sidebar-copy">
-          Track demand, move materials, and tune throughput from one control room.
+          Guide demand from review to assembly, replenish materials before storage runs tight, and understand the impact of each operating decision.
         </div>
 
         <nav className="sidebar-nav">
@@ -98,9 +123,45 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           </button>
           <div>
             <div className="topbar-eyebrow">3D Printer Production Simulator</div>
-            <div className="topbar-title">Factory command center</div>
+            <div className="topbar-title">Demand-to-delivery command center</div>
           </div>
+          {status ? (
+            <div className="topbar-meta">
+              <div className="topbar-meta-item">
+                <span>Simulation date</span>
+                <strong>{status.current_date}</strong>
+              </div>
+              <div className="topbar-meta-item">
+                <span>Warehouse free</span>
+                <strong>{status.available_capacity.toFixed(0)} units</strong>
+              </div>
+            </div>
+          ) : null}
         </header>
+
+        <div className="workflow-strip" aria-label="Operational workflow">
+          <div className="workflow-strip-header">
+            <div>
+              <div className="section-kicker">Operational Flow</div>
+              <h2>Follow work from demand to delivery</h2>
+            </div>
+            {statusError ? <span className="workflow-note">{statusError}</span> : <span className="workflow-note">Each stage shows the live count owned by its screen.</span>}
+          </div>
+          <div className="workflow-grid">
+            {status?.workflow_stages?.map((stage) => {
+              const active = location.pathname === stage.route || (stage.route === '/' && location.pathname === '/');
+              return (
+                <NavLink key={stage.key} to={stage.route} className={`workflow-stage ${active ? 'active' : ''}`}>
+                  <span className="workflow-stage-owner">{navItems.find((item) => item.path === stage.route)?.label ?? 'Overview'}</span>
+                  <strong>{stage.label}</strong>
+                  <span className="workflow-stage-value">{stage.value}</span>
+                  <p>{stage.description}</p>
+                </NavLink>
+              );
+            })}
+          </div>
+        </div>
+
         <main className="main-content">{children}</main>
       </div>
     </div>

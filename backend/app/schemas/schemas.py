@@ -1,10 +1,12 @@
-from pydantic import BaseModel, Field
-from typing import Optional, List
+from __future__ import annotations
+
 from datetime import datetime, date
 from enum import Enum
+from typing import Any, Optional
+
+from pydantic import BaseModel
 
 
-# Enums
 class ProductType(str, Enum):
     PRINTER = "PRINTER"
     MATERIAL = "MATERIAL"
@@ -38,7 +40,6 @@ class EventType(str, Enum):
     PRODUCTION_BLOCKED_CAPACITY = "PRODUCTION_BLOCKED_CAPACITY"
 
 
-# Product Schemas
 class ProductBase(BaseModel):
     name: str
     type: ProductType
@@ -57,7 +58,6 @@ class Product(ProductBase):
         from_attributes = True
 
 
-# BOM Schemas
 class BOMBase(BaseModel):
     finished_product_id: str
     material_id: str
@@ -75,13 +75,12 @@ class BOMEntry(BOMBase):
         from_attributes = True
 
 
-# Supplier Schemas
 class SupplierBase(BaseModel):
     name: str
     product_id: str
     unit_cost: float
     lead_time_days: int
-    quantity_breaks: Optional[List[dict]] = None
+    quantity_breaks: Optional[list[dict[str, Any]]] = None
 
 
 class SupplierCreate(SupplierBase):
@@ -92,17 +91,17 @@ class SupplierUpdate(BaseModel):
     name: Optional[str] = None
     unit_cost: Optional[float] = None
     lead_time_days: Optional[int] = None
-    quantity_breaks: Optional[List[dict]] = None
+    quantity_breaks: Optional[list[dict[str, Any]]] = None
 
 
 class Supplier(SupplierBase):
     id: str
+    product_name: Optional[str] = None
 
     class Config:
         from_attributes = True
 
 
-# Inventory Schemas
 class InventoryBase(BaseModel):
     product_id: str
     quantity: float
@@ -110,6 +109,7 @@ class InventoryBase(BaseModel):
 
 class InventoryLevel(InventoryBase):
     last_updated: datetime
+    product_name: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -124,10 +124,9 @@ class CapacityInfo(BaseModel):
 
 class ManualAdjust(BaseModel):
     product_id: str
-    quantity: float  # Positive to add, negative to subtract
+    quantity: float
 
 
-# Manufacturing Order Schemas
 class ManufacturingOrderBase(BaseModel):
     product_id: str
     quantity: int
@@ -135,7 +134,11 @@ class ManufacturingOrderBase(BaseModel):
 
 class ManufacturingOrder(ManufacturingOrderBase):
     id: str
+    reference_code: Optional[str] = None
+    product_name: Optional[str] = None
     status: OrderStatus
+    status_label: Optional[str] = None
+    status_reason: Optional[str] = None
     created_date: date
     released_date: Optional[date] = None
     completed_date: Optional[date] = None
@@ -145,54 +148,59 @@ class ManufacturingOrder(ManufacturingOrderBase):
 
 
 class ManufacturingOrderDetail(ManufacturingOrder):
-    product_name: Optional[str] = None
-    bom_requirements: Optional[List[dict]] = None
+    bom_requirements: Optional[list[dict[str, Any]]] = None
 
 
 class ReleaseRequest(BaseModel):
-    order_ids: List[str]
+    order_ids: list[str]
 
 
 class BatchReleaseResponse(BaseModel):
-    successful: List[str]
-    failed: List[dict]  # {order_id: str, reason: str}
+    successful: list[str]
+    failed: list[dict[str, Any]]
 
 
 class BOMRequirements(BaseModel):
     product_id: str
     product_name: str
-    requirements: List[dict]  # [{material_id, material_name, quantity_per_unit, total_required}]
+    requirements: list[dict[str, Any]]
 
 
-# Purchase Order Schemas
 class PurchaseOrderCreate(BaseModel):
     supplier_id: str
     product_id: str
     quantity: int
 
 
-class PurchaseOrder(PurchaseOrderCreate):
+class PurchaseOrder(BaseModel):
     id: str
+    reference_code: Optional[str] = None
+    supplier_id: str
+    supplier_name: Optional[str] = None
+    product_id: str
+    product_name: Optional[str] = None
+    quantity: int
     issue_date: date
     expected_delivery: date
     actual_delivery: Optional[date] = None
     status: PurchaseOrderStatus
+    status_label: Optional[str] = None
+    status_reason: Optional[str] = None
     unit_cost: float
+    total_cost: float
 
     class Config:
         from_attributes = True
 
 
 class PurchaseOrderDetail(PurchaseOrder):
-    supplier_name: Optional[str] = None
-    product_name: Optional[str] = None
+    pass
 
 
-# Event Schemas
 class EventBase(BaseModel):
     event_type: EventType
     sim_date: date
-    details: Optional[dict] = None
+    details: Optional[dict[str, Any]] = None
 
 
 class Event(EventBase):
@@ -205,13 +213,15 @@ class Event(EventBase):
 
 class TimeSeriesData(BaseModel):
     metric: str
-    data_points: List[dict]  # [{date, value}]
+    data_points: list[dict[str, Any]]
 
 
-# Simulation Config Schemas
 class SimulationConfigBase(BaseModel):
-    warehouse_capacity: int = 1000
+    warehouse_capacity: int = 2200
     daily_assembly_hours: float = 8.0
+    assembly_lines: int = 1
+    workers_per_line: int = 1
+    shift_hours: float = 8.0
     demand_distribution_mean: float = 5.0
     demand_distribution_variance: float = 2.0
 
@@ -223,6 +233,7 @@ class SimulationConfigUpdate(SimulationConfigBase):
 class SimulationConfig(SimulationConfigBase):
     id: int
     sim_date: date
+    effective_daily_assembly_hours: float
 
     class Config:
         from_attributes = True
@@ -248,13 +259,34 @@ class MaterialCreate(BaseModel):
     name: str
 
 
-# Simulation Status
+class WorkflowStage(BaseModel):
+    key: str
+    label: str
+    route: str
+    description: str
+    value: str
+
+
 class SimulationStatus(BaseModel):
     current_date: date
     pending_orders: int
+    released_orders: int
+    blocked_orders: int
     completed_orders: int
+    pending_purchase_orders: int
+    delivered_purchase_orders: int
+    rejected_purchase_orders: int
     inventory_items: int
     total_events: int
+    warehouse_capacity: int
+    current_usage: float
+    available_capacity: float
+    usage_percentage: float
+    assembly_lines: int
+    workers_per_line: int
+    shift_hours: float
+    effective_daily_assembly_hours: float
+    workflow_stages: list[WorkflowStage]
 
 
 class DayAdvanceResult(BaseModel):
@@ -273,4 +305,4 @@ class ResetConfirm(BaseModel):
 class ImportResult(BaseModel):
     success: bool
     message: str
-    errors: Optional[List[str]] = None
+    errors: Optional[list[str]] = None

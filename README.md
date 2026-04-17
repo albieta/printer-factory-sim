@@ -27,6 +27,8 @@ On every container start, the devcontainer also starts:
 - FastAPI on `http://localhost:8000`
 - Vite frontend on `http://localhost:3000`
 
+VS Code now waits for that startup step to finish before marking the container ready, so the first open can take a little longer but should no longer expose a half-started app.
+
 The devcontainer forwards ports `3000` and `8000`, so from your host machine you can open:
 
 - Frontend: `http://localhost:3000`
@@ -48,6 +50,7 @@ bash scripts/dev-start.sh
 ```
 
 That command starts both the backend and frontend together and stops both when you press `Ctrl+C`.
+Inside the devcontainer, if those services are already running on ports `8000` and `3000`, the script reuses them instead of trying to start duplicates.
 
 ## Manual Setup Without The Dev Container
 

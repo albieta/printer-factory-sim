@@ -1,9 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import Plot from 'react-plotly.js';
 import { Alert, Button, Card, Form, Table } from 'react-bootstrap';
 import { FaBoxes, FaWarehouse } from 'react-icons/fa';
+import PageGuide from '../components/PageGuide';
+import ResponsivePlot from '../components/ResponsivePlot';
 import { getErrorMessage, inventoryAPI, materialsAPI } from '../services/api';
 import type { CapacityInfo, InventoryLevel, Product } from '../types';
+import { announceSimulationUpdate } from '../utils/simulationEvents';
+import { formatNumber, formatTimestamp } from '../utils/formatters';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 const Inventory: React.FC = () => {
@@ -11,6 +14,7 @@ const Inventory: React.FC = () => {
   const [capacity, setCapacity] = useState<CapacityInfo | null>(null);
   const [materials, setMaterials] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adjustProductId, setAdjustProductId] = useState('');
   const [adjustQuantity, setAdjustQuantity] = useState('');
@@ -50,6 +54,8 @@ const Inventory: React.FC = () => {
       await inventoryAPI.manualAdjust({ product_id: adjustProductId, quantity });
       setAdjustProductId('');
       setAdjustQuantity('');
+      setMessage(`Inventory adjusted by ${quantity > 0 ? '+' : ''}${quantity}.`);
+      announceSimulationUpdate();
       await loadInventory();
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to adjust inventory.'));
@@ -58,7 +64,7 @@ const Inventory: React.FC = () => {
 
   const stockChart = inventory
     .map((item) => ({
-      name: materialMap.get(item.product_id) ?? item.product_id.slice(0, 8),
+      name: item.product_name ?? materialMap.get(item.product_id) ?? item.product_id,
       quantity: item.quantity,
     }))
     .sort((a, b) => b.quantity - a.quantity);
@@ -82,71 +88,73 @@ const Inventory: React.FC = () => {
       <div className="page-header">
         <div>
           <div className="section-kicker">Inventory</div>
-          <h1>Warehouse control</h1>
-          <p>Monitor raw material levels, adjust stock manually, and keep storage utilization inside the configured limits.</p>
+          <h1>Warehouse flow and storage pressure</h1>
+          <p>See what procurement receipts add, what manufacturing consumes, and how much warehouse space is still available before incoming deliveries get rejected.</p>
         </div>
       </div>
 
+      <PageGuide
+        title="Inventory"
+        controls="This screen shows the current raw-material stock and lets you make manual adjustments when you want to simulate audits, scrap, emergency receipts, or corrected counts."
+        next="Inventory levels directly affect whether manufacturing orders can be released and whether future purchase orders can be received without exceeding warehouse capacity."
+        tip="A supplier is not rejecting a purchase order. If a PO ends up rejected, the warehouse could not receive it because total stored units would have exceeded the configured capacity on delivery."
+      />
+
       {error ? <Alert variant="danger">{error}</Alert> : null}
+      {message ? <Alert variant="success">{message}</Alert> : null}
 
       {capacity ? (
         <div className="kpi-grid">
           <div className="kpi-card info">
             <div className="kpi-label">Warehouse Capacity</div>
             <div className="kpi-value"><FaWarehouse /></div>
-            <div className="kpi-subtext">{capacity.warehouse_capacity.toLocaleString()} total units</div>
+            <div className="kpi-subtext">{formatNumber(capacity.warehouse_capacity)} total units</div>
           </div>
           <div className="kpi-card warning">
-            <div className="kpi-label">Current Usage</div>
-            <div className="kpi-value">{capacity.current_usage.toFixed(0)}</div>
-            <div className="kpi-subtext">Units currently stored</div>
+            <div className="kpi-label">Stored Now</div>
+            <div className="kpi-value">{formatNumber(capacity.current_usage)}</div>
+            <div className="kpi-subtext">Units currently occupying space</div>
           </div>
           <div className="kpi-card success">
-            <div className="kpi-label">Available Space</div>
-            <div className="kpi-value">{capacity.available_capacity.toFixed(0)}</div>
-            <div className="kpi-subtext">Units still available</div>
+            <div className="kpi-label">Free Space</div>
+            <div className="kpi-value">{formatNumber(capacity.available_capacity)}</div>
+            <div className="kpi-subtext">Units still available for receipts</div>
           </div>
           <div className="kpi-card">
             <div className="kpi-label">Utilization</div>
             <div className="kpi-value">{capacity.usage_percentage.toFixed(1)}%</div>
-            <div className="kpi-subtext">Warehouse saturation rate</div>
+            <div className="kpi-subtext">Storage pressure right now</div>
           </div>
         </div>
       ) : null}
 
       <div className="two-column">
         <div className="chart-container">
-          <div className="section-title">
-            <h4>Material stock levels</h4>
-          </div>
-          {stockChart.length ? (
-            <Plot
-              data={[
-                {
-                  x: stockChart.map((item) => item.quantity),
-                  y: stockChart.map((item) => item.name),
-                  type: 'bar',
-                  orientation: 'h',
-                  marker: { color: '#1a6b67' },
-                },
-              ]}
-              layout={{
-                paper_bgcolor: 'transparent',
-                plot_bgcolor: 'transparent',
-                margin: { t: 12, r: 12, b: 36, l: 120 },
-                xaxis: { title: { text: 'Units on hand' } },
-              }}
-              config={{ displayModeBar: false, responsive: true }}
-              style={{ width: '100%', height: '360px' }}
-            />
-          ) : (
-            <div className="empty-state">No inventory records are available yet.</div>
-          )}
+          <ResponsivePlot
+            data={[
+              {
+                x: stockChart.map((item) => item.quantity),
+                y: stockChart.map((item) => item.name),
+                type: 'bar',
+                orientation: 'h',
+                marker: { color: '#1a6b67' },
+              },
+            ]}
+            layout={{
+              title: { text: 'Raw material stock levels' },
+              xaxis: { title: { text: 'Units on hand' } },
+              margin: { t: 68, r: 24, b: 56, l: 160 },
+            }}
+            minHeight={380}
+          />
         </div>
 
         <Card>
-          <Card.Header><FaBoxes className="me-2" />Manual adjustment</Card.Header>
+          <Card.Header><FaBoxes className="me-2" />Manual inventory adjustment</Card.Header>
           <Card.Body>
+            <p className="text-muted">
+              Use this only when you want to simulate a manual correction. Positive values add stock to the warehouse. Negative values remove stock from the warehouse.
+            </p>
             <Form.Group className="mb-3">
               <Form.Label>Material</Form.Label>
               <Form.Select value={adjustProductId} onChange={(event) => setAdjustProductId(event.target.value)}>
@@ -164,7 +172,7 @@ const Inventory: React.FC = () => {
                 onChange={(event) => setAdjustQuantity(event.target.value)}
                 placeholder="Use a positive or negative number"
               />
-              <Form.Text>Positive values add stock. Negative values remove stock.</Form.Text>
+              <Form.Text>Example: <span className="mono">+100</span> for an emergency receipt or <span className="mono">-25</span> for scrap and shrinkage.</Form.Text>
             </Form.Group>
             <Button variant="primary" onClick={handleManualAdjust} disabled={!adjustProductId || !adjustQuantity}>
               Apply inventory adjustment
@@ -174,17 +182,16 @@ const Inventory: React.FC = () => {
       </div>
 
       <div className="card">
-        <div className="card-header">Current raw material inventory</div>
+        <div className="card-header">Current raw-material inventory</div>
         <div className="card-body p-0">
           {inventory.length ? (
             <Table responsive hover>
               <thead>
                 <tr>
                   <th>Material</th>
-                  <th>Product ID</th>
                   <th>Stock</th>
+                  <th>Storage Status</th>
                   <th>Last Updated</th>
-                  <th>Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -192,11 +199,10 @@ const Inventory: React.FC = () => {
                   const stockState = getStockState(item.quantity);
                   return (
                     <tr key={item.product_id}>
-                      <td><strong>{materialMap.get(item.product_id) ?? item.product_id.slice(0, 8)}</strong></td>
-                      <td><span className="mono">{item.product_id}</span></td>
-                      <td>{item.quantity.toFixed(2)}</td>
-                      <td>{new Date(item.last_updated).toLocaleString()}</td>
+                      <td><strong>{item.product_name ?? materialMap.get(item.product_id) ?? item.product_id}</strong></td>
+                      <td>{formatNumber(item.quantity, 2)}</td>
                       <td><span className={`badge ${stockState.className}`}>{stockState.label}</span></td>
+                      <td>{formatTimestamp(item.last_updated)}</td>
                     </tr>
                   );
                 })}

@@ -1,9 +1,13 @@
-from sqlalchemy.orm import Session
-from sqlalchemy import func
-from app.models.models import Inventory, Product, SimulationConfig
-from typing import List
+from __future__ import annotations
+
 from datetime import datetime
 from decimal import Decimal
+from typing import List
+
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+
+from app.models.models import Inventory, Product, SimulationConfig
 
 
 class InventoryService:
@@ -24,7 +28,7 @@ class InventoryService:
 
     def update_inventory(self, product_id: str, quantity_change: Decimal, operation: str = "add") -> Inventory:
         inventory = self.get_inventory_by_product(product_id)
-        
+
         if operation == "add":
             inventory.quantity += quantity_change
         elif operation == "subtract":
@@ -35,7 +39,7 @@ class InventoryService:
             inventory.quantity = quantity_change
         else:
             raise ValueError(f"Invalid operation: {operation}")
-        
+
         inventory.last_updated = datetime.utcnow()
         self.db.commit()
         self.db.refresh(inventory)
@@ -52,15 +56,27 @@ class InventoryService:
     def get_capacity_info(self) -> dict:
         config = self.db.query(SimulationConfig).first()
         total_inventory = self.get_total_inventory_count()
-        
+        warehouse_capacity = config.warehouse_capacity if config else 2200
+        available_capacity = float(warehouse_capacity - total_inventory)
+
         return {
-            "warehouse_capacity": config.warehouse_capacity if config else 1000,
+            "warehouse_capacity": warehouse_capacity,
             "current_usage": float(total_inventory),
-            "available_capacity": float(config.warehouse_capacity - total_inventory) if config else 0,
-            "usage_percentage": float((total_inventory / config.warehouse_capacity) * 100) if config and config.warehouse_capacity > 0 else 0
+            "available_capacity": available_capacity,
+            "usage_percentage": float((total_inventory / warehouse_capacity) * 100) if warehouse_capacity > 0 else 0,
         }
 
     def has_capacity_for(self, quantity: Decimal) -> bool:
         config = self.db.query(SimulationConfig).first()
         total_inventory = self.get_total_inventory_count()
-        return (total_inventory + quantity) <= config.warehouse_capacity
+        warehouse_capacity = config.warehouse_capacity if config else 2200
+        return (total_inventory + quantity) <= warehouse_capacity
+
+    def serialize_inventory_level(self, item: Inventory) -> dict:
+        product = self.db.query(Product).filter(Product.id == item.product_id).first()
+        return {
+            "product_id": item.product_id,
+            "product_name": product.name if product else None,
+            "quantity": float(item.quantity),
+            "last_updated": item.last_updated,
+        }

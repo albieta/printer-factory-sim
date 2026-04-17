@@ -1,8 +1,9 @@
 import uuid
 from datetime import datetime, date
+from enum import Enum as PyEnum
+
 from sqlalchemy import Column, String, Integer, Float, DateTime, Date, Enum, ForeignKey, JSON, DECIMAL
 from sqlalchemy.orm import relationship
-from enum import Enum as PyEnum
 
 from app.utils.database import Base
 
@@ -19,11 +20,14 @@ class Product(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name = Column(String(255), nullable=False)
     type = Column(Enum(ProductType), nullable=False)
-    assembly_hours = Column(Float, nullable=True)  # Only for PRINTER type
+    assembly_hours = Column(Float, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    # Relationships
-    bom_entries = relationship("BillOfMaterials", back_populates="finished_product", foreign_keys="BillOfMaterials.finished_product_id")
+    bom_entries = relationship(
+        "BillOfMaterials",
+        back_populates="finished_product",
+        foreign_keys="BillOfMaterials.finished_product_id",
+    )
     manufacturing_orders = relationship("ManufacturingOrder", back_populates="product")
 
 
@@ -36,7 +40,6 @@ class BillOfMaterials(Base):
     material_id = Column(String(36), ForeignKey("products.id"), nullable=False)
     quantity = Column(DECIMAL(10, 2), nullable=False)
 
-    # Relationships
     finished_product = relationship("Product", back_populates="bom_entries", foreign_keys=[finished_product_id])
     material = relationship("Product", foreign_keys=[material_id])
 
@@ -50,9 +53,8 @@ class Supplier(Base):
     product_id = Column(String(36), ForeignKey("products.id"), nullable=False)
     unit_cost = Column(DECIMAL(10, 2), nullable=False)
     lead_time_days = Column(Integer, nullable=False)
-    quantity_breaks = Column(JSON, nullable=True)  # [{qty: 100, price: 9.50}, ...]
+    quantity_breaks = Column(JSON, nullable=True)
 
-    # Relationships
     product = relationship("Product")
     purchase_orders = relationship("PurchaseOrder", back_populates="supplier")
 
@@ -65,7 +67,6 @@ class Inventory(Base):
     quantity = Column(DECIMAL(10, 2), nullable=False, default=0)
     last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # Relationships
     product = relationship("Product")
 
 
@@ -81,14 +82,15 @@ class ManufacturingOrder(Base):
     __table_args__ = {"extend_existing": True}
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    reference_code = Column(String(32), nullable=True, unique=True)
     product_id = Column(String(36), ForeignKey("products.id"), nullable=False)
     quantity = Column(Integer, nullable=False)
     status = Column(Enum(OrderStatus), nullable=False, default=OrderStatus.PENDING)
+    status_reason = Column(String(255), nullable=True)
     created_date = Column(Date, nullable=False)
     released_date = Column(Date, nullable=True)
     completed_date = Column(Date, nullable=True)
 
-    # Relationships
     product = relationship("Product", back_populates="manufacturing_orders")
 
 
@@ -103,6 +105,7 @@ class PurchaseOrder(Base):
     __table_args__ = {"extend_existing": True}
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    reference_code = Column(String(32), nullable=True, unique=True)
     supplier_id = Column(String(36), ForeignKey("suppliers.id"), nullable=False)
     product_id = Column(String(36), ForeignKey("products.id"), nullable=False)
     quantity = Column(Integer, nullable=False)
@@ -110,28 +113,24 @@ class PurchaseOrder(Base):
     expected_delivery = Column(Date, nullable=False)
     actual_delivery = Column(Date, nullable=True)
     status = Column(Enum(PurchaseOrderStatus), nullable=False, default=PurchaseOrderStatus.PENDING)
+    status_reason = Column(String(255), nullable=True)
     unit_cost = Column(DECIMAL(10, 2), nullable=False)
 
-    # Relationships
     supplier = relationship("Supplier", back_populates="purchase_orders")
     product = relationship("Product")
 
 
 class EventType(PyEnum):
-    # Manufacturing Orders
     ORDER_CREATED = "ORDER_CREATED"
     ORDER_RELEASED = "ORDER_RELEASED"
     ORDER_BLOCKED_MATERIALS = "ORDER_BLOCKED_MATERIALS"
     ORDER_STARTED = "ORDER_STARTED"
     ORDER_COMPLETED = "ORDER_COMPLETED"
-    # Purchase Orders
     PO_CREATED = "PO_CREATED"
     PO_DELIVERED = "PO_DELIVERED"
     PO_REJECTED_CAPACITY = "PO_REJECTED_CAPACITY"
-    # Inventory / Materials
     MATERIAL_CONSUMED = "MATERIAL_CONSUMED"
     INVENTORY_ADDED = "INVENTORY_ADDED"
-    # Simulation Control
     DAY_ADVANCED = "DAY_ADVANCED"
     PRODUCTION_BLOCKED_CAPACITY = "PRODUCTION_BLOCKED_CAPACITY"
 
@@ -152,8 +151,11 @@ class SimulationConfig(Base):
     __table_args__ = {"extend_existing": True}
 
     id = Column(Integer, primary_key=True, default=1)
-    warehouse_capacity = Column(Integer, nullable=False, default=1000)
+    warehouse_capacity = Column(Integer, nullable=False, default=2200)
     daily_assembly_hours = Column(Float, nullable=False, default=8.0)
+    assembly_lines = Column(Integer, nullable=False, default=1)
+    workers_per_line = Column(Integer, nullable=False, default=1)
+    shift_hours = Column(Float, nullable=False, default=8.0)
     demand_distribution_mean = Column(Float, nullable=False, default=5.0)
     demand_distribution_variance = Column(Float, nullable=False, default=2.0)
     sim_date = Column(Date, nullable=False, default=date.today)

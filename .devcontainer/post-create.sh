@@ -2,7 +2,12 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+STATE_DIR="/tmp/printer-factory-sim"
+SETUP_COMPLETE_FILE="$STATE_DIR/post-create-complete"
 cd "$ROOT_DIR"
+
+mkdir -p "$STATE_DIR"
+rm -f "$SETUP_COMPLETE_FILE"
 
 sudo apt-get update
 sudo apt-get install -y --no-install-recommends   python3   python3-pip   python3-venv   ca-certificates   curl   git   gnupg
@@ -28,3 +33,5 @@ fi
   cd "$ROOT_DIR/backend"
   "$ROOT_DIR/.venv/bin/python" scripts/seed_data.py
 )
+
+date -u +"%Y-%m-%dT%H:%M:%SZ" >"$SETUP_COMPLETE_FILE"

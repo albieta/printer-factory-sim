@@ -1,6 +1,7 @@
 {
   "name": "DGSI Lab (Ubuntu 22.04)",
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu-22.04",
+  "waitFor": "postStartCommand",
   "postCreateCommand": "bash .devcontainer/post-create.sh",
   "postStartCommand": "bash .devcontainer/post-start.sh",
   "customizations": {

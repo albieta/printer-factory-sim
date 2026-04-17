@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Badge, Table } from 'react-bootstrap';
+import { Alert, Table } from 'react-bootstrap';
+import PageGuide from '../components/PageGuide';
 import { configAPI, getErrorMessage, ordersAPI } from '../services/api';
 import type { ManufacturingOrder, Product, SimulationConfig } from '../types';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -27,7 +28,7 @@ const Production: React.FC = () => {
       setConfig(configRes.data);
       setError(null);
     } catch (err) {
-      setError(getErrorMessage(err, 'Failed to load production data.'));
+      setError(getErrorMessage(err, 'Failed to load assembly data.'));
     } finally {
       setLoading(false);
     }
@@ -40,29 +41,37 @@ const Production: React.FC = () => {
   const printerMap = useMemo(() => new Map(printers.map((printer) => [printer.id, printer])), [printers]);
   const queuedHours = releasedOrders.reduce((total, order) => total + order.quantity * (printerMap.get(order.product_id)?.assembly_hours ?? 0), 0);
   const completedHours = completedOrders.reduce((total, order) => total + order.quantity * (printerMap.get(order.product_id)?.assembly_hours ?? 0), 0);
-  const capacityUse = config?.daily_assembly_hours ? Math.min((queuedHours / config.daily_assembly_hours) * 100, 100) : 0;
+  const effectiveHours = config?.effective_daily_assembly_hours ?? config?.daily_assembly_hours ?? 0;
+  const capacityUse = effectiveHours ? Math.min((queuedHours / effectiveHours) * 100, 100) : 0;
 
   if (loading) {
-    return <LoadingSpinner label="Loading production state..." />;
+    return <LoadingSpinner label="Loading assembly state..." />;
   }
 
   return (
     <div>
       <div className="page-header">
         <div>
-          <div className="section-kicker">Production</div>
-          <h1>Line status</h1>
-          <p>Check what is already released, how much assembly time the queue demands, and which products have recently cleared the factory floor.</p>
+          <div className="section-kicker">Assembly</div>
+          <h1>Manage shared production capacity</h1>
+          <p>Released orders wait here until the simulator advances. Assembly uses one shared daily pool of hours derived from lines, workers per line, and shift length.</p>
         </div>
       </div>
+
+      <PageGuide
+        title="Assembly"
+        controls="This screen shows the active manufacturing queue and explains how much shared assembly capacity those orders will consume when the next day runs."
+        next="Orders that fit inside the available daily capacity complete when the simulation advances. Remaining released work stays queued for later days."
+        tip="The simulator does not model individual worker assignments or separate production lanes yet. It uses one shared daily capacity pool, calculated as assembly lines × workers per line × shift hours."
+      />
 
       {error ? <Alert variant="danger">{error}</Alert> : null}
 
       <div className="kpi-grid">
         <div className="kpi-card info">
-          <div className="kpi-label">Released Orders</div>
+          <div className="kpi-label">Queued for Assembly</div>
           <div className="kpi-value">{releasedOrders.length}</div>
-          <div className="kpi-subtext">Currently queued for the next production run</div>
+          <div className="kpi-subtext">Released orders waiting for the next production run</div>
         </div>
         <div className="kpi-card warning">
           <div className="kpi-label">Queued Assembly Hours</div>
@@ -70,78 +79,74 @@ const Production: React.FC = () => {
           <div className="kpi-subtext">Hours demanded by released orders</div>
         </div>
         <div className="kpi-card success">
-          <div className="kpi-label">Completed Orders</div>
-          <div className="kpi-value">{completedOrders.length}</div>
-          <div className="kpi-subtext">Orders finished so far</div>
+          <div className="kpi-label">Completed Hours</div>
+          <div className="kpi-value">{completedHours.toFixed(1)}</div>
+          <div className="kpi-subtext">Assembly hours already finished</div>
         </div>
         <div className="kpi-card">
-          <div className="kpi-label">Daily Capacity Use</div>
+          <div className="kpi-label">Queue Load</div>
           <div className="kpi-value">{capacityUse.toFixed(0)}%</div>
-          <div className="kpi-subtext">Against {config?.daily_assembly_hours ?? 0} configured hours/day</div>
+          <div className="kpi-subtext">Against {effectiveHours.toFixed(1)} shared hours per day</div>
         </div>
       </div>
 
       <div className="two-column">
         <div className="surface-panel card-body">
           <div className="section-title">
-            <h4>Capacity pressure</h4>
+            <h4>Capacity model</h4>
           </div>
           <div className="metric-list">
             <div className="metric-item stat-row">
-              <span>Configured daily assembly hours</span>
-              <strong>{config?.daily_assembly_hours ?? 0}</strong>
+              <span>Assembly lines</span>
+              <strong>{config?.assembly_lines ?? 0}</strong>
             </div>
             <div className="metric-item stat-row">
-              <span>Queued hours waiting to run</span>
-              <strong>{queuedHours.toFixed(1)}</strong>
+              <span>Workers per line</span>
+              <strong>{config?.workers_per_line ?? 0}</strong>
             </div>
             <div className="metric-item stat-row">
-              <span>Hours already completed</span>
-              <strong>{completedHours.toFixed(1)}</strong>
+              <span>Shift hours</span>
+              <strong>{config?.shift_hours?.toFixed(1) ?? '0.0'}</strong>
             </div>
-            <div className="metric-item">
+            <div className="metric-item emphasis-item">
               <div className="stat-row">
-                <span>Queue load ratio</span>
-                <strong>{capacityUse.toFixed(1)}%</strong>
+                <span>Derived daily assembly hours</span>
+                <strong>{effectiveHours.toFixed(1)}</strong>
               </div>
-              <div className="progress-shell mt-2">
-                <div className="progress-fill" style={{ width: `${capacityUse}%` }} />
-              </div>
+              <div className="formula-line">{config?.assembly_lines ?? 0} lines × {config?.workers_per_line ?? 0} workers × {config?.shift_hours?.toFixed(1) ?? '0.0'} hours = {effectiveHours.toFixed(1)} shared hours/day</div>
             </div>
           </div>
         </div>
 
         <div className="surface-panel card-body">
           <div className="section-title">
-            <h4>Product mix in queue</h4>
+            <h4>What this means operationally</h4>
           </div>
           <div className="list-stack">
-            {releasedOrders.length ? releasedOrders.map((order) => {
-              const product = printerMap.get(order.product_id);
-              return (
-                <div key={order.id} className="metric-item">
-                  <div className="stat-row">
-                    <strong>{product?.name ?? order.product_id.slice(0, 8)}</strong>
-                    <Badge className="badge-released">RELEASED</Badge>
-                  </div>
-                  <div className="text-muted mt-2">
-                    Qty {order.quantity} · {((product?.assembly_hours ?? 0) * order.quantity).toFixed(1)} assembly hours
-                  </div>
-                </div>
-              );
-            }) : <div className="empty-state">No orders are currently released into production.</div>}
+            <div className="metric-item">
+              <strong>Workers and lines define daily throughput.</strong>
+              <div className="text-muted mt-2">Increase lines, workers per line, or shift hours in Configuration to create more daily assembly capacity.</div>
+            </div>
+            <div className="metric-item">
+              <strong>Released orders compete for the same pool.</strong>
+              <div className="text-muted mt-2">There is no separate scheduler per line yet, so all released orders draw from one shared batch of hours each day.</div>
+            </div>
+            <div className="metric-item">
+              <strong>Status flow is simple and explicit.</strong>
+              <div className="text-muted mt-2">Orders move from Awaiting Release to Queued for Production, then either Complete or get blocked if material shortages prevent progress.</div>
+            </div>
           </div>
         </div>
       </div>
 
       <div className="card mb-4">
-        <div className="card-header">Released production orders</div>
+        <div className="card-header">Released manufacturing orders</div>
         <div className="card-body p-0">
           {releasedOrders.length ? (
             <Table responsive hover>
               <thead>
                 <tr>
-                  <th>Order</th>
+                  <th>Reference</th>
                   <th>Product</th>
                   <th>Quantity</th>
                   <th>Assembly Hours</th>
@@ -154,19 +159,19 @@ const Production: React.FC = () => {
                   const product = printerMap.get(order.product_id);
                   return (
                     <tr key={order.id}>
-                      <td><span className="mono">{order.id.slice(0, 8)}</span></td>
-                      <td>{product?.name ?? order.product_id}</td>
+                      <td><span className="mono">{order.reference_code ?? order.id}</span></td>
+                      <td>{order.product_name ?? product?.name ?? order.product_id}</td>
                       <td>{order.quantity}</td>
                       <td>{((product?.assembly_hours ?? 0) * order.quantity).toFixed(1)}</td>
                       <td>{order.released_date ?? '-'}</td>
-                      <td><Badge className="badge-released">{order.status}</Badge></td>
+                      <td><span className="badge badge-released">{order.status_label ?? order.status}</span></td>
                     </tr>
                   );
                 })}
               </tbody>
             </Table>
           ) : (
-            <div className="empty-state">Release pending orders from the Orders screen to populate the production queue.</div>
+            <div className="empty-state">Release pending orders from Manufacturing Orders to populate the assembly queue.</div>
           )}
         </div>
       </div>
@@ -178,7 +183,7 @@ const Production: React.FC = () => {
             <Table responsive hover>
               <thead>
                 <tr>
-                  <th>Order</th>
+                  <th>Reference</th>
                   <th>Product</th>
                   <th>Quantity</th>
                   <th>Completed Date</th>
@@ -190,8 +195,8 @@ const Production: React.FC = () => {
                   const product = printerMap.get(order.product_id);
                   return (
                     <tr key={order.id}>
-                      <td><span className="mono">{order.id.slice(0, 8)}</span></td>
-                      <td>{product?.name ?? order.product_id}</td>
+                      <td><span className="mono">{order.reference_code ?? order.id}</span></td>
+                      <td>{order.product_name ?? product?.name ?? order.product_id}</td>
                       <td>{order.quantity}</td>
                       <td>{order.completed_date ?? '-'}</td>
                       <td>{((product?.assembly_hours ?? 0) * order.quantity).toFixed(1)}</td>
@@ -201,7 +206,7 @@ const Production: React.FC = () => {
               </tbody>
             </Table>
           ) : (
-            <div className="empty-state">Completed orders will appear here after the simulation advances through production.</div>
+            <div className="empty-state">Completed orders will appear here after the simulation advances through assembly.</div>
           )}
         </div>
       </div>
