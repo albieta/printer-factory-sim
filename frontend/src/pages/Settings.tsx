@@ -69,7 +69,7 @@ const Settings: React.FC = () => {
     return map;
   }, [materials, printers]);
 
-  const effectiveHours = Number(formData.assembly_lines || 0) * Number(formData.workers_per_line || 0) * Number(formData.shift_hours || 0);
+  const effectiveHours = (Number(formData.assembly_lines || 0) + Number(formData.workers_per_line || 0)) * Number(formData.shift_hours || 0);
 
   const restoreCurrentValues = () => {
     if (!config) {
@@ -245,7 +245,7 @@ const Settings: React.FC = () => {
               <strong>{effectiveHours.toFixed(1)}</strong>
             </div>
             <div className="formula-line">
-              {formData.assembly_lines} lines × {formData.workers_per_line} workers × {Number(formData.shift_hours || 0).toFixed(1)} hours = {effectiveHours.toFixed(1)} shared hours/day
+              ({formData.assembly_lines} lines + {formData.workers_per_line} workers) × {Number(formData.shift_hours || 0).toFixed(1)} hours = {effectiveHours.toFixed(1)} shared hours/day
             </div>
             <div className="text-muted mt-2">The legacy daily-assembly-hours value is still exposed for compatibility, but this workforce model is now the primary way to manage capacity.</div>
           </div>

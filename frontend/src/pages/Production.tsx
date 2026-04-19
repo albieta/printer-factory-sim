@@ -62,7 +62,7 @@ const Production: React.FC = () => {
         title="Assembly"
         controls="This screen shows the active manufacturing queue and explains how much shared assembly capacity those orders will consume when the next day runs."
         next="Orders that fit inside the available daily capacity complete when the simulation advances. Remaining released work stays queued for later days."
-        tip="The simulator does not model individual worker assignments or separate production lanes yet. It uses one shared daily capacity pool, calculated as assembly lines × workers per line × shift hours."
+        tip="The simulator does not model individual worker assignments or separate production lanes yet. It uses one shared daily capacity pool, calculated as (assembly lines + workers per line) × shift hours."
       />
 
       {error ? <Alert variant="danger">{error}</Alert> : null}
@@ -113,7 +113,7 @@ const Production: React.FC = () => {
                 <span>Derived daily assembly hours</span>
                 <strong>{effectiveHours.toFixed(1)}</strong>
               </div>
-              <div className="formula-line">{config?.assembly_lines ?? 0} lines × {config?.workers_per_line ?? 0} workers × {config?.shift_hours?.toFixed(1) ?? '0.0'} hours = {effectiveHours.toFixed(1)} shared hours/day</div>
+              <div className="formula-line">({config?.assembly_lines ?? 0} lines + {config?.workers_per_line ?? 0} workers) × {config?.shift_hours?.toFixed(1) ?? '0.0'} hours = {effectiveHours.toFixed(1)} shared hours/day</div>
             </div>
           </div>
         </div>

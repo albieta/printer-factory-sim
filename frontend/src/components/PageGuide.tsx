@@ -9,21 +9,30 @@ interface PageGuideProps {
 
 const PageGuide: React.FC<PageGuideProps> = ({ title, controls, next, tip }) => {
   return (
-    <section className="page-guide" aria-label={`${title} guidance`}>
-      <div className="page-guide-block">
-        <div className="page-guide-label">What this screen controls</div>
-        <p>{controls}</p>
-      </div>
-      <div className="page-guide-block">
-        <div className="page-guide-label">What it changes next</div>
-        <p>{next}</p>
-      </div>
-      {tip ? (
-        <div className="page-guide-tip">
-          <strong>Why it matters:</strong> {tip}
+    <details className="page-guide" aria-label={`${title} guidance`}>
+      <summary className="page-guide-summary">
+        <div>
+          <div className="section-kicker">Screen guide</div>
+          <strong>{title}</strong>
         </div>
-      ) : null}
-    </section>
+        <span className="page-guide-summary-action">Show explanation</span>
+      </summary>
+      <div className="page-guide-content">
+        <div className="page-guide-block">
+          <div className="page-guide-label">What this screen controls</div>
+          <p>{controls}</p>
+        </div>
+        <div className="page-guide-block">
+          <div className="page-guide-label">What it changes next</div>
+          <p>{next}</p>
+        </div>
+        {tip ? (
+          <div className="page-guide-tip">
+            <strong>Why it matters:</strong> {tip}
+          </div>
+        ) : null}
+      </div>
+    </details>
   );
 };
 

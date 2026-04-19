@@ -190,6 +190,7 @@ const Inventory: React.FC = () => {
                 <tr>
                   <th>Material</th>
                   <th>Stock</th>
+                  <th>Needed for accepted orders</th>
                   <th>Storage Status</th>
                   <th>Last Updated</th>
                 </tr>
@@ -201,6 +202,7 @@ const Inventory: React.FC = () => {
                     <tr key={item.product_id}>
                       <td><strong>{item.product_name ?? materialMap.get(item.product_id) ?? item.product_id}</strong></td>
                       <td>{formatNumber(item.quantity, 2)}</td>
+                      <td>{formatNumber(item.accepted_order_demand, 2)}</td>
                       <td><span className={`badge ${stockState.className}`}>{stockState.label}</span></td>
                       <td>{formatTimestamp(item.last_updated)}</td>
                     </tr>

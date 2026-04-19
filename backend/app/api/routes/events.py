@@ -14,6 +14,7 @@ def get_events(
     type: Optional[str] = Query(None),
     from_date: Optional[date] = Query(None),
     to_date: Optional[date] = Query(None),
+    limit: int = Query(100, ge=1, le=5000),
     db: Session = Depends(get_db)
 ):
     from app.services.event_service import EventService
@@ -28,7 +29,7 @@ def get_events(
         except ValueError:
             pass
     
-    return service.get_events(event_type, from_date, to_date)
+    return service.get_events(event_type, from_date, to_date, limit)
 
 
 @router.get("/timeseries/{metric}", response_model=TimeSeriesData)

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, Form, Table } from 'react-bootstrap';
-import { FaClipboardCheck, FaEye } from 'react-icons/fa';
+import { FaBan, FaClipboardCheck, FaEye } from 'react-icons/fa';
 import PageGuide from '../components/PageGuide';
 import { getErrorMessage, ordersAPI } from '../services/api';
 import type { BOMRequirements, ManufacturingOrder } from '../types';
@@ -14,6 +14,7 @@ const STATUS_FILTERS = [
   { value: 'RELEASED', label: 'Queued for assembly' },
   { value: 'COMPLETED', label: 'Completed' },
   { value: 'BLOCKED', label: 'Blocked by materials' },
+  { value: 'REJECTED', label: 'Rejected' },
 ];
 
 const Orders: React.FC = () => {
@@ -24,7 +25,7 @@ const Orders: React.FC = () => {
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [requirements, setRequirements] = useState<BOMRequirements | null>(null);
   const [inspecting, setInspecting] = useState(false);
-  const [releaseMessage, setReleaseMessage] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadOrders = async (status?: string) => {
@@ -44,24 +45,47 @@ const Orders: React.FC = () => {
     void loadOrders(filter);
   }, [filter]);
 
-  const pendingOrders = orders.filter((order) => order.status === OrderStatus.PENDING);
-
+  const pendingOrders = useMemo(
+    () => orders.filter((order) => order.status === OrderStatus.PENDING),
+    [orders]
+  );
   const blockedOrders = useMemo(
-    () => orders.filter((order) => order.status === OrderStatus.BLOCKED).slice(0, 4),
+    () => orders.filter((order) => order.status === OrderStatus.BLOCKED).slice(0, 6),
     [orders]
   );
 
-  const openRequirements = async (order: ManufacturingOrder) => {
+  const loadRequirements = async (order: ManufacturingOrder) => {
+    if (selectedOrderId === order.id) {
+      setSelectedOrderId(null);
+      setRequirements(null);
+      return;
+    }
+
     try {
       setInspecting(true);
       setSelectedOrderId(order.id);
       const response = await ordersAPI.getOrderRequirements(order.id);
       setRequirements(response.data);
+      setError(null);
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to load bill of materials for that order.'));
     } finally {
       setInspecting(false);
     }
+  };
+
+  const buildActionMessage = (
+    actionLabel: string,
+    successful: string[],
+    failed: Array<{ order_id: string; reason: string }>
+  ) => {
+    const referenceById = new Map(orders.map((order) => [order.id, order.reference_code ?? order.id]));
+    const failedLines = failed.map(
+      (entry) => `${referenceById.get(entry.order_id) ?? entry.order_id}: ${entry.reason}`
+    );
+    return failed.length
+      ? `${successful.length} orders ${actionLabel}. ${failed.length} failed. ${failedLines.join(' | ')}`
+      : `${successful.length} orders ${actionLabel}.`;
   };
 
   const handleReleaseOrders = async () => {
@@ -71,21 +95,28 @@ const Orders: React.FC = () => {
 
     try {
       const response = await ordersAPI.releaseOrders({ order_ids: selectedOrders });
-      const referenceById = new Map(orders.map((order) => [order.id, order.reference_code ?? order.id]));
-      const failedLines = response.data.failed.map(
-        (entry) => `${referenceById.get(entry.order_id) ?? entry.order_id}: ${entry.reason}`
-      );
-      const failedCount = response.data.failed.length;
-      setReleaseMessage(
-        failedCount
-          ? `${response.data.successful.length} orders released. ${failedCount} blocked. ${failedLines.join(' | ')}`
-          : `${response.data.successful.length} orders released into the assembly queue.`
-      );
+      setActionMessage(buildActionMessage('released into the assembly queue', response.data.successful, response.data.failed));
       setSelectedOrders([]);
       announceSimulationUpdate();
       await loadOrders(filter);
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to release the selected orders.'));
+    }
+  };
+
+  const handleRejectOrders = async () => {
+    if (!selectedOrders.length) {
+      return;
+    }
+
+    try {
+      const response = await ordersAPI.rejectOrders({ order_ids: selectedOrders });
+      setActionMessage(buildActionMessage('rejected during review', response.data.successful, response.data.failed));
+      setSelectedOrders([]);
+      announceSimulationUpdate();
+      await loadOrders(filter);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to reject the selected orders.'));
     }
   };
 
@@ -104,6 +135,7 @@ const Orders: React.FC = () => {
       RELEASED: 'badge-released',
       COMPLETED: 'badge-completed',
       BLOCKED: 'badge-blocked',
+      REJECTED: 'badge-neutral',
     };
 
     return <span className={`badge ${variants[order.status]}`}>{order.status_label ?? order.status}</span>;
@@ -119,19 +151,19 @@ const Orders: React.FC = () => {
         <div>
           <div className="section-kicker">Manufacturing Orders</div>
           <h1>Review and release demand</h1>
-          <p>Demand starts here. Review what customers are asking for, check material requirements, and release only the work that should enter the shared assembly queue.</p>
+          <p>Demand starts here. Review what customers are asking for, inspect the BOM inline, and choose whether each order should be accepted into assembly or rejected.</p>
         </div>
       </div>
 
       <PageGuide
         title="Manufacturing orders"
-        controls="This screen decides which demand becomes active production work. Releasing an order does not complete it immediately; it only makes the order eligible to consume materials and assembly capacity on future simulation days."
-        next="Released work appears in Assembly. If materials are missing, the order becomes blocked and stays visible until inventory is replenished."
-        tip="The status tells you where the order sits in the flow: Awaiting Release, Queued for Production, Completed, or Blocked by Material Shortage."
+        controls="This screen is where planners decide which demand becomes accepted factory work. Releasing moves an order into the assembly queue, while rejecting closes it out without deleting history."
+        next="Released work appears in Assembly. If materials are missing, the order becomes blocked and can return automatically once inventory is replenished."
+        tip="Blocked orders and BOM checks are now separate on purpose: the blocked list shows operational exceptions, while BOM inspection belongs directly to the order you are reviewing."
       />
 
       {error ? <Alert variant="danger">{error}</Alert> : null}
-      {releaseMessage ? <Alert variant="success">{releaseMessage}</Alert> : null}
+      {actionMessage ? <Alert variant="success">{actionMessage}</Alert> : null}
 
       <div className="kpi-grid">
         <div className="kpi-card warning">
@@ -154,14 +186,19 @@ const Orders: React.FC = () => {
           <div className="kpi-value">{orders.filter((order) => order.status === OrderStatus.BLOCKED).length}</div>
           <div className="kpi-subtext">Orders stopped by missing materials</div>
         </div>
+        <div className="kpi-card">
+          <div className="kpi-label">Rejected</div>
+          <div className="kpi-value">{orders.filter((order) => order.status === OrderStatus.REJECTED).length}</div>
+          <div className="kpi-subtext">Demand declined during review</div>
+        </div>
       </div>
 
       <div className="two-column">
         <Card>
-          <Card.Header>Release manufacturing work</Card.Header>
+          <Card.Header>Planner decision queue</Card.Header>
           <Card.Body>
             <p className="text-muted">
-              Releasing an order moves it from demand review into the assembly queue. The queue consumes one shared pool of daily assembly hours when the simulation advances.
+              Accepted orders enter the shared assembly queue. Rejected orders remain in history but are excluded from accepted-demand calculations and active work.
             </p>
             {pendingOrders.length ? (
               <>
@@ -182,10 +219,16 @@ const Orders: React.FC = () => {
                     </label>
                   ))}
                 </div>
-                <Button variant="success" onClick={handleReleaseOrders} disabled={!selectedOrders.length}>
-                  <FaClipboardCheck className="me-2" />
-                  Release {selectedOrders.length} selected orders
-                </Button>
+                <div className="action-buttons">
+                  <Button variant="success" onClick={handleReleaseOrders} disabled={!selectedOrders.length}>
+                    <FaClipboardCheck className="me-2" />
+                    Release {selectedOrders.length} selected
+                  </Button>
+                  <Button variant="outline-danger" onClick={handleRejectOrders} disabled={!selectedOrders.length}>
+                    <FaBan className="me-2" />
+                    Reject {selectedOrders.length} selected
+                  </Button>
+                </div>
               </>
             ) : (
               <div className="empty-state">No manufacturing orders are awaiting release right now.</div>
@@ -194,31 +237,8 @@ const Orders: React.FC = () => {
         </Card>
 
         <Card>
-          <Card.Header>Blocked work and material checks</Card.Header>
+          <Card.Header>Blocked by material shortage</Card.Header>
           <Card.Body>
-            {selectedOrderId && requirements ? (
-              <div className="list-stack mb-4">
-                <div className="metric-item">
-                  <div className="section-kicker">Selected order</div>
-                  <h4 className="mb-1">{requirements.product_name}</h4>
-                  <div className="text-muted mono">{orders.find((order) => order.id === selectedOrderId)?.reference_code ?? selectedOrderId}</div>
-                </div>
-                {requirements.requirements.length ? (
-                  requirements.requirements.map((requirement) => (
-                    <div className="metric-item" key={requirement.material_id}>
-                      <div className="stat-row">
-                        <strong>{requirement.material_name}</strong>
-                        <span className="badge badge-neutral">{requirement.total_required.toFixed(2)} required</span>
-                      </div>
-                      <div className="text-muted mt-2">{requirement.quantity_per_unit.toFixed(2)} per finished unit</div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="empty-state">This product has no BOM entries yet.</div>
-                )}
-              </div>
-            ) : null}
-
             {blockedOrders.length ? (
               <div className="list-stack">
                 {blockedOrders.map((order) => (
@@ -233,9 +253,8 @@ const Orders: React.FC = () => {
                 ))}
               </div>
             ) : (
-              <div className="empty-state">No blocked orders right now. Open any order below to inspect the material draw before releasing it.</div>
+              <div className="empty-state">No blocked orders right now.</div>
             )}
-            {inspecting ? <p className="text-muted mt-3 mb-0">Loading order requirements...</p> : null}
           </Card.Body>
         </Card>
       </div>
@@ -266,26 +285,56 @@ const Orders: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {orders.map((order) => (
-                  <tr key={order.id}>
-                    <td><span className="mono">{order.reference_code ?? order.id}</span></td>
-                    <td>
-                      <strong>{order.product_name ?? order.product_id}</strong>
-                    </td>
-                    <td>{order.quantity}</td>
-                    <td>{getStatusBadge(order)}</td>
-                    <td>{order.status_reason ?? '-'}</td>
-                    <td>{order.created_date}</td>
-                    <td>{order.released_date ?? '-'}</td>
-                    <td>{order.completed_date ?? '-'}</td>
-                    <td>
-                      <Button variant="outline-secondary" size="sm" onClick={() => void openRequirements(order)}>
-                        <FaEye className="me-2" />
-                        BOM
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
+                {orders.map((order) => {
+                  const isExpanded = selectedOrderId === order.id;
+                  return (
+                    <React.Fragment key={order.id}>
+                      <tr>
+                        <td><span className="mono">{order.reference_code ?? order.id}</span></td>
+                        <td><strong>{order.product_name ?? order.product_id}</strong></td>
+                        <td>{order.quantity}</td>
+                        <td>{getStatusBadge(order)}</td>
+                        <td>{order.status_reason ?? '-'}</td>
+                        <td>{order.created_date}</td>
+                        <td>{order.released_date ?? '-'}</td>
+                        <td>{order.completed_date ?? '-'}</td>
+                        <td>
+                          <Button variant="outline-secondary" size="sm" onClick={() => void loadRequirements(order)}>
+                            <FaEye className="me-2" />
+                            {isExpanded ? 'Hide BOM' : 'BOM'}
+                          </Button>
+                        </td>
+                      </tr>
+                      {isExpanded ? (
+                        <tr className="inline-detail-row">
+                          <td colSpan={9}>
+                            <div className="inline-detail-panel">
+                              <div className="section-kicker">Material check</div>
+                              <h4>{requirements?.product_name ?? order.product_name ?? order.product_id}</h4>
+                              {inspecting ? (
+                                <p className="text-muted mb-0">Loading order requirements...</p>
+                              ) : requirements?.requirements.length ? (
+                                <div className="list-stack">
+                                  {requirements.requirements.map((requirement) => (
+                                    <div className="metric-item" key={requirement.material_id}>
+                                      <div className="stat-row">
+                                        <strong>{requirement.material_name}</strong>
+                                        <span className="badge badge-neutral">{requirement.total_required.toFixed(2)} required</span>
+                                      </div>
+                                      <div className="text-muted mt-2">{requirement.quantity_per_unit.toFixed(2)} per finished unit</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="empty-state">This product has no BOM entries yet.</div>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ) : null}
+                    </React.Fragment>
+                  );
+                })}
               </tbody>
             </Table>
           ) : (

@@ -36,22 +36,55 @@ const Reports: React.FC = () => {
     [eventFilter, events]
   );
 
-  const eventCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    filteredEvents.forEach((event) => {
-      const label = formatEventType(event.event_type);
-      counts.set(label, (counts.get(label) ?? 0) + 1);
-    });
-    return Array.from(counts.entries());
-  }, [filteredEvents]);
+  const manufacturingFlow = useMemo(() => {
+    const daily = new Map<string, { created: number; released: number; completed: number }>();
+    const ensure = (date: string) => {
+      if (!daily.has(date)) {
+        daily.set(date, { created: 0, released: 0, completed: 0 });
+      }
+      return daily.get(date)!;
+    };
 
-  const activityByDate = useMemo(() => {
-    const counts = new Map<string, number>();
-    [...filteredEvents].reverse().forEach((event) => {
-      counts.set(event.sim_date, (counts.get(event.sim_date) ?? 0) + 1);
+    events.forEach((event) => {
+      const day = ensure(event.sim_date);
+      if (event.event_type === 'ORDER_CREATED') {
+        day.created += 1;
+      }
+      if (event.event_type === 'ORDER_RELEASED' || event.event_type === 'ORDER_UNBLOCKED_MATERIALS') {
+        day.released += 1;
+      }
+      if (event.event_type === 'ORDER_COMPLETED') {
+        day.completed += 1;
+      }
     });
-    return Array.from(counts.entries());
-  }, [filteredEvents]);
+
+    return Array.from(daily.entries()).sort(([a], [b]) => a.localeCompare(b));
+  }, [events]);
+
+  const procurementFlow = useMemo(() => {
+    const daily = new Map<string, { created: number; delivered: number; rejected: number }>();
+    const ensure = (date: string) => {
+      if (!daily.has(date)) {
+        daily.set(date, { created: 0, delivered: 0, rejected: 0 });
+      }
+      return daily.get(date)!;
+    };
+
+    events.forEach((event) => {
+      const day = ensure(event.sim_date);
+      if (event.event_type === 'PO_CREATED') {
+        day.created += 1;
+      }
+      if (event.event_type === 'PO_DELIVERED') {
+        day.delivered += 1;
+      }
+      if (event.event_type === 'PO_REJECTED_CAPACITY') {
+        day.rejected += 1;
+      }
+    });
+
+    return Array.from(daily.entries()).sort(([a], [b]) => a.localeCompare(b));
+  }, [events]);
 
   const handleExport = async (type: 'full' | 'inventory' | 'events') => {
     try {
@@ -90,9 +123,9 @@ const Reports: React.FC = () => {
 
       <PageGuide
         title="Analytics"
-        controls="This screen summarizes the event history recorded by the simulator and gives you exports for comparing scenarios outside the app."
-        next="The event log helps explain why the workflow strip changed, which orders moved, and whether inventory or warehouse capacity caused procurement or manufacturing issues."
-        tip="Use filtered events when you want to focus on one subsystem, such as only order releases or only purchase-order receipts."
+        controls="This screen explains the simulation with a few focused charts instead of mixed event rollups. Manufacturing flow and procurement flow each get their own view."
+        next="Use the event log when you need the detailed reason behind a status change, delivery, rejection, or shortage."
+        tip="The charts intentionally stay subsystem-specific so planners can distinguish demand flow from procurement flow at a glance."
       />
 
       {error ? <Alert variant="danger">{error}</Alert> : null}
@@ -115,15 +148,34 @@ const Reports: React.FC = () => {
           <ResponsivePlot
             data={[
               {
-                type: 'pie',
-                labels: eventCounts.map(([label]) => label),
-                values: eventCounts.map(([, value]) => value),
-                hole: 0.45,
-                marker: { colors: ['#be5b2d', '#1a6b67', '#d18a1a', '#b6463b', '#2f7d4a', '#705649', '#9d824f'] },
-                textinfo: 'label+percent',
+                x: manufacturingFlow.map(([date]) => date),
+                y: manufacturingFlow.map(([, value]) => value.created),
+                type: 'bar',
+                name: 'Created',
+                marker: { color: '#d18a1a' },
+              },
+              {
+                x: manufacturingFlow.map(([date]) => date),
+                y: manufacturingFlow.map(([, value]) => value.released),
+                type: 'bar',
+                name: 'Released or unblocked',
+                marker: { color: '#1a6b67' },
+              },
+              {
+                x: manufacturingFlow.map(([date]) => date),
+                y: manufacturingFlow.map(([, value]) => value.completed),
+                type: 'bar',
+                name: 'Completed',
+                marker: { color: '#2f7d4a' },
               },
             ]}
-            layout={{ title: { text: 'Event distribution' }, showlegend: false, margin: { t: 68, r: 20, b: 20, l: 20 } }}
+            layout={{
+              barmode: 'group',
+              title: { text: 'Daily manufacturing flow' },
+              xaxis: { title: { text: 'Simulation date' } },
+              yaxis: { title: { text: 'Orders' } },
+              margin: { t: 68, r: 24, b: 56, l: 56 },
+            }}
             minHeight={340}
           />
         </div>
@@ -132,18 +184,32 @@ const Reports: React.FC = () => {
           <ResponsivePlot
             data={[
               {
-                x: activityByDate.map(([date]) => date),
-                y: activityByDate.map(([, value]) => value),
-                type: 'scatter',
-                mode: 'lines+markers',
-                line: { color: '#1a6b67', width: 3 },
-                marker: { color: '#be5b2d', size: 8 },
+                x: procurementFlow.map(([date]) => date),
+                y: procurementFlow.map(([, value]) => value.created),
+                type: 'bar',
+                name: 'POs created',
+                marker: { color: '#be5b2d' },
+              },
+              {
+                x: procurementFlow.map(([date]) => date),
+                y: procurementFlow.map(([, value]) => value.delivered),
+                type: 'bar',
+                name: 'Delivered',
+                marker: { color: '#1a6b67' },
+              },
+              {
+                x: procurementFlow.map(([date]) => date),
+                y: procurementFlow.map(([, value]) => value.rejected),
+                type: 'bar',
+                name: 'Rejected',
+                marker: { color: '#b6463b' },
               },
             ]}
             layout={{
-              title: { text: 'Activity over time' },
+              barmode: 'group',
+              title: { text: 'Daily procurement flow' },
               xaxis: { title: { text: 'Simulation date' } },
-              yaxis: { title: { text: 'Events logged' } },
+              yaxis: { title: { text: 'Purchase orders' } },
               margin: { t: 68, r: 24, b: 56, l: 56 },
             }}
             minHeight={340}
@@ -158,6 +224,8 @@ const Reports: React.FC = () => {
             <option value="all">All events</option>
             <option value="ORDER_CREATED">Order created</option>
             <option value="ORDER_RELEASED">Order released</option>
+            <option value="ORDER_UNBLOCKED_MATERIALS">Order unblocked</option>
+            <option value="ORDER_REJECTED">Order rejected</option>
             <option value="ORDER_COMPLETED">Order completed</option>
             <option value="ORDER_BLOCKED_MATERIALS">Order blocked by materials</option>
             <option value="PO_CREATED">Purchase order created</option>

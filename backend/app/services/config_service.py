@@ -57,7 +57,7 @@ class ConfigService:
         config.workers_per_line = max(1, int(config.workers_per_line))
 
         if "daily_assembly_hours" in payload and not any(key in payload for key in ("assembly_lines", "workers_per_line", "shift_hours")):
-            denominator = max(1, config.assembly_lines * config.workers_per_line)
+            denominator = max(1, config.assembly_lines + config.workers_per_line)
             config.shift_hours = float(payload["daily_assembly_hours"]) / denominator
 
         self.ensure_capacity_fields(config)

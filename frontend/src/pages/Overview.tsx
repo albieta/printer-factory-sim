@@ -1,11 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Button } from 'react-bootstrap';
-import { FaCalendarAlt, FaPlayCircle } from 'react-icons/fa';
+import { Alert } from 'react-bootstrap';
+import { FaCalendarAlt } from 'react-icons/fa';
 import PageGuide from '../components/PageGuide';
 import ResponsivePlot from '../components/ResponsivePlot';
 import { eventsAPI, getErrorMessage, simulationAPI } from '../services/api';
 import type { Event, SimulationStatus } from '../types';
-import { announceSimulationUpdate } from '../utils/simulationEvents';
 import { describeEventDetails, formatEventType, formatNumber } from '../utils/formatters';
 import LoadingSpinner from '../components/LoadingSpinner';
 
@@ -13,8 +12,6 @@ const Overview: React.FC = () => {
   const [status, setStatus] = useState<SimulationStatus | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
-  const [advancing, setAdvancing] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadOverview = async () => {
@@ -37,40 +34,6 @@ const Overview: React.FC = () => {
   useEffect(() => {
     void loadOverview();
   }, []);
-
-  const handleAdvanceDay = async () => {
-    try {
-      setAdvancing(true);
-      const result = await simulationAPI.advanceDay();
-      setNotice(
-        `Simulation advanced to ${result.data.sim_date}. Created ${result.data.orders_created} new demand orders, completed ${result.data.orders_completed} manufacturing orders, and received ${result.data.purchase_orders_delivered} purchase orders.`
-      );
-      announceSimulationUpdate();
-      await loadOverview();
-    } catch (err) {
-      setError(getErrorMessage(err, 'Failed to advance the simulation by one day.'));
-    } finally {
-      setAdvancing(false);
-    }
-  };
-
-  const eventsByDate = useMemo(() => {
-    const counts = new Map<string, number>();
-    [...events].reverse().forEach((event) => {
-      counts.set(event.sim_date, (counts.get(event.sim_date) ?? 0) + 1);
-    });
-    return Array.from(counts.entries()).map(([date, value]) => ({ date, value }));
-  }, [events]);
-
-  const eventMix = useMemo(() => {
-    const counts = new Map<string, number>();
-    events.forEach((event) => {
-      counts.set(formatEventType(event.event_type), (counts.get(formatEventType(event.event_type)) ?? 0) + 1);
-    });
-    return Array.from(counts.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 6);
-  }, [events]);
 
   const bottleneck = useMemo(() => {
     if (!status) {
@@ -108,27 +71,12 @@ const Overview: React.FC = () => {
 
       <PageGuide
         title="Overview"
-        controls="This is the simulation heartbeat. Advancing the day triggers deliveries, creates new demand, consumes shared assembly capacity, and records the resulting events."
-        next="The daily results change every downstream screen: new manufacturing orders appear in review, warehouse levels change, and assembly or procurement pressure may increase."
-        tip="If the workflow strip shows congestion building in one stage, advance the day only after you understand whether that stage is constrained by stock, space, or assembly hours."
+        controls="This is the cross-functional status view. Use it to spot today’s main bottleneck before deciding whether to review demand, expedite materials, or change factory settings."
+        next="The global Advance Day control in the top bar processes deliveries, new demand, production completions, and event logging for every downstream screen."
+        tip="The most useful overview signals are current-state ones: queue health, blocked work, space pressure, and shared assembly capacity."
       />
 
       {error ? <Alert variant="danger">{error}</Alert> : null}
-      {notice ? <Alert variant="success">{notice}</Alert> : null}
-
-      <div className="hero-panel hero-panel-split">
-        <div>
-          <div className="section-kicker">Simulation control</div>
-          <h3>Run the next operating day</h3>
-          <p className="hero-copy">
-            The simulator processes demand, receipts, material consumption, completions, and event logging in a daily batch. Nothing moves until you advance the day.
-          </p>
-        </div>
-        <Button variant="primary" size="lg" onClick={handleAdvanceDay} disabled={advancing}>
-          <FaPlayCircle className="me-2" />
-          {advancing ? 'Advancing day...' : 'Advance Day'}
-        </Button>
-      </div>
 
       <div className="kpi-grid">
         <div className="kpi-card info">
@@ -145,6 +93,11 @@ const Overview: React.FC = () => {
           <div className="kpi-label">Assembly Queue</div>
           <div className="kpi-value">{status?.released_orders ?? 0}</div>
           <div className="kpi-subtext">Released orders competing for daily capacity</div>
+        </div>
+        <div className="kpi-card danger">
+          <div className="kpi-label">Rejected Demand</div>
+          <div className="kpi-value">{status?.rejected_orders ?? 0}</div>
+          <div className="kpi-subtext">Orders declined during planner review</div>
         </div>
         <div className="kpi-card">
           <div className="kpi-label">Warehouse Free Space</div>
@@ -204,38 +157,23 @@ const Overview: React.FC = () => {
           <ResponsivePlot
             data={[
               {
-                x: eventsByDate.map((item) => item.date),
-                y: eventsByDate.map((item) => item.value),
+                x: ['Awaiting release', 'Queued', 'Blocked', 'Completed', 'Rejected'],
+                y: [
+                  status?.pending_orders ?? 0,
+                  status?.released_orders ?? 0,
+                  status?.blocked_orders ?? 0,
+                  status?.completed_orders ?? 0,
+                  status?.rejected_orders ?? 0,
+                ],
                 type: 'bar',
-                marker: { color: '#be5b2d' },
+                marker: { color: ['#d18a1a', '#1a6b67', '#b6463b', '#2f7d4a', '#705649'] },
               },
             ]}
             layout={{
-              title: { text: 'Event volume by day' },
-              xaxis: { title: { text: 'Simulation date' } },
-              yaxis: { title: { text: 'Events logged' } },
+              title: { text: 'Manufacturing order status snapshot' },
+              xaxis: { title: { text: 'Current state' } },
+              yaxis: { title: { text: 'Orders' } },
               margin: { t: 68, r: 24, b: 56, l: 56 },
-            }}
-            minHeight={340}
-          />
-        </div>
-
-        <div className="chart-container">
-          <ResponsivePlot
-            data={[
-              {
-                type: 'pie',
-                labels: eventMix.map(([label]) => label),
-                values: eventMix.map(([, value]) => value),
-                hole: 0.55,
-                marker: { colors: ['#be5b2d', '#1a6b67', '#d18a1a', '#b6463b', '#2f7d4a', '#7c6250'] },
-                textinfo: 'label+percent',
-              },
-            ]}
-            layout={{
-              title: { text: 'Recent event mix' },
-              showlegend: false,
-              margin: { t: 68, r: 20, b: 20, l: 20 },
             }}
             minHeight={340}
           />

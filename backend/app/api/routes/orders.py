@@ -69,3 +69,11 @@ def release_orders(request: ReleaseRequest, db: Session = Depends(get_db)):
 
     sim_date = ConfigService(db).get_sim_date()
     return OrderService(db).batch_release_orders(request, sim_date)
+
+
+@router.post("/mfg/reject", response_model=BatchReleaseResponse)
+def reject_orders(request: ReleaseRequest, db: Session = Depends(get_db)):
+    from app.services.config_service import ConfigService
+
+    sim_date = ConfigService(db).get_sim_date()
+    return OrderService(db).batch_reject_orders(request, sim_date)

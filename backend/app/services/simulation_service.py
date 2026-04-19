@@ -30,6 +30,7 @@ class SimulationService:
         pos_delivered = sum(1 for result in po_results if result["status"] == "delivered")
 
         orders_created = self.generate_daily_demand(sim_date)
+        self.order_service.recheck_blocked_orders(sim_date)
 
         production_results = self.production_service.execute_production(sim_date)
         orders_completed = sum(1 for result in production_results if result["status"] == "completed")
@@ -77,6 +78,7 @@ class SimulationService:
         blocked_orders = self.db.query(ManufacturingOrder).filter(ManufacturingOrder.status == OrderStatus.BLOCKED).count()
         released_orders = self.db.query(ManufacturingOrder).filter(ManufacturingOrder.status == OrderStatus.RELEASED).count()
         completed_orders = self.db.query(ManufacturingOrder).filter(ManufacturingOrder.status == OrderStatus.COMPLETED).count()
+        rejected_orders = self.db.query(ManufacturingOrder).filter(ManufacturingOrder.status == OrderStatus.REJECTED).count()
         pending_purchase_orders = self.db.query(PurchaseOrder).filter(PurchaseOrder.status == PurchaseOrderStatus.PENDING).count()
 
         values = {
@@ -116,6 +118,7 @@ class SimulationService:
             "released_orders": released_orders,
             "blocked_orders": blocked_orders,
             "completed_orders": completed_orders,
+            "rejected_orders": rejected_orders,
             "pending_purchase_orders": pending_purchase_orders,
             "delivered_purchase_orders": delivered_purchase_orders,
             "rejected_purchase_orders": rejected_purchase_orders,

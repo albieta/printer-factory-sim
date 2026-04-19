@@ -136,6 +136,7 @@ class PurchaseOrderService:
         from app.services.inventory_service import InventoryService
 
         inventory_service = InventoryService(self.db)
+        delivered_any = False
 
         for po in due_pos:
             if not inventory_service.has_capacity_for(Decimal(po.quantity)):
@@ -178,7 +179,13 @@ class PurchaseOrderService:
             self.db.add(event)
             self.db.commit()
 
+            delivered_any = True
             results.append({"po_id": po.id, "status": "delivered"})
+
+        if delivered_any:
+            from app.services.order_service import OrderService
+
+            OrderService(self.db).recheck_blocked_orders(sim_date)
 
         return results
 

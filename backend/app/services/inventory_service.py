@@ -7,7 +7,7 @@ from typing import List
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models.models import Inventory, Product, SimulationConfig
+from app.models.models import BillOfMaterials, Inventory, ManufacturingOrder, OrderStatus, Product, SimulationConfig
 
 
 class InventoryService:
@@ -72,11 +72,35 @@ class InventoryService:
         warehouse_capacity = config.warehouse_capacity if config else 2200
         return (total_inventory + quantity) <= warehouse_capacity
 
-    def serialize_inventory_level(self, item: Inventory) -> dict:
+    def get_accepted_order_material_demand(self) -> dict[str, float]:
+        accepted_orders = (
+            self.db.query(ManufacturingOrder)
+            .filter(ManufacturingOrder.status.in_((OrderStatus.RELEASED, OrderStatus.BLOCKED)))
+            .all()
+        )
+
+        if not accepted_orders:
+            return {}
+
+        demand_by_material: dict[str, Decimal] = {}
+        bom_entries = self.db.query(BillOfMaterials).all()
+        bom_by_product: dict[str, list[BillOfMaterials]] = {}
+        for bom in bom_entries:
+            bom_by_product.setdefault(bom.finished_product_id, []).append(bom)
+
+        for order in accepted_orders:
+            for bom in bom_by_product.get(order.product_id, []):
+                required_qty = Decimal(str(order.quantity)) * bom.quantity
+                demand_by_material[bom.material_id] = demand_by_material.get(bom.material_id, Decimal(0)) + required_qty
+
+        return {material_id: float(quantity) for material_id, quantity in demand_by_material.items()}
+
+    def serialize_inventory_level(self, item: Inventory, accepted_order_demand: float = 0.0) -> dict:
         product = self.db.query(Product).filter(Product.id == item.product_id).first()
         return {
             "product_id": item.product_id,
             "product_name": product.name if product else None,
             "quantity": float(item.quantity),
             "last_updated": item.last_updated,
+            "accepted_order_demand": accepted_order_demand,
         }

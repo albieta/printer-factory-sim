@@ -8,6 +8,7 @@ export enum OrderStatus {
   RELEASED = 'RELEASED',
   COMPLETED = 'COMPLETED',
   BLOCKED = 'BLOCKED',
+  REJECTED = 'REJECTED',
 }
 
 export enum PurchaseOrderStatus {
@@ -20,6 +21,8 @@ export enum EventType {
   ORDER_CREATED = 'ORDER_CREATED',
   ORDER_RELEASED = 'ORDER_RELEASED',
   ORDER_BLOCKED_MATERIALS = 'ORDER_BLOCKED_MATERIALS',
+  ORDER_UNBLOCKED_MATERIALS = 'ORDER_UNBLOCKED_MATERIALS',
+  ORDER_REJECTED = 'ORDER_REJECTED',
   ORDER_STARTED = 'ORDER_STARTED',
   ORDER_COMPLETED = 'ORDER_COMPLETED',
   PO_CREATED = 'PO_CREATED',
@@ -61,6 +64,7 @@ export interface InventoryLevel {
   product_name?: string;
   quantity: number;
   last_updated: string;
+  accepted_order_demand: number;
 }
 
 export interface CapacityInfo {
@@ -137,6 +141,7 @@ export interface SimulationStatus {
   released_orders: number;
   blocked_orders: number;
   completed_orders: number;
+  rejected_orders: number;
   pending_purchase_orders: number;
   delivered_purchase_orders: number;
   rejected_purchase_orders: number;

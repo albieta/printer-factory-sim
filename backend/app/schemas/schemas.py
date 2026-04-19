@@ -17,6 +17,7 @@ class OrderStatus(str, Enum):
     RELEASED = "RELEASED"
     COMPLETED = "COMPLETED"
     BLOCKED = "BLOCKED"
+    REJECTED = "REJECTED"
 
 
 class PurchaseOrderStatus(str, Enum):
@@ -29,6 +30,8 @@ class EventType(str, Enum):
     ORDER_CREATED = "ORDER_CREATED"
     ORDER_RELEASED = "ORDER_RELEASED"
     ORDER_BLOCKED_MATERIALS = "ORDER_BLOCKED_MATERIALS"
+    ORDER_UNBLOCKED_MATERIALS = "ORDER_UNBLOCKED_MATERIALS"
+    ORDER_REJECTED = "ORDER_REJECTED"
     ORDER_STARTED = "ORDER_STARTED"
     ORDER_COMPLETED = "ORDER_COMPLETED"
     PO_CREATED = "PO_CREATED"
@@ -110,6 +113,7 @@ class InventoryBase(BaseModel):
 class InventoryLevel(InventoryBase):
     last_updated: datetime
     product_name: Optional[str] = None
+    accepted_order_demand: float = 0.0
 
     class Config:
         from_attributes = True
@@ -273,6 +277,7 @@ class SimulationStatus(BaseModel):
     released_orders: int
     blocked_orders: int
     completed_orders: int
+    rejected_orders: int
     pending_purchase_orders: int
     delivered_purchase_orders: int
     rejected_purchase_orders: int

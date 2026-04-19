@@ -158,8 +158,16 @@ textarea {
   border-bottom: 1px solid rgba(89, 61, 38, 0.08);
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .topbar-title {
-  font-size: 1.45rem;
+  font-size: 1.3rem;
   font-weight: 700;
   line-height: 1.15;
 }
@@ -185,33 +193,70 @@ textarea {
   font-size: 0.78rem;
 }
 
-.workflow-strip {
-  padding: 18px 28px 0;
+.topbar-messages {
+  padding: 12px 28px 0;
 }
 
-.workflow-strip-header {
+.topbar-messages .alert {
+  margin-bottom: 0;
+}
+
+.workflow-strip {
+  margin: 16px 28px 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.workflow-strip::-webkit-details-marker {
+  display: none;
+}
+
+.workflow-strip-summary {
+  list-style: none;
+  cursor: pointer;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 16px;
+  padding: 16px 18px;
 }
 
-.workflow-strip-header h2 {
+.workflow-strip-summary::-webkit-details-marker {
+  display: none;
+}
+
+.workflow-summary-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  margin-left: auto;
+}
+
+.workflow-strip-summary h2 {
   margin: 6px 0 0;
-  font-size: 1.2rem;
+  font-size: 1.08rem;
   line-height: 1.15;
 }
 
 .workflow-note {
   color: var(--muted);
-  font-size: 0.92rem;
+  font-size: 0.88rem;
+}
+
+.workflow-summary-icon {
+  transition: transform var(--transition);
+}
+
+.workflow-strip[open] .workflow-summary-icon {
+  transform: rotate(180deg);
 }
 
 .workflow-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 12px;
+  padding: 0 18px 18px;
 }
 
 .workflow-stage {
@@ -255,7 +300,7 @@ textarea {
 }
 
 .main-content {
-  padding: 24px 28px 40px;
+  padding: 20px 28px 32px;
 }
 
 .page-header {
@@ -303,10 +348,44 @@ textarea {
 }
 
 .page-guide {
+  overflow: hidden;
+}
+
+.page-guide::-webkit-details-marker,
+.page-guide-summary::-webkit-details-marker {
+  display: none;
+}
+
+.page-guide-summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+}
+
+.page-guide-summary strong {
+  display: block;
+  font-size: 1rem;
+}
+
+.page-guide-summary-action {
+  font-size: 0.82rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.page-guide[open] .page-guide-summary-action {
+  visibility: hidden;
+}
+
+.page-guide-content {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
-  padding: 20px 22px;
+  gap: 16px;
+  padding: 0 18px 18px;
 }
 
 .page-guide-block p,
@@ -348,19 +427,19 @@ textarea {
 }
 
 .chart-container {
-  padding: 18px;
+  padding: 14px;
   overflow: visible;
 }
 
 .card-header {
   background: transparent;
   border-bottom: 1px solid rgba(89, 61, 38, 0.12);
-  padding: 18px 22px;
+  padding: 14px 18px;
   font-weight: 700;
 }
 
 .card-body {
-  padding: 22px;
+  padding: 18px;
 }
 
 .responsive-plot {
@@ -378,14 +457,14 @@ textarea {
 
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
-  margin-bottom: 24px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
 }
 
 .kpi-card {
-  min-height: 168px;
-  padding: 22px;
+  min-height: 132px;
+  padding: 18px;
   border-radius: var(--radius-lg);
   color: #fff8f3;
   background: linear-gradient(145deg, rgba(190, 91, 45, 0.98), rgba(128, 53, 15, 0.98));
@@ -404,12 +483,16 @@ textarea {
   background: linear-gradient(145deg, #2f4858, #1a6b67);
 }
 
+.kpi-card.danger {
+  background: linear-gradient(145deg, #7a4f3f, #5a3528);
+}
+
 .kpi-label {
   font-size: 0.82rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   opacity: 0.82;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 
 .kpi-value {
@@ -419,9 +502,9 @@ textarea {
 }
 
 .kpi-subtext {
-  margin-top: 14px;
+  margin-top: 10px;
   opacity: 0.84;
-  line-height: 1.5;
+  line-height: 1.35;
 }
 
 .data-grid {
@@ -456,7 +539,7 @@ textarea {
 }
 
 .metric-item {
-  padding: 14px 16px;
+  padding: 12px 14px;
   border-radius: var(--radius-sm);
   background: rgba(255, 248, 238, 0.74);
   border: 1px solid rgba(89, 61, 38, 0.1);
@@ -571,7 +654,7 @@ textarea.form-control:focus {
 }
 
 .table tbody td {
-  padding: 16px 18px;
+  padding: 14px 16px;
   border-color: rgba(89, 61, 38, 0.08);
   vertical-align: middle;
 }
@@ -678,7 +761,7 @@ textarea.form-control:focus {
 }
 
 .empty-state {
-  padding: 50px 24px;
+  padding: 36px 24px;
   text-align: center;
   color: var(--muted);
 }
@@ -719,6 +802,14 @@ textarea.form-control:focus {
   font-family: 'IBM Plex Mono', monospace;
   font-size: 0.92rem;
   margin-top: 10px;
+}
+
+.inline-detail-row td {
+  background: rgba(255, 248, 238, 0.84);
+}
+
+.inline-detail-panel {
+  padding: 4px 0;
 }
 
 .sidebar-toggle {
@@ -770,10 +861,16 @@ textarea.form-control:focus {
     flex-wrap: wrap;
   }
 
-  .workflow-strip-header,
+  .workflow-strip-summary,
   .hero-panel-split {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .workflow-summary-meta,
+  .topbar-actions {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .chart-container {
@@ -802,10 +899,16 @@ textarea.form-control:focus {
     padding: 16px 18px 14px;
   }
 
+  .topbar-messages,
   .workflow-strip,
   .main-content {
     padding-left: 18px;
     padding-right: 18px;
+  }
+
+  .workflow-strip {
+    margin-left: 18px;
+    margin-right: 18px;
   }
 
   .page-header {
@@ -821,7 +924,7 @@ textarea.form-control:focus {
   .three-column,
   .compact-grid,
   .status-grid,
-  .page-guide,
+  .page-guide-content,
   .workflow-grid {
     grid-template-columns: 1fr;
   }
@@ -844,7 +947,8 @@ textarea.form-control:focus {
   .card-body,
   .hero-panel,
   .action-bar,
-  .page-guide,
+  .page-guide-summary,
+  .page-guide-content,
   .chart-container {
     padding-left: 18px;
     padding-right: 18px;
@@ -857,15 +961,21 @@ textarea.form-control:focus {
 
 @media (max-width: 390px) {
   .topbar,
-  .workflow-strip,
+  .topbar-messages,
   .main-content {
     padding-left: 14px;
     padding-right: 14px;
   }
 
+  .workflow-strip {
+    margin-left: 14px;
+    margin-right: 14px;
+  }
+
   .kpi-card,
   .hero-panel,
-  .page-guide,
+  .page-guide-summary,
+  .page-guide-content,
   .metric-item {
     padding: 16px;
   }

@@ -1,19 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
+import { Alert, Button } from 'react-bootstrap';
 import {
   FaBars,
   FaBoxes,
   FaChartLine,
+  FaChevronDown,
   FaClipboardList,
   FaCog,
   FaFileAlt,
   FaIndustry,
+  FaPlayCircle,
   FaTimes,
   FaTruck,
 } from 'react-icons/fa';
 import { getErrorMessage, simulationAPI } from '../services/api';
 import type { SimulationStatus } from '../types';
-import { onSimulationUpdate } from '../utils/simulationEvents';
+import { announceSimulationUpdate, onSimulationUpdate } from '../utils/simulationEvents';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -33,7 +36,21 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [status, setStatus] = useState<SimulationStatus | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [advanceNotice, setAdvanceNotice] = useState<string | null>(null);
+  const [advanceError, setAdvanceError] = useState<string | null>(null);
+  const [advancing, setAdvancing] = useState(false);
+  const [workflowOpen, setWorkflowOpen] = useState(false);
   const location = useLocation();
+
+  const loadStatus = async () => {
+    try {
+      const response = await simulationAPI.getStatus();
+      setStatus(response.data);
+      setStatusError(null);
+    } catch (error) {
+      setStatusError(getErrorMessage(error, 'Unable to load the workflow summary.'));
+    }
+  };
 
   useEffect(() => {
     const onResize = () => {
@@ -47,16 +64,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   }, []);
 
   useEffect(() => {
-    const loadStatus = async () => {
-      try {
-        const response = await simulationAPI.getStatus();
-        setStatus(response.data);
-        setStatusError(null);
-      } catch (error) {
-        setStatusError(getErrorMessage(error, 'Unable to load the workflow summary.'));
-      }
-    };
-
     void loadStatus();
     const clear = onSimulationUpdate(() => {
       void loadStatus();
@@ -64,6 +71,23 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
     return clear;
   }, [location.pathname]);
+
+  const handleAdvanceDay = async () => {
+    try {
+      setAdvancing(true);
+      const result = await simulationAPI.advanceDay();
+      setAdvanceNotice(
+        `Simulation advanced to ${result.data.sim_date}. Created ${result.data.orders_created} new demand orders, completed ${result.data.orders_completed} manufacturing orders, and received ${result.data.purchase_orders_delivered} purchase orders.`
+      );
+      setAdvanceError(null);
+      announceSimulationUpdate();
+      await loadStatus();
+    } catch (error) {
+      setAdvanceError(getErrorMessage(error, 'Failed to advance the simulation by one day.'));
+    } finally {
+      setAdvancing(false);
+    }
+  };
 
   return (
     <div className="app-shell">
@@ -125,28 +149,42 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             <div className="topbar-eyebrow">3D Printer Production Simulator</div>
             <div className="topbar-title">Demand-to-delivery command center</div>
           </div>
-          {status ? (
-            <div className="topbar-meta">
-              <div className="topbar-meta-item">
-                <span>Simulation date</span>
-                <strong>{status.current_date}</strong>
+          <div className="topbar-actions">
+            {status ? (
+              <div className="topbar-meta">
+                <div className="topbar-meta-item">
+                  <span>Simulation date</span>
+                  <strong>{status.current_date}</strong>
+                </div>
+                <div className="topbar-meta-item">
+                  <span>Warehouse free</span>
+                  <strong>{status.available_capacity.toFixed(0)} units</strong>
+                </div>
               </div>
-              <div className="topbar-meta-item">
-                <span>Warehouse free</span>
-                <strong>{status.available_capacity.toFixed(0)} units</strong>
-              </div>
-            </div>
-          ) : null}
+            ) : null}
+            <Button variant="primary" onClick={() => void handleAdvanceDay()} disabled={advancing}>
+              <FaPlayCircle className="me-2" />
+              {advancing ? 'Advancing...' : 'Advance Day'}
+            </Button>
+          </div>
         </header>
 
-        <div className="workflow-strip" aria-label="Operational workflow">
-          <div className="workflow-strip-header">
+        <div className="topbar-messages">
+          {advanceError ? <Alert variant="danger" dismissible onClose={() => setAdvanceError(null)}>{advanceError}</Alert> : null}
+          {advanceNotice ? <Alert variant="success" dismissible onClose={() => setAdvanceNotice(null)}>{advanceNotice}</Alert> : null}
+        </div>
+
+        <details className="workflow-strip" aria-label="Operational workflow" open={workflowOpen} onToggle={(event) => setWorkflowOpen((event.target as HTMLDetailsElement).open)}>
+          <summary className="workflow-strip-summary">
             <div>
               <div className="section-kicker">Operational Flow</div>
               <h2>Follow work from demand to delivery</h2>
             </div>
-            {statusError ? <span className="workflow-note">{statusError}</span> : <span className="workflow-note">Each stage shows the live count owned by its screen.</span>}
-          </div>
+            <div className="workflow-summary-meta">
+              <span className="workflow-note">{statusError ?? 'Each stage shows the live count owned by its screen.'}</span>
+              <FaChevronDown className="workflow-summary-icon" />
+            </div>
+          </summary>
           <div className="workflow-grid">
             {status?.workflow_stages?.map((stage) => {
               const active = location.pathname === stage.route || (stage.route === '/' && location.pathname === '/');
@@ -160,7 +198,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               );
             })}
           </div>
-        </div>
+        </details>
 
         <main className="main-content">{children}</main>
       </div>
