@@ -4,10 +4,11 @@ interface PageGuideProps {
   title: string;
   controls: string;
   next: string;
-  tip?: string;
+  tip?: React.ReactNode;
+  tipLabel?: string;
 }
 
-const PageGuide: React.FC<PageGuideProps> = ({ title, controls, next, tip }) => {
+const PageGuide: React.FC<PageGuideProps> = ({ title, controls, next, tip, tipLabel = 'Why it matters' }) => {
   return (
     <details className="page-guide" aria-label={`${title} guidance`}>
       <summary className="page-guide-summary">
@@ -28,7 +29,8 @@ const PageGuide: React.FC<PageGuideProps> = ({ title, controls, next, tip }) => 
         </div>
         {tip ? (
           <div className="page-guide-tip">
-            <strong>Why it matters:</strong> {tip}
+            <strong>{tipLabel}:</strong>
+            <div>{tip}</div>
           </div>
         ) : null}
       </div>

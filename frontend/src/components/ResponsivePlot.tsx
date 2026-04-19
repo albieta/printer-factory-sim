@@ -15,6 +15,7 @@ const ResponsivePlot: React.FC<ResponsivePlotProps> = ({
   config,
   minHeight = 320,
 }) => {
+  const resolvedHeight = Math.max(minHeight + 96, 460);
   const mergedMargin = {
     t: 56,
     r: 24,
@@ -25,6 +26,7 @@ const ResponsivePlot: React.FC<ResponsivePlotProps> = ({
 
   const mergedLayout: Partial<Layout> = {
     autosize: true,
+    height: resolvedHeight,
     paper_bgcolor: 'transparent',
     plot_bgcolor: 'transparent',
     title: {
@@ -38,7 +40,7 @@ const ResponsivePlot: React.FC<ResponsivePlotProps> = ({
   };
 
   return (
-    <div className="responsive-plot" style={{ minHeight }}>
+    <div className="responsive-plot" style={{ height: resolvedHeight }}>
       <Plot
         data={data}
         layout={mergedLayout}

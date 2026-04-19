@@ -260,7 +260,8 @@ const Settings: React.FC = () => {
               <strong>Manufacturing statuses</strong>
               <div className="text-muted mt-2">Awaiting Release: demand exists but has not entered assembly.</div>
               <div className="text-muted mt-1">Queued for Production: order is released and waiting to consume shared capacity.</div>
-              <div className="text-muted mt-1">Blocked by Material Shortage: inventory is not sufficient to proceed, including orders that were already queued when the shortage is detected.</div>
+              <div className="text-muted mt-1">Awaiting Release but Blocked by Material Shortage: the planner tried to release the order, but materials were missing immediately.</div>
+              <div className="text-muted mt-1">Queued for Production but Blocked by Material Shortage: the order had already been accepted, but production later detected a shortage.</div>
               <div className="text-muted mt-1">Completed: work finished on a simulation day.</div>
               <div className="text-muted mt-1">Rejected: planner declined the order without deleting its history.</div>
             </div>

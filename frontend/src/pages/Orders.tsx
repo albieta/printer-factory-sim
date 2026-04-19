@@ -17,6 +17,39 @@ const STATUS_FILTERS = [
   { value: 'REJECTED', label: 'Rejected' },
 ];
 
+const ORDER_STATUS_GUIDE = [
+  {
+    badgeClass: 'badge-pending',
+    label: 'Awaiting Release',
+    description: 'Demand is waiting for planner review and has not entered the assembly queue yet.',
+  },
+  {
+    badgeClass: 'badge-released',
+    label: 'Queued for Production',
+    description: 'The order is accepted and waiting to consume shared assembly capacity.',
+  },
+  {
+    badgeClass: 'badge-blocked',
+    label: 'Awaiting Release but Blocked by Material Shortage',
+    description: 'The planner tried to release it, but required materials were not available.',
+  },
+  {
+    badgeClass: 'badge-blocked',
+    label: 'Queued for Production but Blocked by Material Shortage',
+    description: 'The order had already been accepted, but production later found a material shortage.',
+  },
+  {
+    badgeClass: 'badge-completed',
+    label: 'Completed',
+    description: 'Assembly finished and the order is no longer active work.',
+  },
+  {
+    badgeClass: 'badge-neutral',
+    label: 'Rejected',
+    description: 'The planner declined the order while keeping its history visible.',
+  },
+];
+
 const Orders: React.FC = () => {
   const [orders, setOrders] = useState<ManufacturingOrder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -55,9 +88,11 @@ const Orders: React.FC = () => {
     [orders]
   );
   const blockedOrders = useMemo(
-    () => orders.filter((order) => order.status === OrderStatus.BLOCKED).slice(0, 6),
+    () => orders.filter((order) => order.status === OrderStatus.BLOCKED),
     [orders]
   );
+
+  const allPendingSelected = pendingOrders.length > 0 && pendingOrders.every((order) => selectedOrders.includes(order.id));
 
   const loadRequirements = async (order: ManufacturingOrder) => {
     if (selectedOrderId === order.id) {
@@ -134,6 +169,17 @@ const Orders: React.FC = () => {
     });
   };
 
+  const toggleAllPendingOrders = () => {
+    setSelectedOrders((current) => {
+      if (allPendingSelected) {
+        return current.filter((id) => !pendingOrders.some((order) => order.id === id));
+      }
+      const next = new Set(current);
+      pendingOrders.forEach((order) => next.add(order.id));
+      return [...next];
+    });
+  };
+
   const getStatusBadge = (order: ManufacturingOrder) => {
     const variants: Record<OrderStatus, string> = {
       PENDING: 'badge-pending',
@@ -164,7 +210,21 @@ const Orders: React.FC = () => {
         title="Manufacturing orders"
         controls="This screen is where planners decide which demand becomes accepted factory work. Releasing moves an order into the assembly queue, while rejecting closes it out without deleting history."
         next="Released work appears in Assembly. If materials are missing, the order becomes blocked and can return automatically once inventory is replenished."
-        tip="Order statuses: Awaiting Release means demand is waiting for planner review. Queued for Production means the order is accepted and waiting for shared capacity. Awaiting Release but Blocked by Material Shortage means the order could not even enter the queue because stock was missing. Queued for Production but Blocked by Material Shortage means the order had already been released, but production later found missing materials. Completed means assembly finished. Rejected means the planner declined the order. Blocked orders and BOM checks are shown separately on purpose."
+        tipLabel="Order statuses"
+        tip={(
+          <div className="status-grid order-status-guide">
+            {ORDER_STATUS_GUIDE.map((status) => (
+              <div className="metric-item" key={status.label}>
+                <span className={`badge ${status.badgeClass}`}>{status.label}</span>
+                <div className="text-muted mt-2">{status.description}</div>
+              </div>
+            ))}
+            <div className="metric-item">
+              <strong>Screen behavior</strong>
+              <div className="text-muted mt-2">Blocked orders and BOM checks are shown separately on purpose so shortage recovery and material inspection do not compete for the same space.</div>
+            </div>
+          </div>
+        )}
       />
 
       {error ? <Alert variant="danger">{error}</Alert> : null}
@@ -207,8 +267,13 @@ const Orders: React.FC = () => {
             </p>
             {pendingOrders.length ? (
               <>
-                <div className="list-stack mb-3">
-                  {pendingOrders.slice(0, 10).map((order) => (
+                <div className="action-buttons mb-3">
+                  <Button variant="outline-secondary" onClick={toggleAllPendingOrders}>
+                    {allPendingSelected ? 'Clear selected orders' : 'Select all orders'}
+                  </Button>
+                </div>
+                <div className="list-stack scroll-list planner-queue-list mb-3">
+                  {pendingOrders.map((order) => (
                     <label className="metric-item" key={order.id}>
                       <div className="stat-row align-start">
                         <div>
@@ -245,7 +310,7 @@ const Orders: React.FC = () => {
           <Card.Header>Blocked by material shortage</Card.Header>
           <Card.Body>
             {blockedOrders.length ? (
-              <div className="list-stack">
+              <div className="list-stack scroll-list blocked-queue-list">
                 {blockedOrders.map((order) => (
                   <div className="metric-item" key={order.id}>
                     <div className="stat-row">
