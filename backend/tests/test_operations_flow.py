@@ -15,6 +15,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from app.api.routes.inventory import router as inventory_router  # noqa: E402
 from app.api.routes.inventory import manual_adjust_inventory  # noqa: E402
+from app.api.routes.import_export import router as import_export_router  # noqa: E402
 from app.api.routes.orders import router as orders_router  # noqa: E402
 from app.models.models import (  # noqa: E402
     BillOfMaterials,
@@ -70,6 +71,7 @@ def make_test_client(session):
     app = FastAPI()
     app.include_router(orders_router, prefix="/orders")
     app.include_router(inventory_router, prefix="/inventory")
+    app.include_router(import_export_router)
 
     def override_get_db():
         try:
@@ -375,6 +377,73 @@ def test_inventory_api_includes_pending_inbound_quantity():
         assert response.status_code == 200
         material_row = next(item for item in response.json() if item["product_id"] == material.id)
         assert material_row["pending_inbound_quantity"] == 42.0
+    finally:
+        session.close()
+
+
+def test_export_routes_return_serializable_payloads():
+    session = make_session()
+    try:
+        sim_date = date(2026, 4, 19)
+        seed_config(session, sim_date)
+        material = create_material(session, "Nozzle")
+        printer = create_printer(session, "FactoryPrinter", assembly_hours=6.0)
+        add_bom(session, printer, material, "2.5")
+        supplier = Supplier(
+            name="Nozzle Supplier",
+            product_id=material.id,
+            unit_cost=Decimal("4.50"),
+            lead_time_days=2,
+            quantity_breaks=[{"qty": 100, "price": 4.25}],
+        )
+        session.add(supplier)
+        session.commit()
+        session.refresh(supplier)
+
+        create_order(session, printer, 3, OrderStatus.PENDING, reference_code="MO-EXP-001", sim_date=sim_date)
+
+        purchase_order = PurchaseOrder(
+            reference_code="PO-EXP-001",
+            supplier_id=supplier.id,
+            product_id=material.id,
+            quantity=20,
+            issue_date=sim_date,
+            expected_delivery=sim_date,
+            status=PurchaseOrderStatus.PENDING,
+            unit_cost=Decimal("4.50"),
+        )
+        session.add(purchase_order)
+        session.add(
+            Event(
+                event_type=EventType.ORDER_CREATED,
+                sim_date=sim_date,
+                details={"order_reference": "MO-EXP-001"},
+            )
+        )
+        session.commit()
+
+        client = make_test_client(session)
+
+        full_response = client.get("/export/full-state/")
+        assert full_response.status_code == 200
+        assert 'attachment; filename="simulation_state.json"' == full_response.headers["content-disposition"]
+        full_payload = full_response.json()
+        assert full_payload["config"]["sim_date"] == "2026-04-19"
+        assert full_payload["products"][0]["type"] in {"PRINTER", "MATERIAL"}
+        assert full_payload["manufacturing_orders"][0]["reference_code"] == "MO-EXP-001"
+        assert full_payload["purchase_orders"][0]["reference_code"] == "PO-EXP-001"
+
+        inventory_response = client.get("/export/inventory-only/")
+        assert inventory_response.status_code == 200
+        inventory_payload = inventory_response.json()
+        assert inventory_payload["inventory"][0]["pending_inbound_quantity"] == 20.0
+        assert inventory_payload["products"][0]["type"] == "MATERIAL"
+
+        events_response = client.get("/export/events-only/")
+        assert events_response.status_code == 200
+        events_payload = events_response.json()
+        assert events_payload["events"][0]["event_type"] == "ORDER_CREATED"
+        assert events_payload["events"][0]["details"]["order_reference"] == "MO-EXP-001"
     finally:
         session.close()
 
