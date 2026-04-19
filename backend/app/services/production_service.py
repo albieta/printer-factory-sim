@@ -48,7 +48,7 @@ class ProductionService:
                 available_hours -= hours_used
                 results.append({"order_id": order.id, "status": "completed", "hours_used": hours_used})
             else:
-                results.append({"order_id": order.id, "status": "blocked", "reason": "Insufficient materials or hours"})
+                results.append({"order_id": order.id, "status": order.status.value.lower(), "reason": order.status_reason or "Insufficient materials or hours"})
 
         return results
 
@@ -62,12 +62,26 @@ class ProductionService:
             return False, 0
 
         bom_entries = self.db.query(BillOfMaterials).filter(BillOfMaterials.finished_product_id == order.product_id).all()
+        unavailable: list[dict] = []
         for bom in bom_entries:
             required_qty = bom.quantity * order.quantity
             inventory = self.db.query(Inventory).filter(Inventory.product_id == bom.material_id).first()
             available_qty = inventory.quantity if inventory else Decimal(0)
             if available_qty < required_qty:
-                return False, 0
+                material = self.db.query(Product).filter(Product.id == bom.material_id).first()
+                unavailable.append(
+                    {
+                        "material_id": bom.material_id,
+                        "material_name": material.name if material else "Unknown",
+                        "required": float(required_qty),
+                        "available": float(available_qty),
+                        "shortfall": float(required_qty - available_qty),
+                    }
+                )
+
+        if unavailable:
+            self.mark_order_blocked_by_materials(order, unavailable, sim_date)
+            return False, 0
 
         for bom in bom_entries:
             required_qty = bom.quantity * order.quantity
@@ -106,3 +120,27 @@ class ProductionService:
 
         self.db.commit()
         return True, required_hours
+
+    def mark_order_blocked_by_materials(self, order: ManufacturingOrder, unavailable: list[dict], sim_date: date) -> None:
+        from app.services.order_service import OrderService
+
+        order.status = OrderStatus.BLOCKED
+        order.status_reason = OrderService(self.db).build_blocked_reason(unavailable)
+        self.db.commit()
+
+        self.db.add(
+            Event(
+                event_type=EventType.ORDER_BLOCKED_MATERIALS,
+                sim_date=sim_date,
+                details={
+                    "order_id": order.id,
+                    "reference_code": order.reference_code,
+                    "product_id": order.product_id,
+                    "product_name": order.product.name if getattr(order, "product", None) else None,
+                    "quantity": order.quantity,
+                    "unavailable_materials": unavailable,
+                    "reason": order.status_reason,
+                },
+            )
+        )
+        self.db.commit()

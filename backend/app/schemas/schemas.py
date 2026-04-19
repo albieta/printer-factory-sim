@@ -111,9 +111,10 @@ class InventoryBase(BaseModel):
 
 
 class InventoryLevel(InventoryBase):
-    last_updated: datetime
+    last_updated: Optional[datetime] = None
     product_name: Optional[str] = None
     accepted_order_demand: float = 0.0
+    pending_inbound_quantity: float = 0.0
 
     class Config:
         from_attributes = True

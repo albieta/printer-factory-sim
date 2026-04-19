@@ -163,7 +163,7 @@ def calculate_effective_daily_assembly_hours(
     workers_per_line: int,
     shift_hours: float,
 ) -> float:
-    return float((assembly_lines + workers_per_line) * shift_hours)
+    return float(assembly_lines * workers_per_line * shift_hours)
 
 
 

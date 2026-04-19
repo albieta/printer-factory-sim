@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.models.models import OrderStatus
 from app.services.starter_profile import ORDER_STATUS_LABELS, PURCHASE_ORDER_STATUS_LABELS
 
 
@@ -18,6 +19,14 @@ def get_purchase_order_status_label(status: Any) -> str:
 
 
 def serialize_manufacturing_order(order: Any) -> dict[str, Any]:
+    status_label = get_order_status_label(order.status)
+    if getattr(order, "status", None) == OrderStatus.BLOCKED:
+        status_label = (
+            "Queued for Production but Blocked by Material Shortage"
+            if getattr(order, "released_date", None)
+            else "Awaiting Release but Blocked by Material Shortage"
+        )
+
     return {
         "id": order.id,
         "reference_code": order.reference_code,
@@ -25,7 +34,7 @@ def serialize_manufacturing_order(order: Any) -> dict[str, Any]:
         "product_name": order.product.name if getattr(order, "product", None) else None,
         "quantity": order.quantity,
         "status": order.status,
-        "status_label": get_order_status_label(order.status),
+        "status_label": status_label,
         "status_reason": order.status_reason,
         "created_date": order.created_date,
         "released_date": order.released_date,

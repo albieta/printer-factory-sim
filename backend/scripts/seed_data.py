@@ -9,8 +9,8 @@ from datetime import date
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from app.models.models import BillOfMaterials, Inventory, Product, ProductType, SimulationConfig, Supplier
-from app.services.starter_profile import (
+from app.models.models import BillOfMaterials, Inventory, Product, ProductType, SimulationConfig, Supplier  # noqa: E402
+from app.services.starter_profile import (  # noqa: E402
     STARTER_BOM,
     STARTER_INVENTORY,
     STARTER_MATERIALS,
@@ -18,7 +18,7 @@ from app.services.starter_profile import (
     STARTER_SUPPLIERS,
     build_starter_config,
 )
-from app.utils.database import SessionLocal, bootstrap_database
+from app.utils.database import SessionLocal, bootstrap_database  # noqa: E402
 
 
 bootstrap_database()

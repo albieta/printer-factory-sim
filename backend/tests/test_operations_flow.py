@@ -5,13 +5,18 @@ from decimal import Decimal
 from pathlib import Path
 import sys
 
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from app.api.routes.inventory import manual_adjust_inventory
-from app.models.models import (
+from app.api.routes.inventory import router as inventory_router  # noqa: E402
+from app.api.routes.inventory import manual_adjust_inventory  # noqa: E402
+from app.api.routes.orders import router as orders_router  # noqa: E402
+from app.models.models import (  # noqa: E402
     BillOfMaterials,
     Event,
     EventType,
@@ -25,16 +30,21 @@ from app.models.models import (
     SimulationConfig,
     Supplier,
 )
-from app.schemas.schemas import ManualAdjust
-from app.services.config_service import ConfigService
-from app.services.inventory_service import InventoryService
-from app.services.order_service import OrderService
-from app.services.supplier_service import PurchaseOrderService
-from app.utils.database import Base
+from app.schemas.schemas import ManualAdjust  # noqa: E402
+from app.services.config_service import ConfigService  # noqa: E402
+from app.services.inventory_service import InventoryService  # noqa: E402
+from app.services.order_service import OrderService  # noqa: E402
+from app.services.production_service import ProductionService  # noqa: E402
+from app.services.supplier_service import PurchaseOrderService  # noqa: E402
+from app.utils.database import Base, get_db  # noqa: E402
 
 
 def make_session():
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base.metadata.create_all(bind=engine)
     return TestingSessionLocal()
@@ -54,6 +64,21 @@ def seed_config(session, sim_date: date = date(2026, 4, 19)) -> SimulationConfig
     session.add(config)
     session.commit()
     return config
+
+
+def make_test_client(session):
+    app = FastAPI()
+    app.include_router(orders_router, prefix="/orders")
+    app.include_router(inventory_router, prefix="/inventory")
+
+    def override_get_db():
+        try:
+            yield session
+        finally:
+            pass
+
+    app.dependency_overrides[get_db] = override_get_db
+    return TestClient(app)
 
 
 def create_material(session, name: str) -> Product:
@@ -240,11 +265,135 @@ def test_blocked_orders_remain_blocked_when_inventory_is_still_insufficient():
         session.close()
 
 
-def test_effective_daily_assembly_hours_use_lines_plus_workers_times_hours():
+def test_effective_daily_assembly_hours_use_lines_times_workers_times_hours():
     session = make_session()
     try:
         config = seed_config(session)
         effective_hours = ConfigService(session).get_effective_daily_assembly_hours(config)
-        assert effective_hours == 40.0
+        assert effective_hours == 48.0
+    finally:
+        session.close()
+
+
+def test_released_order_turns_blocked_when_material_shortage_is_found_during_production():
+    session = make_session()
+    try:
+        sim_date = date(2026, 4, 19)
+        seed_config(session, sim_date)
+        material = create_material(session, "PLA Filament")
+        printer = create_printer(session)
+        add_bom(session, printer, material, "3.0")
+        order = create_order(session, printer, 2, OrderStatus.RELEASED, reference_code="MO-001", sim_date=sim_date)
+
+        results = ProductionService(session).execute_production(sim_date)
+        session.refresh(order)
+
+        assert results[0]["status"] == "blocked"
+        assert order.status == OrderStatus.BLOCKED
+        assert order.status_reason is not None
+        assert session.query(Event).filter(Event.event_type == EventType.ORDER_BLOCKED_MATERIALS).count() == 1
+    finally:
+        session.close()
+
+
+def test_reject_route_accepts_post_requests_with_and_without_trailing_slash():
+    session = make_session()
+    try:
+        sim_date = date(2026, 4, 19)
+        seed_config(session, sim_date)
+        printer = create_printer(session)
+        order = OrderService(session).create_order(printer.id, 1, sim_date)
+        client = make_test_client(session)
+
+        response = client.post("/orders/mfg/reject", json={"order_ids": [order.id]})
+        assert response.status_code == 200
+        assert response.json()["successful"] == [order.id]
+
+        order2 = OrderService(session).create_order(printer.id, 1, sim_date)
+        slash_response = client.post("/orders/mfg/reject/", json={"order_ids": [order2.id]})
+        assert slash_response.status_code == 200
+        assert slash_response.json()["successful"] == [order2.id]
+    finally:
+        session.close()
+
+
+def test_inventory_api_includes_accepted_order_demand():
+    session = make_session()
+    try:
+        sim_date = date(2026, 4, 19)
+        seed_config(session, sim_date)
+        material = create_material(session, "ABS Filament")
+        printer = create_printer(session)
+        add_bom(session, printer, material, "3.5")
+        create_order(session, printer, 2, OrderStatus.RELEASED, reference_code="MO-001", sim_date=sim_date)
+
+        client = make_test_client(session)
+        response = client.get("/inventory/")
+
+        assert response.status_code == 200
+        material_row = next(item for item in response.json() if item["product_id"] == material.id)
+        assert material_row["accepted_order_demand"] == 7.0
+    finally:
+        session.close()
+
+
+def test_inventory_api_includes_pending_inbound_quantity():
+    session = make_session()
+    try:
+        sim_date = date(2026, 4, 19)
+        seed_config(session, sim_date)
+        material = create_material(session, "Aluminum Frame")
+
+        supplier = Supplier(
+            name="Frame Supplier",
+            product_id=material.id,
+            unit_cost=Decimal("20.0"),
+            lead_time_days=3,
+            quantity_breaks=None,
+        )
+        session.add(supplier)
+        session.commit()
+        session.refresh(supplier)
+
+        session.add(
+            PurchaseOrder(
+                reference_code="PO-001",
+                supplier_id=supplier.id,
+                product_id=material.id,
+                quantity=42,
+                issue_date=sim_date,
+                expected_delivery=sim_date,
+                status=PurchaseOrderStatus.PENDING,
+                unit_cost=Decimal("20.0"),
+            )
+        )
+        session.commit()
+
+        client = make_test_client(session)
+        response = client.get("/inventory/")
+
+        assert response.status_code == 200
+        material_row = next(item for item in response.json() if item["product_id"] == material.id)
+        assert material_row["pending_inbound_quantity"] == 42.0
+    finally:
+        session.close()
+
+
+def test_blocked_status_label_differs_before_and_after_release():
+    session = make_session()
+    try:
+        sim_date = date(2026, 4, 19)
+        seed_config(session, sim_date)
+        printer = create_printer(session)
+        before_release = create_order(session, printer, 1, OrderStatus.BLOCKED, reference_code="MO-001", sim_date=sim_date)
+        after_release = create_order(session, printer, 1, OrderStatus.BLOCKED, reference_code="MO-002", sim_date=sim_date)
+        after_release.released_date = sim_date
+        session.commit()
+
+        payload_before = OrderService(session).serialize_order(before_release)
+        payload_after = OrderService(session).serialize_order(after_release)
+
+        assert payload_before["status_label"] == "Awaiting Release but Blocked by Material Shortage"
+        assert payload_after["status_label"] == "Queued for Production but Blocked by Material Shortage"
     finally:
         session.close()

@@ -78,7 +78,6 @@ class SimulationService:
         blocked_orders = self.db.query(ManufacturingOrder).filter(ManufacturingOrder.status == OrderStatus.BLOCKED).count()
         released_orders = self.db.query(ManufacturingOrder).filter(ManufacturingOrder.status == OrderStatus.RELEASED).count()
         completed_orders = self.db.query(ManufacturingOrder).filter(ManufacturingOrder.status == OrderStatus.COMPLETED).count()
-        rejected_orders = self.db.query(ManufacturingOrder).filter(ManufacturingOrder.status == OrderStatus.REJECTED).count()
         pending_purchase_orders = self.db.query(PurchaseOrder).filter(PurchaseOrder.status == PurchaseOrderStatus.PENDING).count()
 
         values = {
@@ -106,6 +105,7 @@ class SimulationService:
         released_orders = self.db.query(ManufacturingOrder).filter(ManufacturingOrder.status == OrderStatus.RELEASED).count()
         blocked_orders = self.db.query(ManufacturingOrder).filter(ManufacturingOrder.status == OrderStatus.BLOCKED).count()
         completed_orders = self.db.query(ManufacturingOrder).filter(ManufacturingOrder.status == OrderStatus.COMPLETED).count()
+        rejected_orders = self.db.query(ManufacturingOrder).filter(ManufacturingOrder.status == OrderStatus.REJECTED).count()
         pending_purchase_orders = self.db.query(PurchaseOrder).filter(PurchaseOrder.status == PurchaseOrderStatus.PENDING).count()
         delivered_purchase_orders = self.db.query(PurchaseOrder).filter(PurchaseOrder.status == PurchaseOrderStatus.DELIVERED).count()
         rejected_purchase_orders = self.db.query(PurchaseOrder).filter(PurchaseOrder.status == PurchaseOrderStatus.REJECTED).count()

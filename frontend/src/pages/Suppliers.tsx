@@ -5,7 +5,7 @@ import PageGuide from '../components/PageGuide';
 import { getErrorMessage, materialsAPI, purchaseOrdersAPI, suppliersAPI } from '../services/api';
 import type { Product, PurchaseOrder, Supplier } from '../types';
 import { PurchaseOrderStatus } from '../types';
-import { announceSimulationUpdate } from '../utils/simulationEvents';
+import { announceSimulationUpdate, onSimulationUpdate } from '../utils/simulationEvents';
 import { formatCurrency } from '../utils/formatters';
 import LoadingSpinner from '../components/LoadingSpinner';
 
@@ -78,6 +78,11 @@ const Suppliers: React.FC = () => {
 
   useEffect(() => {
     void loadData();
+    const clear = onSimulationUpdate(() => {
+      void loadData();
+    });
+
+    return clear;
   }, []);
 
   const materialMap = useMemo(() => new Map(materials.map((material) => [material.id, material.name])), [materials]);

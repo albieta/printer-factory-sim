@@ -7,7 +7,17 @@ from typing import List
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models.models import BillOfMaterials, Inventory, ManufacturingOrder, OrderStatus, Product, SimulationConfig
+from app.models.models import (
+    BillOfMaterials,
+    Inventory,
+    ManufacturingOrder,
+    OrderStatus,
+    Product,
+    ProductType,
+    PurchaseOrder,
+    PurchaseOrderStatus,
+    SimulationConfig,
+)
 
 
 class InventoryService:
@@ -16,6 +26,43 @@ class InventoryService:
 
     def get_all_inventory(self) -> List[Inventory]:
         return self.db.query(Inventory).all()
+
+    def get_inventory_snapshot(self) -> List[dict]:
+        accepted_order_demand = self.get_accepted_order_material_demand()
+        pending_inbound_by_material = self.get_pending_inbound_material_quantity()
+        inventory_by_product = {item.product_id: item for item in self.get_all_inventory()}
+        materials = (
+            self.db.query(Product)
+            .filter(Product.type == ProductType.MATERIAL)
+            .order_by(Product.name.asc())
+            .all()
+        )
+
+        snapshot: list[dict] = []
+        for material in materials:
+            inventory = inventory_by_product.get(material.id)
+            if inventory:
+                snapshot.append(
+                    self.serialize_inventory_level(
+                        inventory,
+                        accepted_order_demand.get(material.id, 0.0),
+                        pending_inbound_by_material.get(material.id, 0.0),
+                    )
+                )
+                continue
+
+            snapshot.append(
+                {
+                    "product_id": material.id,
+                    "product_name": material.name,
+                    "quantity": 0.0,
+                    "last_updated": None,
+                    "accepted_order_demand": accepted_order_demand.get(material.id, 0.0),
+                    "pending_inbound_quantity": pending_inbound_by_material.get(material.id, 0.0),
+                }
+            )
+
+        return snapshot
 
     def get_inventory_by_product(self, product_id: str) -> Inventory:
         inventory = self.db.query(Inventory).filter(Inventory.product_id == product_id).first()
@@ -95,7 +142,25 @@ class InventoryService:
 
         return {material_id: float(quantity) for material_id, quantity in demand_by_material.items()}
 
-    def serialize_inventory_level(self, item: Inventory, accepted_order_demand: float = 0.0) -> dict:
+    def get_pending_inbound_material_quantity(self) -> dict[str, float]:
+        pending_purchase_orders = (
+            self.db.query(PurchaseOrder)
+            .filter(PurchaseOrder.status == PurchaseOrderStatus.PENDING)
+            .all()
+        )
+
+        inbound_by_material: dict[str, int] = {}
+        for purchase_order in pending_purchase_orders:
+            inbound_by_material[purchase_order.product_id] = inbound_by_material.get(purchase_order.product_id, 0) + purchase_order.quantity
+
+        return {material_id: float(quantity) for material_id, quantity in inbound_by_material.items()}
+
+    def serialize_inventory_level(
+        self,
+        item: Inventory,
+        accepted_order_demand: float = 0.0,
+        pending_inbound_quantity: float = 0.0,
+    ) -> dict:
         product = self.db.query(Product).filter(Product.id == item.product_id).first()
         return {
             "product_id": item.product_id,
@@ -103,4 +168,5 @@ class InventoryService:
             "quantity": float(item.quantity),
             "last_updated": item.last_updated,
             "accepted_order_demand": accepted_order_demand,
+            "pending_inbound_quantity": pending_inbound_quantity,
         }

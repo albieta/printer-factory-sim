@@ -65,7 +65,7 @@ def ensure_schema() -> None:
                     assembly_lines = COALESCE(assembly_lines, 1),
                     workers_per_line = COALESCE(workers_per_line, 1),
                     shift_hours = COALESCE(shift_hours, daily_assembly_hours, :default_shift_hours),
-                    daily_assembly_hours = (COALESCE(assembly_lines, 1) + COALESCE(workers_per_line, 1)) * COALESCE(shift_hours, daily_assembly_hours, :default_shift_hours),
+                    daily_assembly_hours = COALESCE(assembly_lines, 1) * COALESCE(workers_per_line, 1) * COALESCE(shift_hours, daily_assembly_hours, :default_shift_hours),
                     warehouse_capacity = CASE
                         WHEN warehouse_capacity IS NULL THEN :default_capacity
                         WHEN warehouse_capacity = 1000 AND warehouse_capacity < (

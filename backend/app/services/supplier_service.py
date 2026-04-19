@@ -6,7 +6,7 @@ from typing import List
 
 from sqlalchemy.orm import Session
 
-from app.models.models import Event, EventType, PurchaseOrder, PurchaseOrderStatus, Supplier, Product
+from app.models.models import Event, EventType, PurchaseOrder, PurchaseOrderStatus, Supplier
 from app.schemas.schemas import PurchaseOrderCreate, SupplierCreate, SupplierUpdate
 from app.services.presentation_service import serialize_purchase_order
 from app.services.reference_service import next_reference_code

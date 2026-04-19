@@ -26,6 +26,24 @@ def get_manufacturing_orders(status: Optional[str] = Query(None), db: Session = 
     return [service.serialize_order(order) for order in orders]
 
 
+@router.post("/mfg/release", response_model=BatchReleaseResponse)
+@router.post("/mfg/release/", response_model=BatchReleaseResponse, include_in_schema=False)
+def release_orders(request: ReleaseRequest, db: Session = Depends(get_db)):
+    from app.services.config_service import ConfigService
+
+    sim_date = ConfigService(db).get_sim_date()
+    return OrderService(db).batch_release_orders(request, sim_date)
+
+
+@router.post("/mfg/reject", response_model=BatchReleaseResponse)
+@router.post("/mfg/reject/", response_model=BatchReleaseResponse, include_in_schema=False)
+def reject_orders(request: ReleaseRequest, db: Session = Depends(get_db)):
+    from app.services.config_service import ConfigService
+
+    sim_date = ConfigService(db).get_sim_date()
+    return OrderService(db).batch_reject_orders(request, sim_date)
+
+
 @router.get("/mfg/{order_id}", response_model=ManufacturingOrderDetail)
 def get_manufacturing_order(order_id: str, db: Session = Depends(get_db)):
     service = OrderService(db)
@@ -61,19 +79,3 @@ def get_order_requirements(order_id: str, db: Session = Depends(get_db)):
         )
 
     return BOMRequirements(product_id=order.product_id, product_name=product.name if product else "Unknown", requirements=requirements)
-
-
-@router.post("/mfg/release", response_model=BatchReleaseResponse)
-def release_orders(request: ReleaseRequest, db: Session = Depends(get_db)):
-    from app.services.config_service import ConfigService
-
-    sim_date = ConfigService(db).get_sim_date()
-    return OrderService(db).batch_release_orders(request, sim_date)
-
-
-@router.post("/mfg/reject", response_model=BatchReleaseResponse)
-def reject_orders(request: ReleaseRequest, db: Session = Depends(get_db)):
-    from app.services.config_service import ConfigService
-
-    sim_date = ConfigService(db).get_sim_date()
-    return OrderService(db).batch_reject_orders(request, sim_date)

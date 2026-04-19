@@ -4,7 +4,7 @@ import { FaCog, FaPlus, FaSave, FaTrash, FaUndo } from 'react-icons/fa';
 import PageGuide from '../components/PageGuide';
 import { configAPI, getErrorMessage, materialsAPI, simulationAPI } from '../services/api';
 import type { BOMEntry, Product, SimulationConfig } from '../types';
-import { announceSimulationUpdate } from '../utils/simulationEvents';
+import { announceSimulationUpdate, onSimulationUpdate } from '../utils/simulationEvents';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 const Settings: React.FC = () => {
@@ -60,6 +60,11 @@ const Settings: React.FC = () => {
 
   useEffect(() => {
     void loadSetup();
+    const clear = onSimulationUpdate(() => {
+      void loadSetup();
+    });
+
+    return clear;
   }, []);
 
   const productMap = useMemo(() => {
@@ -69,7 +74,7 @@ const Settings: React.FC = () => {
     return map;
   }, [materials, printers]);
 
-  const effectiveHours = (Number(formData.assembly_lines || 0) + Number(formData.workers_per_line || 0)) * Number(formData.shift_hours || 0);
+  const effectiveHours = Number(formData.assembly_lines || 0) * Number(formData.workers_per_line || 0) * Number(formData.shift_hours || 0);
 
   const restoreCurrentValues = () => {
     if (!config) {
@@ -245,7 +250,7 @@ const Settings: React.FC = () => {
               <strong>{effectiveHours.toFixed(1)}</strong>
             </div>
             <div className="formula-line">
-              ({formData.assembly_lines} lines + {formData.workers_per_line} workers) × {Number(formData.shift_hours || 0).toFixed(1)} hours = {effectiveHours.toFixed(1)} shared hours/day
+              {formData.assembly_lines} lines × {formData.workers_per_line} workers/line × {Number(formData.shift_hours || 0).toFixed(1)} worker hours = {effectiveHours.toFixed(1)} shared hours/day
             </div>
             <div className="text-muted mt-2">The legacy daily-assembly-hours value is still exposed for compatibility, but this workforce model is now the primary way to manage capacity.</div>
           </div>
@@ -255,8 +260,9 @@ const Settings: React.FC = () => {
               <strong>Manufacturing statuses</strong>
               <div className="text-muted mt-2">Awaiting Release: demand exists but has not entered assembly.</div>
               <div className="text-muted mt-1">Queued for Production: order is released and waiting to consume shared capacity.</div>
-              <div className="text-muted mt-1">Blocked by Material Shortage: inventory is not sufficient to proceed.</div>
+              <div className="text-muted mt-1">Blocked by Material Shortage: inventory is not sufficient to proceed, including orders that were already queued when the shortage is detected.</div>
               <div className="text-muted mt-1">Completed: work finished on a simulation day.</div>
+              <div className="text-muted mt-1">Rejected: planner declined the order without deleting its history.</div>
             </div>
             <div className="metric-item">
               <strong>Purchase-order statuses</strong>

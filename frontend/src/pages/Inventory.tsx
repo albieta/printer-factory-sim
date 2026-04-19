@@ -5,7 +5,7 @@ import PageGuide from '../components/PageGuide';
 import ResponsivePlot from '../components/ResponsivePlot';
 import { getErrorMessage, inventoryAPI, materialsAPI } from '../services/api';
 import type { CapacityInfo, InventoryLevel, Product } from '../types';
-import { announceSimulationUpdate } from '../utils/simulationEvents';
+import { announceSimulationUpdate, onSimulationUpdate } from '../utils/simulationEvents';
 import { formatNumber, formatTimestamp } from '../utils/formatters';
 import LoadingSpinner from '../components/LoadingSpinner';
 
@@ -40,6 +40,11 @@ const Inventory: React.FC = () => {
 
   useEffect(() => {
     void loadInventory();
+    const clear = onSimulationUpdate(() => {
+      void loadInventory();
+    });
+
+    return clear;
   }, []);
 
   const materialMap = useMemo(() => new Map(materials.map((material) => [material.id, material.name])), [materials]);
@@ -97,7 +102,7 @@ const Inventory: React.FC = () => {
         title="Inventory"
         controls="This screen shows the current raw-material stock and lets you make manual adjustments when you want to simulate audits, scrap, emergency receipts, or corrected counts."
         next="Inventory levels directly affect whether manufacturing orders can be released and whether future purchase orders can be received without exceeding warehouse capacity."
-        tip="A supplier is not rejecting a purchase order. If a PO ends up rejected, the warehouse could not receive it because total stored units would have exceeded the configured capacity on delivery."
+        tip="A supplier is not rejecting a purchase order. If a PO ends up rejected, the warehouse could not receive it because total stored units would have exceeded the configured capacity on delivery. Ordered not yet delivered shows inbound stock that is already on open purchase orders but has not arrived yet."
       />
 
       {error ? <Alert variant="danger">{error}</Alert> : null}
@@ -191,6 +196,7 @@ const Inventory: React.FC = () => {
                   <th>Material</th>
                   <th>Stock</th>
                   <th>Needed for accepted orders</th>
+                  <th>Ordered not yet delivered</th>
                   <th>Storage Status</th>
                   <th>Last Updated</th>
                 </tr>
@@ -203,6 +209,7 @@ const Inventory: React.FC = () => {
                       <td><strong>{item.product_name ?? materialMap.get(item.product_id) ?? item.product_id}</strong></td>
                       <td>{formatNumber(item.quantity, 2)}</td>
                       <td>{formatNumber(item.accepted_order_demand, 2)}</td>
+                      <td>{formatNumber(item.pending_inbound_quantity, 2)}</td>
                       <td><span className={`badge ${stockState.className}`}>{stockState.label}</span></td>
                       <td>{formatTimestamp(item.last_updated)}</td>
                     </tr>

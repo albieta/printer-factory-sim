@@ -7,6 +7,7 @@ import { eventsAPI, getErrorMessage, simulationAPI } from '../services/api';
 import type { Event, SimulationStatus } from '../types';
 import { describeEventDetails, formatEventType, formatNumber } from '../utils/formatters';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { onSimulationUpdate } from '../utils/simulationEvents';
 
 const Overview: React.FC = () => {
   const [status, setStatus] = useState<SimulationStatus | null>(null);
@@ -33,6 +34,11 @@ const Overview: React.FC = () => {
 
   useEffect(() => {
     void loadOverview();
+    const clear = onSimulationUpdate(() => {
+      void loadOverview();
+    });
+
+    return clear;
   }, []);
 
   const bottleneck = useMemo(() => {

@@ -65,6 +65,7 @@ export interface InventoryLevel {
   quantity: number;
   last_updated: string;
   accepted_order_demand: number;
+  pending_inbound_quantity: number;
 }
 
 export interface CapacityInfo {

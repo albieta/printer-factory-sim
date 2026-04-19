@@ -7,6 +7,7 @@ import { eventsAPI, exportAPI, getErrorMessage } from '../services/api';
 import type { Event } from '../types';
 import { describeEventDetails, formatEventType, formatTimestamp } from '../utils/formatters';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { onSimulationUpdate } from '../utils/simulationEvents';
 
 const Reports: React.FC = () => {
   const [events, setEvents] = useState<Event[]>([]);
@@ -29,6 +30,11 @@ const Reports: React.FC = () => {
 
   useEffect(() => {
     void loadEvents();
+    const clear = onSimulationUpdate(() => {
+      void loadEvents();
+    });
+
+    return clear;
   }, []);
 
   const filteredEvents = useMemo(

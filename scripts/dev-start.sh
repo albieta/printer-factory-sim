@@ -80,7 +80,7 @@ else
 
   (
     cd "$ROOT_DIR/backend"
-    exec "$ROOT_DIR/.venv/bin/python" -m uvicorn main:app --host 0.0.0.0 --port "$BACKEND_PORT"
+    exec "$ROOT_DIR/.venv/bin/python" -m uvicorn main:app --host 0.0.0.0 --port "$BACKEND_PORT" --reload --reload-dir "$ROOT_DIR/backend"
   ) &
   backend_pid=$!
   backend_started=true
@@ -113,6 +113,7 @@ echo "Frontend: http://localhost:$FRONTEND_PORT"
 echo "API docs: http://localhost:$BACKEND_PORT/docs"
 if [ "$backend_started" = false ]; then
   echo "Backend already running on $BACKEND_PORT, reusing it."
+  echo "If backend code changed, restart the existing server so the running API matches the files on disk."
 elif [ "$BACKEND_PORT" != "$DEFAULT_BACKEND_PORT" ]; then
   echo "Backend port $DEFAULT_BACKEND_PORT was busy, so the API started on $BACKEND_PORT."
 fi

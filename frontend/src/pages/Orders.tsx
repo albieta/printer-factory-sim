@@ -5,13 +5,13 @@ import PageGuide from '../components/PageGuide';
 import { getErrorMessage, ordersAPI } from '../services/api';
 import type { BOMRequirements, ManufacturingOrder } from '../types';
 import { OrderStatus } from '../types';
-import { announceSimulationUpdate } from '../utils/simulationEvents';
+import { announceSimulationUpdate, onSimulationUpdate } from '../utils/simulationEvents';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 const STATUS_FILTERS = [
   { value: 'ALL', label: 'All statuses' },
   { value: 'PENDING', label: 'Awaiting release' },
-  { value: 'RELEASED', label: 'Queued for assembly' },
+  { value: 'RELEASED', label: 'Queued for production' },
   { value: 'COMPLETED', label: 'Completed' },
   { value: 'BLOCKED', label: 'Blocked by materials' },
   { value: 'REJECTED', label: 'Rejected' },
@@ -43,6 +43,11 @@ const Orders: React.FC = () => {
 
   useEffect(() => {
     void loadOrders(filter);
+    const clear = onSimulationUpdate(() => {
+      void loadOrders(filter);
+    });
+
+    return clear;
   }, [filter]);
 
   const pendingOrders = useMemo(
@@ -159,7 +164,7 @@ const Orders: React.FC = () => {
         title="Manufacturing orders"
         controls="This screen is where planners decide which demand becomes accepted factory work. Releasing moves an order into the assembly queue, while rejecting closes it out without deleting history."
         next="Released work appears in Assembly. If materials are missing, the order becomes blocked and can return automatically once inventory is replenished."
-        tip="Blocked orders and BOM checks are now separate on purpose: the blocked list shows operational exceptions, while BOM inspection belongs directly to the order you are reviewing."
+        tip="Order statuses: Awaiting Release means demand is waiting for planner review. Queued for Production means the order is accepted and waiting for shared capacity. Awaiting Release but Blocked by Material Shortage means the order could not even enter the queue because stock was missing. Queued for Production but Blocked by Material Shortage means the order had already been released, but production later found missing materials. Completed means assembly finished. Rejected means the planner declined the order. Blocked orders and BOM checks are shown separately on purpose."
       />
 
       {error ? <Alert variant="danger">{error}</Alert> : null}

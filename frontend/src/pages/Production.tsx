@@ -4,6 +4,7 @@ import PageGuide from '../components/PageGuide';
 import { configAPI, getErrorMessage, ordersAPI } from '../services/api';
 import type { ManufacturingOrder, Product, SimulationConfig } from '../types';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { onSimulationUpdate } from '../utils/simulationEvents';
 
 const Production: React.FC = () => {
   const [releasedOrders, setReleasedOrders] = useState<ManufacturingOrder[]>([]);
@@ -36,6 +37,11 @@ const Production: React.FC = () => {
 
   useEffect(() => {
     void loadProduction();
+    const clear = onSimulationUpdate(() => {
+      void loadProduction();
+    });
+
+    return clear;
   }, []);
 
   const printerMap = useMemo(() => new Map(printers.map((printer) => [printer.id, printer])), [printers]);
@@ -62,7 +68,7 @@ const Production: React.FC = () => {
         title="Assembly"
         controls="This screen shows the active manufacturing queue and explains how much shared assembly capacity those orders will consume when the next day runs."
         next="Orders that fit inside the available daily capacity complete when the simulation advances. Remaining released work stays queued for later days."
-        tip="The simulator does not model individual worker assignments or separate production lanes yet. It uses one shared daily capacity pool, calculated as (assembly lines + workers per line) × shift hours."
+        tip="The simulator does not model individual worker assignments or separate production lanes yet. It uses one shared daily capacity pool, calculated as assembly lines × workers per line × worker hours."
       />
 
       {error ? <Alert variant="danger">{error}</Alert> : null}
@@ -113,7 +119,7 @@ const Production: React.FC = () => {
                 <span>Derived daily assembly hours</span>
                 <strong>{effectiveHours.toFixed(1)}</strong>
               </div>
-              <div className="formula-line">({config?.assembly_lines ?? 0} lines + {config?.workers_per_line ?? 0} workers) × {config?.shift_hours?.toFixed(1) ?? '0.0'} hours = {effectiveHours.toFixed(1)} shared hours/day</div>
+              <div className="formula-line">{config?.assembly_lines ?? 0} lines × {config?.workers_per_line ?? 0} workers/line × {config?.shift_hours?.toFixed(1) ?? '0.0'} worker hours = {effectiveHours.toFixed(1)} shared hours/day</div>
             </div>
           </div>
         </div>
@@ -133,7 +139,7 @@ const Production: React.FC = () => {
             </div>
             <div className="metric-item">
               <strong>Status flow is simple and explicit.</strong>
-              <div className="text-muted mt-2">Orders move from Awaiting Release to Queued for Production, then either Complete or get blocked if material shortages prevent progress.</div>
+              <div className="text-muted mt-2">Orders move from Awaiting Release to Queued for Production, then either Complete or switch to Blocked by Material Shortage if missing stock is detected when production tries to run.</div>
             </div>
           </div>
         </div>

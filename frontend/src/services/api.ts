@@ -73,8 +73,8 @@ export const ordersAPI = {
     api.get<ManufacturingOrder[]>('/orders/mfg/', { params: status ? { status } : {} }),
   getManufacturingOrder: (id: string) => api.get<ManufacturingOrder>(`/orders/mfg/${id}/`),
   getOrderRequirements: (id: string) => api.get<BOMRequirements>(`/orders/mfg/${id}/requirements/`),
-  releaseOrders: (request: ReleaseRequest) => api.post<BatchReleaseResponse>('/orders/mfg/release/', request),
-  rejectOrders: (request: ReleaseRequest) => api.post<BatchReleaseResponse>('/orders/mfg/reject/', request),
+  releaseOrders: (request: ReleaseRequest) => api.post<BatchReleaseResponse>('/orders/mfg/release', request),
+  rejectOrders: (request: ReleaseRequest) => api.post<BatchReleaseResponse>('/orders/mfg/reject', request),
 };
 
 export const purchaseOrdersAPI = {

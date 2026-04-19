@@ -3,8 +3,6 @@ import requests
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import date, datetime
-import json
 
 # Configuration
 API_BASE_URL = "http://localhost:8000/api"
