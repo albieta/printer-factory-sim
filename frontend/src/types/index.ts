@@ -196,3 +196,9 @@ export interface ManualAdjust {
   product_id: string;
   quantity: number;
 }
+
+export interface ImportResult {
+  success: boolean;
+  message: string;
+  errors?: string[];
+}

@@ -16,6 +16,7 @@ import type {
   TimeSeriesData,
   ManualAdjust,
   BOMRequirements,
+  ImportResult,
 } from '../types';
 
 const API_BASE_URL = '/api';
@@ -99,6 +100,7 @@ export const exportAPI = {
   exportFullState: () => api.get('/export/full-state/'),
   exportInventory: () => api.get('/export/inventory-only/'),
   exportEvents: () => api.get('/export/events-only/'),
+  importFullState: (payload: unknown) => api.post<ImportResult>('/import/full-state/', payload),
 };
 
 export default api;

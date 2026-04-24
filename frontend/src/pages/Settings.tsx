@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Button, Card, Form, Table } from 'react-bootstrap';
 import { FaCog, FaPlus, FaSave, FaTrash, FaUndo } from 'react-icons/fa';
 import PageGuide from '../components/PageGuide';
-import { configAPI, getErrorMessage, materialsAPI, simulationAPI } from '../services/api';
+import { configAPI, exportAPI, getErrorMessage, materialsAPI, simulationAPI } from '../services/api';
 import type { BOMEntry, Product, SimulationConfig } from '../types';
 import { announceSimulationUpdate, onSimulationUpdate } from '../utils/simulationEvents';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -14,8 +14,11 @@ const Settings: React.FC = () => {
   const [bomEntries, setBomEntries] = useState<BOMEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
 
   const [formData, setFormData] = useState({
     warehouse_capacity: '2200',
@@ -184,6 +187,34 @@ const Settings: React.FC = () => {
     }
   };
 
+  const handleImportFullState = async () => {
+    if (!importFile) {
+      return;
+    }
+
+    try {
+      setImporting(true);
+      const fileContent = await importFile.text();
+      const payload = JSON.parse(fileContent) as unknown;
+      const response = await exportAPI.importFullState(payload);
+      setMessage(response.data.message);
+      setImportFile(null);
+      if (importInputRef.current) {
+        importInputRef.current.value = '';
+      }
+      announceSimulationUpdate();
+      await loadSetup();
+    } catch (err) {
+      if (err instanceof SyntaxError) {
+        setError('The selected file is not valid JSON.');
+      } else {
+        setError(getErrorMessage(err, 'Failed to import the simulator state.'));
+      }
+    } finally {
+      setImporting(false);
+    }
+  };
+
   if (loading) {
     return <LoadingSpinner label="Loading configuration and master data..." />;
   }
@@ -202,7 +233,7 @@ const Settings: React.FC = () => {
         title="Configuration"
         controls="This is the control room for simulation rules. Warehouse capacity, workforce structure, demand settings, printer models, materials, and BOM definitions all live here."
         next="Configuration changes affect every future simulation day. Increasing capacity can relieve the assembly queue, while tighter warehouse limits can cause more rejected purchase-order receipts."
-        tip="The reset action now restores the full starter profile, including seeded inventory and the corrected warehouse capacity, so the simulation starts from a valid non-negative scenario."
+        tip="Use the full-state import control to restore a previously exported scenario. The reset action still restores the starter profile when you want to return to the seeded baseline."
       />
 
       {error ? <Alert variant="danger">{error}</Alert> : null}
@@ -277,6 +308,36 @@ const Settings: React.FC = () => {
             <Button variant="primary" onClick={saveConfig} disabled={saving}><FaSave className="me-2" />{saving ? 'Saving...' : 'Save configuration'}</Button>
             <Button variant="outline-secondary" onClick={restoreCurrentValues}><FaUndo className="me-2" />Restore current values</Button>
             <Button variant="danger" onClick={resetSimulation}><FaUndo className="me-2" />Reset to starter profile</Button>
+          </div>
+        </Card.Body>
+      </Card>
+
+      <Card className="mb-4">
+        <Card.Header><FaUndo className="me-2" />Scenario restore</Card.Header>
+        <Card.Body>
+          <p className="text-muted">
+            Import a previously exported full-state JSON snapshot to restore the simulator configuration, master data, inventory, orders, purchase orders, and event history.
+          </p>
+          <Form.Group className="mb-3">
+            <Form.Label>Full-state JSON file</Form.Label>
+            <Form.Control
+              ref={importInputRef}
+              type="file"
+              accept="application/json,.json"
+              onChange={(event) => {
+                const input = event.target as HTMLInputElement;
+                setImportFile(input.files?.[0] ?? null);
+              }}
+            />
+            <Form.Text>
+              Use a file exported from the full-state download in Analytics.
+            </Form.Text>
+          </Form.Group>
+          <div className="action-buttons">
+            <Button variant="primary" onClick={handleImportFullState} disabled={!importFile || importing}>
+              <FaUndo className="me-2" />
+              {importing ? 'Importing scenario...' : 'Import full state'}
+            </Button>
           </div>
         </Card.Body>
       </Card>

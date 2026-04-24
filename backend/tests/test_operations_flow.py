@@ -31,7 +31,7 @@ from app.models.models import (  # noqa: E402
     SimulationConfig,
     Supplier,
 )
-from app.schemas.schemas import ManualAdjust  # noqa: E402
+from app.schemas.schemas import ManualAdjust, PurchaseOrderCreate  # noqa: E402
 from app.services.config_service import ConfigService  # noqa: E402
 from app.services.inventory_service import InventoryService  # noqa: E402
 from app.services.order_service import OrderService  # noqa: E402
@@ -444,6 +444,97 @@ def test_export_routes_return_serializable_payloads():
         events_payload = events_response.json()
         assert events_payload["events"][0]["event_type"] == "ORDER_CREATED"
         assert events_payload["events"][0]["details"]["order_reference"] == "MO-EXP-001"
+    finally:
+        session.close()
+
+
+def test_full_state_import_restores_exported_snapshot():
+    session = make_session()
+    try:
+        sim_date = date(2026, 4, 19)
+        seed_config(session, sim_date)
+        material = create_material(session, "Restorable Material")
+        printer = create_printer(session, "Restorable Printer", assembly_hours=5.0)
+        add_bom(session, printer, material, "2.0")
+        InventoryService(session).update_inventory(material.id, Decimal("12"), "add")
+
+        supplier = Supplier(
+            name="Restore Supplier",
+            product_id=material.id,
+            unit_cost=Decimal("9.75"),
+            lead_time_days=2,
+            quantity_breaks=[{"qty": 25, "price": 8.95}],
+        )
+        session.add(supplier)
+        session.commit()
+        session.refresh(supplier)
+
+        created_order = OrderService(session).create_order(printer.id, 3, sim_date)
+        created_po = PurchaseOrderService(session).create_purchase_order(
+            PurchaseOrderCreate(
+                supplier_id=supplier.id,
+                product_id=material.id,
+                quantity=20,
+            ),
+            sim_date,
+        )
+        printer_id = printer.id
+        material_id = material.id
+        created_order_id = created_order.id
+        created_po_id = created_po.id
+
+        client = make_test_client(session)
+        export_response = client.get("/export/full-state/")
+        assert export_response.status_code == 200
+        payload = export_response.json()
+
+        config = session.query(SimulationConfig).first()
+        assert config is not None
+        config.warehouse_capacity = 999
+        printer.name = "Wrong Printer Name"
+        inventory = session.query(Inventory).filter(Inventory.product_id == material.id).first()
+        assert inventory is not None
+        inventory.quantity = Decimal("1")
+        session.query(Event).delete()
+        session.query(PurchaseOrder).delete()
+        session.query(ManufacturingOrder).delete()
+        session.commit()
+
+        import_response = client.post("/import/full-state/", json=payload)
+        assert import_response.status_code == 200
+        assert import_response.json()["success"] is True
+
+        session.expire_all()
+        restored_config = session.query(SimulationConfig).first()
+        restored_printer = session.query(Product).filter(Product.id == printer_id).first()
+        restored_inventory = session.query(Inventory).filter(Inventory.product_id == material_id).first()
+        restored_order = session.query(ManufacturingOrder).filter(ManufacturingOrder.id == created_order_id).first()
+        restored_po = session.query(PurchaseOrder).filter(PurchaseOrder.id == created_po_id).first()
+
+        assert restored_config is not None
+        assert restored_config.warehouse_capacity == 5000
+        assert restored_config.sim_date == sim_date
+        assert restored_printer is not None
+        assert restored_printer.name == "Restorable Printer"
+        assert restored_inventory is not None
+        assert float(restored_inventory.quantity) == 12.0
+        assert restored_order is not None
+        assert restored_order.quantity == 3
+        assert restored_po is not None
+        assert restored_po.quantity == 20
+        assert session.query(Event).count() == len(payload["events"])
+    finally:
+        session.close()
+
+
+def test_import_route_rejects_missing_sections():
+    session = make_session()
+    try:
+        client = make_test_client(session)
+        response = client.post("/import/full-state/", json={"products": []})
+
+        assert response.status_code == 400
+        assert "missing required sections" in response.json()["detail"]
     finally:
         session.close()
 
