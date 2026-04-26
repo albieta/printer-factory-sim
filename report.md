@@ -15,6 +15,66 @@ Our simulator follows the entity structure proposed in the course brief, but ada
 
 Two small additions became especially useful during implementation. First, manufacturing orders and purchase orders both include `reference_code` fields, which made the UI and event log much easier to read than raw UUIDs. Second, both also include `status_reason`, which let us explain why an order was blocked or rejected without building a much more complex state model.
 
+```mermaid
+erDiagram
+    PRODUCT ||--o{ BILL_OF_MATERIALS : finished_product
+    PRODUCT ||--o{ BILL_OF_MATERIALS : material
+    PRODUCT ||--o{ INVENTORY : stocked_as
+    PRODUCT ||--o{ MANUFACTURING_ORDER : ordered_as
+    PRODUCT ||--o{ PURCHASE_ORDER : purchased_as
+    PRODUCT ||--o{ SUPPLIER : supplied_product
+    SUPPLIER ||--o{ PURCHASE_ORDER : fulfills
+
+    PRODUCT {
+        string id
+        string name
+        string type
+        float assembly_hours
+        datetime created_at
+    }
+
+    BILL_OF_MATERIALS {
+        string id
+        string finished_product_id
+        string material_id
+        float quantity
+    }
+
+    INVENTORY {
+        string product_id
+        float quantity
+        datetime last_updated
+    }
+
+    SUPPLIER {
+        string id
+        string name
+        string product_id
+        float unit_cost
+        int lead_time_days
+    }
+
+    MANUFACTURING_ORDER {
+        string id
+        string reference_code
+        string product_id
+        int quantity
+        string status
+        date created_date
+    }
+
+    PURCHASE_ORDER {
+        string id
+        string reference_code
+        string supplier_id
+        string product_id
+        int quantity
+        date issue_date
+        date expected_delivery
+        string status
+    }
+```
+
 ### 1.2 Architecture choices
 
 The final architecture is a FastAPI backend with SQLAlchemy and SQLite, plus a React + Vite frontend. This differs from the original course suggestion, which proposed Streamlit for the UI and recommended SimPy for the simulation engine.
@@ -22,6 +82,26 @@ The final architecture is a FastAPI backend with SQLAlchemy and SQLite, plus a R
 We initially started in the Streamlit direction, but the generated software was having issues there. Codex proposed trying a different stack, and we decided to test React + Vite early in the project. After seeing the results, we agreed that it was a better option and updated the stack while the cost of switching was still low. That decision gave us a clearer interface structure and a stronger separation between frontend and backend concerns.
 
 We also chose not to use SimPy. Instead, we implemented our own simulation engine through backend services that advance the state day by day. We made that choice deliberately because we wanted to experiment with the AI capabilities more directly. Rather than relying on a separate simulation framework, we wanted to see how far the coding agent could go in helping us define and implement the simulation rules ourselves.
+
+```mermaid
+flowchart LR
+    UI[React + Vite Frontend]
+    API[FastAPI Routes]
+    Services[Service Layer]
+    DB[(SQLite Database)]
+
+    UI -->|HTTP / JSON| API
+    API --> Services
+    Services --> DB
+
+    Services --> Config[ConfigService]
+    Services --> Orders[OrderService]
+    Services --> Inventory[InventoryService]
+    Services --> Suppliers[SupplierService]
+    Services --> Production[ProductionService]
+    Services --> Simulation[SimulationService]
+    Services --> Events[EventService]
+```
 
 ### 1.3 API and UI interaction
 
