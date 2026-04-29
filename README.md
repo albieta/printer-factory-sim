@@ -1,6 +1,18 @@
 # 3D Printer Production Simulator
 
-A full-stack manufacturing simulation for a 3D printer factory. The app includes a React frontend for operations workflows and a FastAPI backend for simulation logic, inventory, suppliers, orders, and reporting data.
+A multi-process simulation of a 3D printer supply chain.
+
+- The **manufacturer** app (Week 5, completed) is a full-stack manufacturing
+  simulation for a 3D printer factory: a React frontend for the planner's
+  workflows and a FastAPI backend for simulation logic, inventory,
+  suppliers, orders, and reporting.
+- The **provider** app (Week 6, in progress) is a separate process that
+  sells raw materials to the manufacturer over a REST API. The
+  manufacturer talks to it via HTTP. The provider has a CLI but no UI.
+
+Each app owns its own SQLite database and its own simulated-day counter.
+See [`CLAUDE.md`](CLAUDE.md) for the project conventions and
+[`docs/PRD-week6.md`](docs/PRD-week6.md) for the current plan.
 
 ## Stack
 
@@ -60,9 +72,9 @@ If you are not using the devcontainer, set the project up with:
 python3 -m venv .venv
 .venv/bin/pip install --upgrade pip
 .venv/bin/pip install -r requirements.txt
-cd frontend && npm ci
-cd ../backend && ../.venv/bin/python scripts/seed_data.py
-cd ..
+cd manufacturer/frontend && npm ci
+cd ../backend && ../../.venv/bin/python scripts/seed_data.py
+cd ../..
 bash scripts/dev-start.sh
 ```
 
@@ -80,10 +92,18 @@ Those files are useful if a service fails during container startup.
 ```text
 printer-factory-sim/
 ├── .devcontainer/            # Devcontainer bootstrap and auto-start scripts
-├── backend/                  # FastAPI app, services, models, routes, seed script
-├── frontend/                 # React + Vite frontend
-├── scripts/dev-start.sh      # Manual one-command local runner
-├── requirements.txt          # Python dependencies
+├── CLAUDE.md                 # Project conventions / Claude Code contract
+├── docs/
+│   ├── PRD.md                # Week 5 original PRD
+│   ├── PRD2.md               # Week 5 retrospective PRD
+│   ├── PRD-week6.md          # Week 6 PRD (multi-app supply chain)
+│   └── report.md             # Week 5 report (in progress)
+├── manufacturer/             # Week 5 app, extended in Week 6
+│   ├── backend/              # FastAPI app, services, models, routes, seed script
+│   └── frontend/             # React + Vite + TS frontend
+├── provider/                 # Week 6 provider app (placeholder; not yet implemented)
+├── scripts/dev-start.sh      # Starts the manufacturer (backend + frontend)
+├── requirements.txt          # Shared Python dependencies for both apps
 └── README.md
 ```
 
@@ -123,8 +143,8 @@ The seed script is idempotent. If the database is already initialized, it exits 
 Run tests:
 
 ```bash
-cd backend
-../.venv/bin/pytest
+cd manufacturer/backend
+../../.venv/bin/pytest
 ```
 
 Run linting:
@@ -136,5 +156,5 @@ Run linting:
 Run type checking:
 
 ```bash
-.venv/bin/mypy --strict backend
+.venv/bin/mypy --strict manufacturer
 ```

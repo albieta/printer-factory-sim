@@ -12,9 +12,9 @@ if [ ! -x "$ROOT_DIR/.venv/bin/python" ]; then
   exit 1
 fi
 
-if [ ! -d "$ROOT_DIR/frontend/node_modules" ]; then
-  echo "Missing frontend dependencies in $ROOT_DIR/frontend/node_modules" >&2
-  echo "Run 'cd frontend && npm ci' before starting the app." >&2
+if [ ! -d "$ROOT_DIR/manufacturer/frontend/node_modules" ]; then
+  echo "Missing frontend dependencies in $ROOT_DIR/manufacturer/frontend/node_modules" >&2
+  echo "Run 'cd manufacturer/frontend && npm ci' before starting the app." >&2
   exit 1
 fi
 
@@ -79,8 +79,8 @@ else
   export VITE_BACKEND_PORT="$BACKEND_PORT"
 
   (
-    cd "$ROOT_DIR/backend"
-    exec "$ROOT_DIR/.venv/bin/python" -m uvicorn main:app --host 0.0.0.0 --port "$BACKEND_PORT" --reload --reload-dir "$ROOT_DIR/backend"
+    cd "$ROOT_DIR/manufacturer/backend"
+    exec "$ROOT_DIR/.venv/bin/python" -m uvicorn main:app --host 0.0.0.0 --port "$BACKEND_PORT" --reload --reload-dir "$ROOT_DIR/manufacturer/backend"
   ) &
   backend_pid=$!
   backend_started=true
@@ -92,7 +92,7 @@ else
   export VITE_BACKEND_PORT="$BACKEND_PORT"
 
   (
-    cd "$ROOT_DIR/frontend"
+    cd "$ROOT_DIR/manufacturer/frontend"
     exec ./node_modules/.bin/vite --host 0.0.0.0 --port "$FRONTEND_PORT" --strictPort
   ) &
   frontend_pid=$!

@@ -21,13 +21,13 @@ S3/function-calling/.env
 S3/math-solver/.env
 
 # Node / frontend artifacts
-frontend/node_modules/
-frontend/node_modules/.vite/
-frontend/.vite/
+**/node_modules/
+**/node_modules/.vite/
+**/.vite/
 *.tsbuildinfo
 
 # Local app data
-backend/printer_factory_sim.db
+*.db
 
 # Tool caches
 .pytest_cache/
@@ -50,3 +50,7 @@ htmlcov/
 .idea/
 
 .DS_Store
+
+# AI-generated files
+.claude
+.qwen

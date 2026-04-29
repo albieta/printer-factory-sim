@@ -39,7 +39,7 @@ wait_for_http() {
 
 workspace_ready() {
   [ -f "$SETUP_COMPLETE_FILE" ] && return 0
-  [ -x "$ROOT_DIR/.venv/bin/python" ] && [ -x "$ROOT_DIR/frontend/node_modules/.bin/vite" ]
+  [ -x "$ROOT_DIR/.venv/bin/python" ] && [ -x "$ROOT_DIR/manufacturer/frontend/node_modules/.bin/vite" ]
 }
 
 wait_for_workspace() {
@@ -64,12 +64,12 @@ if ! wait_for_workspace "$DEPENDENCY_WAIT_SECONDS"; then
 fi
 
 start_backend() {
-  nohup bash -lc "cd '$ROOT_DIR/backend' && exec '$ROOT_DIR/.venv/bin/python' -m uvicorn main:app --host 0.0.0.0 --port 8000" \
+  nohup bash -lc "cd '$ROOT_DIR/manufacturer/backend' && exec '$ROOT_DIR/.venv/bin/python' -m uvicorn main:app --host 0.0.0.0 --port 8000" \
     >"$LOG_DIR/backend.log" 2>&1 < /dev/null &
 }
 
 start_frontend() {
-  nohup bash -lc "cd '$ROOT_DIR/frontend' && exec ./node_modules/.bin/vite --host 0.0.0.0 --port 3000 --strictPort" \
+  nohup bash -lc "cd '$ROOT_DIR/manufacturer/frontend' && exec ./node_modules/.bin/vite --host 0.0.0.0 --port 3000 --strictPort" \
     >"$LOG_DIR/frontend.log" 2>&1 < /dev/null &
 }
 

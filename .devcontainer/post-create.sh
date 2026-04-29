@@ -25,12 +25,12 @@ fi
 "$ROOT_DIR/.venv/bin/pip" install -r "$ROOT_DIR/requirements.txt"
 
 (
-  cd "$ROOT_DIR/frontend"
+  cd "$ROOT_DIR/manufacturer/frontend"
   npm ci
 )
 
 (
-  cd "$ROOT_DIR/backend"
+  cd "$ROOT_DIR/manufacturer/backend"
   "$ROOT_DIR/.venv/bin/python" scripts/seed_data.py
 )
 
