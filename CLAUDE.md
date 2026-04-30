@@ -208,18 +208,33 @@ Tests:
   manufacturer app. The Streamlit prototype in
   `manufacturer/backend/app/ui/dashboard.py` is legacy; the React app is
   the active UI. Report (`docs/report.md`) is in progress.
-- **Week 6 — kicked off, not implemented.** The repository has been
-  restructured into `manufacturer/`, `provider/`, and `docs/`. PRD and this
-  CLAUDE.md exist. No provider code, no CLI code, no manufacturer
-  outbound-HTTP integration yet.
-- **Next steps** (see `docs/PRD-week6.md` §10):
-  1. Provider data model + seed loader.
-  2. Provider service layer.
-  3. Provider FastAPI routes + Swagger.
+- **Week 6 — milestone #2 done.** Repo is restructured. Provider data
+  model + seed loader are in place:
+  - SQLAlchemy models in `provider/app/models/models.py` for `Product`,
+    `PricingTier`, `Stock`, `Order`, `Event`, `SimState`, with the full
+    `OrderStatus` lifecycle enum and an `EventType` enum.
+  - `provider/app/utils/database.py` mirrors the manufacturer's
+    bootstrap and writes to `provider/provider.db`.
+  - `provider/seed/seed-provider.json` ships a starter catalogue covering
+    all six manufacturer-BOM materials (Control Board, Stepper Motor,
+    Aluminum Frame, PLA Filament, ABS Filament, LCD Screen) with
+    1 / 20+ / 200+ pricing tiers, 3–7 day lead times, initial stock.
+  - `provider/scripts/seed_data.py` is idempotent and validated; runs
+    via `cd provider && ../.venv/bin/python scripts/seed_data.py`.
+  - `provider/tests/test_models_seed.py` (7 tests) covers schema
+    round-trip, seed file validation, BOM coverage, and four error
+    cases. Manufacturer's 14 tests still pass.
+  - `typer==0.9.0` added to `requirements.txt`.
+- **Still missing for Week 6** (see `docs/PRD-week6.md` §10):
+  1. ~~Provider data model + seed loader.~~ ✅
+  2. Provider service layer (catalog, orders, day-advance, pricing-tier
+     calculation, stock check, ironclad-rule enforcement).
+  3. Provider FastAPI routes + Swagger (`provider/main.py` + `app/api/`).
   4. `provider-cli` (Typer).
   5. `manufacturer-cli` (Typer).
-  6. Manufacturer outbound integration (extend `Supplier`,
-     `SimulationService.advance_day` polling).
+  6. Manufacturer outbound integration (`Supplier.external_provider_url`
+     column, httpx call on PO create, `SimulationService.advance_day`
+     polling, port move 8000 → 8002, `manufacturer/config.json`).
   7. End-to-end five-day scenario as the acceptance gate.
 
 ## Working with Claude Code in this repo

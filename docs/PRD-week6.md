@@ -226,10 +226,25 @@ The same service layer powers the REST API. No business logic lives in
 
 `provider/seed/seed-provider.json` ships with the starting catalogue. The
 catalog **must** cover every raw material the manufacturer's BOMs reference,
-so the Week 6 scenario can run without manual stitching. At minimum:
-`pcb`, `extruder`, `kit_piezas`, `cables_conexion`, `transformador_24v`,
-`enchufe_schuko`, `sensor_autonivel`. Lead times default to 3 days; pricing
-tiers follow a 1 / 20 / 200 break pattern.
+so the Week 6 scenario can run without manual stitching. The shipped seed
+covers the six manufacturer-BOM materials defined in
+`manufacturer/backend/app/services/starter_profile.py:STARTER_MATERIALS`:
+
+| Product         | Lead time | Tiers (qty → unit price)                | Initial stock |
+|-----------------|-----------|------------------------------------------|---------------|
+| Control Board   | 3 days    | 1 → 40 / 20 → 32 / 200 → 25              | 500           |
+| Stepper Motor   | 5 days    | 1 → 15 / 100 → 13.50 / 400 → 12          | 800           |
+| Aluminum Frame  | 7 days    | 1 → 45 / 50 → 42 / 200 → 38              | 300           |
+| PLA Filament    | 4 days    | 1 → 25 / 100 → 22.50 / 500 → 20          | 1000          |
+| ABS Filament    | 5 days    | 1 → 30 / 150 → 27 / 600 → 24             | 800           |
+| LCD Screen      | 6 days    | 1 → 50 / 50 → 47 / 250 → 43              | 200           |
+
+All pricing tiers start at `min_qty = 1` so any positive quantity has a
+defined price (enforced by `validate_seed`). Lead times are at least 1
+day, enforcing the ironclad rule. The brief's example used Spanish part
+names (`pcb`, `extrusor`, `kit_piezas`, …) but those are illustrative —
+our manufacturer's BOM is in English and that is what the seed must
+match.
 
 ## 6. Manufacturer changes (incremental, Week 5 → Week 6)
 
@@ -308,16 +323,21 @@ page just learns to display/edit the new column on `Supplier`.
 
 ## 8. Five-day manual scenario (acceptance criteria)
 
+The brief's PCB-themed scenario is mapped onto our actual catalogue: in
+this repo, the role of "PCB" is played by **Control Board** (lead time
+3 days, tier-20 unit price 32 EUR — identical numbers to the brief).
+
 Setup (day 0):
 
-- Provider stock: 500 PCBs, lead time 3 days, tier-20 price 32 EUR.
-- Manufacturer inventory: 5 PCBs.
+- Provider stock: 500 Control Boards, lead time 3 days, tier-20 unit
+  price 32 EUR.
+- Manufacturer inventory: 5 Control Boards.
 - Both apps on day 0.
 
 Day 1:
 
 1. `manufacturer-cli suppliers catalog "ChipSupply Co"` — shows the provider's catalog.
-2. `manufacturer-cli purchase create --supplier "ChipSupply Co" --product pcb --qty 50`
+2. `manufacturer-cli purchase create --supplier "ChipSupply Co" --product "Control Board" --qty 50`
 3. Provider shows the order `pending` with `expected_delivery_day = 4`.
 4. `provider-cli day advance` then `manufacturer-cli day advance`.
 
@@ -325,8 +345,8 @@ Days 2–3: advance both apps each day. Order remains in flight. Event logs
 grow on both sides.
 
 Day 4: advance provider first (it ships and delivers); then manufacturer
-(it polls, sees the delivery, adds 50 PCBs). `manufacturer-cli inventory`
-shows 55 PCBs.
+(it polls, sees the delivery, adds 50 Control Boards).
+`manufacturer-cli inventory` shows 55 Control Boards.
 
 Day 5: place a second order; advance; verify. Same shape, different numbers.
 
@@ -348,8 +368,8 @@ a small `pytest` smoke, the week is done.
 
 ## 10. Milestones (suggested, mapped to GitHub Issues)
 
-1. Repo restructure (this PRD, CLAUDE.md, folder moves).
-2. Provider data model + SQLAlchemy + seed loader.
+1. ✅ Repo restructure (this PRD, CLAUDE.md, folder moves).
+2. ✅ Provider data model + SQLAlchemy + seed loader.
 3. Provider service layer (catalog, orders, day advance).
 4. Provider FastAPI routes + Swagger.
 5. Provider CLI (`provider-cli`).

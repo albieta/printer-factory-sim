@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "initial_day": 0,
+  "products": [
+    {
+      "name": "Control Board",
+      "description": "Main printer controller PCB",
+      "lead_time_days": 3,
+      "pricing": [
+        { "min_qty": 1,   "unit_price": 40.00 },
+        { "min_qty": 20,  "unit_price": 32.00 },
+        { "min_qty": 200, "unit_price": 25.00 }
+      ],
+      "initial_stock": 500
+    },
+    {
+      "name": "Stepper Motor",
+      "description": "NEMA-17 stepper motor",
+      "lead_time_days": 5,
+      "pricing": [
+        { "min_qty": 1,   "unit_price": 15.00 },
+        { "min_qty": 100, "unit_price": 13.50 },
+        { "min_qty": 400, "unit_price": 12.00 }
+      ],
+      "initial_stock": 800
+    },
+    {
+      "name": "Aluminum Frame",
+      "description": "Pre-cut aluminum extrusion frame kit",
+      "lead_time_days": 7,
+      "pricing": [
+        { "min_qty": 1,   "unit_price": 45.00 },
+        { "min_qty": 50,  "unit_price": 42.00 },
+        { "min_qty": 200, "unit_price": 38.00 }
+      ],
+      "initial_stock": 300
+    },
+    {
+      "name": "PLA Filament",
+      "description": "1 kg PLA filament spool",
+      "lead_time_days": 4,
+      "pricing": [
+        { "min_qty": 1,   "unit_price": 25.00 },
+        { "min_qty": 100, "unit_price": 22.50 },
+        { "min_qty": 500, "unit_price": 20.00 }
+      ],
+      "initial_stock": 1000
+    },
+    {
+      "name": "ABS Filament",
+      "description": "1 kg ABS filament spool",
+      "lead_time_days": 5,
+      "pricing": [
+        { "min_qty": 1,   "unit_price": 30.00 },
+        { "min_qty": 150, "unit_price": 27.00 },
+        { "min_qty": 600, "unit_price": 24.00 }
+      ],
+      "initial_stock": 800
+    },
+    {
+      "name": "LCD Screen",
+      "description": "Color LCD touchscreen module",
+      "lead_time_days": 6,
+      "pricing": [
+        { "min_qty": 1,   "unit_price": 50.00 },
+        { "min_qty": 50,  "unit_price": 47.00 },
+        { "min_qty": 250, "unit_price": 43.00 }
+      ],
+      "initial_stock": 200
+    }
+  ]
+}
