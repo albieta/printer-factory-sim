@@ -1,0 +1,72 @@
+"""Append-only audit log for the provider app.
+
+Every meaningful state change in the provider — order placement,
+shipment, delivery, day advance, stock movement — writes a row into the
+`events` table inside the same SQLAlchemy transaction that performs the
+state change. The PRD (`docs/PRD-week6.md`) calls this the audit trail
+and CLAUDE.md is explicit that "if you skip the event row, the audit log
+lies".
+
+This module is the only place that knows how to construct an `Event`
+row, so callers do not need to remember the column names.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Optional
+
+from sqlalchemy.orm import Session
+
+from app.models.models import Event, EventType
+
+
+class EventService:
+    """Thin wrapper that appends rows to the `events` table.
+
+    The service does not commit; it is the caller's responsibility to
+    flush/commit so the event row stays in the same transaction as the
+    state change it documents.
+    """
+
+    def __init__(self, db: Session) -> None:
+        self.db = db
+
+    def record(
+        self,
+        event_type: EventType,
+        sim_day: int,
+        *,
+        entity_type: Optional[str] = None,
+        entity_id: Optional[int] = None,
+        details: Optional[dict[str, Any]] = None,
+    ) -> Event:
+        """Append one event row and return the unflushed instance."""
+
+        event = Event(
+            event_type=event_type,
+            sim_day=sim_day,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            details=details,
+        )
+        self.db.add(event)
+        return event
+
+    def list(
+        self,
+        *,
+        event_type: Optional[EventType] = None,
+        from_day: Optional[int] = None,
+        to_day: Optional[int] = None,
+        limit: int = 100,
+    ) -> list[Event]:
+        """Return events ordered newest-first, with optional filters."""
+
+        query = self.db.query(Event)
+        if event_type is not None:
+            query = query.filter(Event.event_type == event_type)
+        if from_day is not None:
+            query = query.filter(Event.sim_day >= from_day)
+        if to_day is not None:
+            query = query.filter(Event.sim_day <= to_day)
+        return query.order_by(Event.id.desc()).limit(limit).all()

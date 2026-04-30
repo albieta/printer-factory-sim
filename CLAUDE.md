@@ -208,8 +208,8 @@ Tests:
   manufacturer app. The Streamlit prototype in
   `manufacturer/backend/app/ui/dashboard.py` is legacy; the React app is
   the active UI. Report (`docs/report.md`) is in progress.
-- **Week 6 — milestone #2 done.** Repo is restructured. Provider data
-  model + seed loader are in place:
+- **Week 6 — milestone #3 done.** Provider data model, seed loader, and
+  service layer are in place:
   - SQLAlchemy models in `provider/app/models/models.py` for `Product`,
     `PricingTier`, `Stock`, `Order`, `Event`, `SimState`, with the full
     `OrderStatus` lifecycle enum and an `EventType` enum.
@@ -221,14 +221,32 @@ Tests:
     1 / 20+ / 200+ pricing tiers, 3–7 day lead times, initial stock.
   - `provider/scripts/seed_data.py` is idempotent and validated; runs
     via `cd provider && ../.venv/bin/python scripts/seed_data.py`.
-  - `provider/tests/test_models_seed.py` (7 tests) covers schema
-    round-trip, seed file validation, BOM coverage, and four error
-    cases. Manufacturer's 14 tests still pass.
+  - Service layer in `provider/app/services/`:
+    - `event_service.py` — append-only audit log (caller commits).
+    - `sim_state_service.py` — `current_day` get/set with self-healing
+      bootstrap if the row is missing.
+    - `catalog_service.py` — read-only product / stock lookups.
+    - `pricing.py` — quantity-break tier picker; rejects non-positive
+      quantities and tier sets that don't start at 1.
+    - `order_service.py` — `create_order` enforces the stock check and
+      the ironclad rule (`expected_delivery_day = placed_day +
+      lead_time_days`, ≥ 1). Stock is decremented atomically with
+      placement; insufficient stock yields a `REJECTED` order without
+      reservation.
+    - `day_service.py` — `advance()` walks `PENDING → CONFIRMED →
+      IN_PROGRESS → SHIPPED`, delivers `SHIPPED` orders whose
+      `expected_delivery_day` is due, increments the day, writes a
+      `DAY_ADVANCED` summary event.
+  - Provider tests grew from 7 to 26: pricing tiers, order placement
+    (8 cases including ironclad rule and reject path), day-advance
+    state transitions (5 cases), and a provider-side rehearsal of the
+    Week 6 five-day scenario. Manufacturer's 14 tests still pass;
+    `ruff` is clean.
   - `typer==0.9.0` added to `requirements.txt`.
 - **Still missing for Week 6** (see `docs/PRD-week6.md` §10):
   1. ~~Provider data model + seed loader.~~ ✅
-  2. Provider service layer (catalog, orders, day-advance, pricing-tier
-     calculation, stock check, ironclad-rule enforcement).
+  2. ~~Provider service layer (catalog, orders, day-advance, pricing-tier
+     calculation, stock check, ironclad-rule enforcement).~~ ✅
   3. Provider FastAPI routes + Swagger (`provider/main.py` + `app/api/`).
   4. `provider-cli` (Typer).
   5. `manufacturer-cli` (Typer).
