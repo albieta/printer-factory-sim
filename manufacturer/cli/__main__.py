@@ -1,0 +1,256 @@
+from __future__ import annotations
+
+import json
+import os
+import sys
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Iterator
+
+import typer
+import click
+from sqlalchemy.orm import Session
+from typer.core import TyperArgument, TyperOption
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1] / "backend"
+os.chdir(BACKEND_ROOT)
+sys.path.insert(0, str(BACKEND_ROOT))
+
+from app.models.models import Product, Supplier  # noqa: E402
+from app.schemas.schemas import PurchaseOrderCreate  # noqa: E402
+from app.services.config_service import ConfigService  # noqa: E402
+from app.services.inventory_service import InventoryService  # noqa: E402
+from app.services.simulation_service import SimulationService  # noqa: E402
+from app.services.supplier_service import PurchaseOrderService, SupplierService  # noqa: E402
+from app.utils.database import SessionLocal, bootstrap_database  # noqa: E402
+
+
+def _patch_typer_click_help() -> None:
+    """Keep Typer 0.9 help working with newer Click make_metavar signatures."""
+
+    click_parameter_make_metavar = click.core.Parameter.make_metavar
+    click_argument_make_metavar = click.core.Argument.make_metavar
+
+    def parameter_make_metavar(self, ctx=None):  # type: ignore[no-untyped-def]
+        if ctx is None:
+            ctx = click.Context(click.Command(name="manufacturer-cli"))
+        return click_parameter_make_metavar(self, ctx)
+
+    def click_argument_make_metavar_compat(self, ctx=None):  # type: ignore[no-untyped-def]
+        if ctx is None:
+            ctx = click.Context(click.Command(name="manufacturer-cli"))
+        return click_argument_make_metavar(self, ctx)
+
+    def option_make_metavar(self, ctx=None):  # type: ignore[no-untyped-def]
+        if ctx is None:
+            ctx = click.Context(click.Command(name="manufacturer-cli"))
+        return click_parameter_make_metavar(self, ctx)
+
+    def argument_make_metavar(self, ctx=None):  # type: ignore[no-untyped-def]
+        if ctx is None:
+            ctx = click.Context(click.Command(name="manufacturer-cli"))
+        if self.metavar is not None:
+            return self.metavar
+        var = (self.name or "").upper()
+        if not self.required:
+            var = f"[{var}]"
+        type_var = self.type.get_metavar(param=self, ctx=ctx)
+        if type_var:
+            var += f":{type_var}"
+        if self.nargs != 1:
+            var += "..."
+        return var
+
+    click.core.Parameter.make_metavar = parameter_make_metavar  # type: ignore[method-assign]
+    click.core.Option.make_metavar = parameter_make_metavar  # type: ignore[method-assign]
+    click.core.Argument.make_metavar = click_argument_make_metavar_compat  # type: ignore[method-assign]
+    TyperOption.make_metavar = option_make_metavar  # type: ignore[method-assign]
+    TyperArgument.make_metavar = argument_make_metavar  # type: ignore[method-assign]
+
+
+_patch_typer_click_help()
+
+app = typer.Typer(help="Manufacturer CLI for the 3D printer factory simulator.")
+suppliers_app = typer.Typer(help="Supplier commands.")
+purchase_app = typer.Typer(help="Purchase-order commands.")
+day_app = typer.Typer(help="Simulated-day commands.")
+
+app.add_typer(suppliers_app, name="suppliers")
+app.add_typer(purchase_app, name="purchase")
+app.add_typer(day_app, name="day")
+
+
+@contextmanager
+def _session() -> Iterator[Session]:
+    bootstrap_database()
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def _echo_rows(headers: list[str], rows: list[list[object]]) -> None:
+    typer.echo(" | ".join(headers))
+    typer.echo("-+-".join("-" * len(header) for header in headers))
+    for row in rows:
+        typer.echo(" | ".join(str(value) for value in row))
+
+
+def _find_supplier(db: Session, name: str) -> list[Supplier]:
+    return db.query(Supplier).filter(Supplier.name == name).all()
+
+
+def _find_product(db: Session, selector: str) -> Product | None:
+    product = db.query(Product).filter(Product.id == selector).first()
+    if product is not None:
+        return product
+    return db.query(Product).filter(Product.name == selector).first()
+
+
+@suppliers_app.command("list")
+def list_suppliers() -> None:
+    """List manufacturer-side suppliers."""
+
+    with _session() as db:
+        service = SupplierService(db)
+        rows = []
+        for supplier in service.get_all_suppliers():
+            item = service.serialize_supplier(supplier)
+            rows.append(
+                [
+                    item["id"],
+                    item["name"],
+                    item["product_name"],
+                    item["unit_cost"],
+                    item["lead_time_days"],
+                ]
+            )
+        _echo_rows(["id", "supplier", "product", "unit_cost", "lead"], rows)
+
+
+@suppliers_app.command("catalog")
+def supplier_catalog(supplier_name: str) -> None:
+    """Show products and internal price breaks for one supplier."""
+
+    with _session() as db:
+        suppliers = _find_supplier(db, supplier_name)
+        if not suppliers:
+            raise typer.BadParameter(f"Supplier {supplier_name!r} not found")
+
+        rows = []
+        for supplier in suppliers:
+            tiers = "base"
+            if supplier.quantity_breaks:
+                tiers = ", ".join(
+                    f"{tier['qty']}+ @ {tier['price']}"
+                    for tier in supplier.quantity_breaks
+                )
+            rows.append(
+                [
+                    supplier.product_id,
+                    supplier.product.name if supplier.product else "Unknown",
+                    supplier.unit_cost,
+                    supplier.lead_time_days,
+                    tiers,
+                ]
+            )
+        _echo_rows(["product_id", "product", "base_cost", "lead", "breaks"], rows)
+
+
+@purchase_app.command("create")
+def create_purchase(
+    supplier: str = typer.Option(..., "--supplier"),
+    product: str = typer.Option(..., "--product"),
+    qty: int = typer.Option(..., "--qty"),
+) -> None:
+    """Create a manufacturer purchase order."""
+
+    if qty <= 0:
+        raise typer.BadParameter("qty must be positive")
+
+    with _session() as db:
+        product_row = _find_product(db, product)
+        if product_row is None:
+            raise typer.BadParameter(f"Product {product!r} not found")
+
+        matching_suppliers = [
+            row
+            for row in _find_supplier(db, supplier)
+            if row.product_id == product_row.id
+        ]
+        if not matching_suppliers:
+            raise typer.BadParameter(
+                f"Supplier {supplier!r} does not sell product {product_row.name!r}"
+            )
+
+        sim_date = ConfigService(db).get_sim_date()
+        order = PurchaseOrderService(db).create_purchase_order(
+            PurchaseOrderCreate(
+                supplier_id=matching_suppliers[0].id,
+                product_id=product_row.id,
+                quantity=qty,
+            ),
+            sim_date,
+        )
+        payload = PurchaseOrderService(db).serialize_purchase_order(order)
+        typer.echo(json.dumps(payload, indent=2, default=str))
+
+
+@purchase_app.command("list")
+def list_purchase_orders() -> None:
+    """List manufacturer purchase orders."""
+
+    with _session() as db:
+        service = PurchaseOrderService(db)
+        rows = []
+        for order in service.get_all_purchase_orders():
+            item = service.serialize_purchase_order(order)
+            rows.append(
+                [
+                    item["reference_code"],
+                    item["supplier_name"],
+                    item["product_name"],
+                    item["quantity"],
+                    item["status"].value,
+                    item["expected_delivery"],
+                ]
+            )
+        _echo_rows(["ref", "supplier", "product", "qty", "status", "due"], rows)
+
+
+@app.command()
+def inventory() -> None:
+    """Show current material inventory."""
+
+    with _session() as db:
+        rows = [
+            [
+                item["product_name"],
+                item["quantity"],
+                item["pending_inbound_quantity"],
+                item["accepted_order_demand"],
+            ]
+            for item in InventoryService(db).get_inventory_snapshot()
+        ]
+        _echo_rows(["product", "on_hand", "inbound", "demand"], rows)
+
+
+@day_app.command("advance")
+def advance_day() -> None:
+    """Advance the manufacturer by one simulated day."""
+
+    with _session() as db:
+        typer.echo(json.dumps(SimulationService(db).advance_day(), indent=2, default=str))
+
+
+@day_app.command("current")
+def current_day() -> None:
+    """Show current manufacturer simulation date."""
+
+    with _session() as db:
+        typer.echo(ConfigService(db).get_sim_date().isoformat())
+
+
+if __name__ == "__main__":
+    app()

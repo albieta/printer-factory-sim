@@ -370,10 +370,10 @@ a small `pytest` smoke, the week is done.
 
 1. ✅ Repo restructure (this PRD, CLAUDE.md, folder moves).
 2. ✅ Provider data model + SQLAlchemy + seed loader.
-3. Provider service layer (catalog, orders, day advance).
-4. Provider FastAPI routes + Swagger.
-5. Provider CLI (`provider-cli`).
-6. Manufacturer CLI (`manufacturer-cli`).
+3. ✅ Provider service layer (catalog, orders, day advance).
+4. ✅ Provider FastAPI routes + Swagger.
+5. ✅ Provider CLI (`provider-cli`).
+6. ✅ Manufacturer CLI (`manufacturer-cli`).
 7. Manufacturer outbound integration (`Supplier.external_provider_url`,
    create-order call, polling on day advance).
 8. Five-day scenario passes by hand.
