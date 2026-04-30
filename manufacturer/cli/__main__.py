@@ -9,6 +9,7 @@ from typing import Iterator
 
 import typer
 import click
+import httpx
 from sqlalchemy.orm import Session
 from typer.core import TyperArgument, TyperOption
 
@@ -124,9 +125,10 @@ def list_suppliers() -> None:
                     item["product_name"],
                     item["unit_cost"],
                     item["lead_time_days"],
+                    item["external_provider_url"] or "-",
                 ]
             )
-        _echo_rows(["id", "supplier", "product", "unit_cost", "lead"], rows)
+        _echo_rows(["id", "supplier", "product", "unit_cost", "lead", "external"], rows)
 
 
 @suppliers_app.command("catalog")
@@ -137,6 +139,32 @@ def supplier_catalog(supplier_name: str) -> None:
         suppliers = _find_supplier(db, supplier_name)
         if not suppliers:
             raise typer.BadParameter(f"Supplier {supplier_name!r} not found")
+
+        external_supplier = next((row for row in suppliers if row.external_provider_url), None)
+        if external_supplier is not None:
+            try:
+                with httpx.Client(timeout=10.0) as client:
+                    response = client.get(f"{external_supplier.external_provider_url.rstrip('/')}/api/catalog")
+                    response.raise_for_status()
+            except httpx.HTTPError as exc:
+                raise typer.BadParameter(f"Provider catalog request failed: {exc}") from exc
+
+            products = response.json().get("products", [])
+            rows = [
+                [
+                    product.get("id"),
+                    product.get("name"),
+                    product.get("lead_time_days"),
+                    product.get("stock_quantity"),
+                    ", ".join(
+                        f"{tier['min_quantity']}+ @ {tier['unit_price']}"
+                        for tier in product.get("pricing_tiers", [])
+                    ),
+                ]
+                for product in products
+            ]
+            _echo_rows(["provider_id", "product", "lead", "stock", "tiers"], rows)
+            return
 
         rows = []
         for supplier in suppliers:

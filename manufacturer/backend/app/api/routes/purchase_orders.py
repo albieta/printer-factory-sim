@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 
@@ -21,5 +21,10 @@ def create_purchase_order(po: PurchaseOrderCreate, db: Session = Depends(get_db)
 
     sim_date = ConfigService(db).get_sim_date()
     service = PurchaseOrderService(db)
-    order = service.create_purchase_order(po, sim_date)
+    try:
+        order = service.create_purchase_order(po, sim_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     return service.serialize_purchase_order(order)

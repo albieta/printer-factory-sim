@@ -115,7 +115,7 @@ ORDER_STATUS_LABELS = {
 PURCHASE_ORDER_STATUS_LABELS = {
     "PENDING": "In Transit",
     "DELIVERED": "Received",
-    "REJECTED": "Rejected: Warehouse Full",
+    "REJECTED": "Rejected",
 }
 
 WORKFLOW_STAGE_DEFS: list[dict[str, str]] = [

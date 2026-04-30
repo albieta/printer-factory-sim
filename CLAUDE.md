@@ -173,7 +173,7 @@ Manufacturer (Week 5 surface, unchanged from the user's perspective):
 ```bash
 bash scripts/dev-start.sh
 # → React UI at http://localhost:3000
-# → FastAPI at  http://localhost:8000  (will move to 8002 once Week 6 ports land)
+# → FastAPI at  http://localhost:8002
 ```
 
 Provider (once implemented in Week 6):
@@ -192,14 +192,15 @@ Manufacturer CLI (once implemented in Week 6):
 ```bash
 .venv/bin/python -m manufacturer.cli suppliers list
 .venv/bin/python -m manufacturer.cli purchase create \
-    --supplier "ChipSupply Co" --product pcb --qty 50
+    --supplier "ChipSupply Co" --product "Control Board" --qty 50
 .venv/bin/python -m manufacturer.cli day advance
 ```
 
 Tests:
 
 ```bash
-.venv/bin/pytest manufacturer/backend/tests provider/tests
+.venv/bin/pytest manufacturer/backend/tests
+.venv/bin/pytest provider/tests
 ```
 
 ## Current state
@@ -208,8 +209,9 @@ Tests:
   manufacturer app. The Streamlit prototype in
   `manufacturer/backend/app/ui/dashboard.py` is legacy; the React app is
   the active UI. Report (`docs/report.md`) is in progress.
-- **Week 6 — milestone #6 done.** Provider data model, seed loader, service
-  layer, FastAPI routes, CLI, and manufacturer CLI are complete:
+- **Week 6 — milestones #7 and #8 done.** Provider data model, seed loader,
+  service layer, FastAPI routes, CLI, manufacturer CLI, outbound provider
+  integration, and the five-day acceptance smoke are complete:
   - Data model: SQLAlchemy in `provider/app/models/models.py` with full
     `OrderStatus` lifecycle and `EventType` enum. ✅
   - Database: `provider/app/utils/database.py` → `provider.db`. ✅
@@ -231,15 +233,28 @@ Tests:
     `python -m manufacturer.cli`):
     - Commands: `suppliers list/catalog`, `purchase create/list`,
       `inventory`, `day advance/current`, `export`, `import`. ✅
+  - **Manufacturer outbound integration**:
+    - `Supplier.external_provider_url`, `Supplier.external_product_id`, and
+      `PurchaseOrder.external_order_id` are migrated onto existing SQLite DBs. ✅
+    - `manufacturer/config.json` wires `ChipSupply Co` to the provider
+      on `http://localhost:8001`; the manufacturer now runs on port 8002. ✅
+    - Creating a PO for an external supplier posts to provider
+      `POST /api/orders`; day advance polls `GET /api/orders/{id}` and
+      receives inventory only after the provider reports `DELIVERED`. ✅
+  - **Five-day smoke**:
+    - `manufacturer/backend/tests/test_operations_flow.py` covers the
+      provider handoff with `httpx.MockTransport`: 5 → 55 Control Boards
+      after provider delivery. ✅
+    - Provider's own five-day scenario test remains green. ✅
 - **Still missing for Week 6** (see `docs/PRD-week6.md` §10):
   1. ~~Provider data model + seed loader.~~ ✅
   2. ~~Provider service layer.~~ ✅
   3. ~~Provider FastAPI routes + Swagger.~~ ✅
   4. ~~Provider CLI.~~ ✅
   5. ~~Manufacturer CLI.~~ ✅
-  6. Manufacturer outbound integration (`Supplier.external_provider_url`,
-     httpx calls on PO create, polling on day advance, port 8000 → 8002).
-  7. End-to-end five-day scenario as the acceptance gate.
+  6. ~~Manufacturer outbound integration (`Supplier.external_provider_url`,
+     httpx calls on PO create, polling on day advance, port 8000 → 8002).~~ ✅
+  7. ~~End-to-end five-day scenario as the acceptance gate.~~ ✅
 
 ## Working with Claude Code in this repo
 

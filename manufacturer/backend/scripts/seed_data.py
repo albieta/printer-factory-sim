@@ -93,6 +93,11 @@ def seed_database() -> None:
         db.commit()
         print("✓ Initialized inventory with starting stock")
 
+        db.close()
+        bootstrap_database()
+        print("✓ Applied configured external provider suppliers")
+        db = SessionLocal()
+
         print("\n✓ Database seeding completed successfully!")
         print(f"\nSimulation start date: {date.today()}")
     except Exception as exc:

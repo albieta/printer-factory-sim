@@ -303,6 +303,7 @@ const Suppliers: React.FC = () => {
                   <th>Base Unit Cost</th>
                   <th>Lead Time</th>
                   <th>Pricing Tiers</th>
+                  <th>Provider</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -319,6 +320,13 @@ const Suppliers: React.FC = () => {
                           {tier.qty}+ @ {formatCurrency(Number(tier.price))}
                         </span>
                       )) : <span className="text-muted">No tier pricing</span>}
+                    </td>
+                    <td>
+                      {supplier.external_provider_url ? (
+                        <span className="badge badge-info">External #{supplier.external_product_id ?? '-'}</span>
+                      ) : (
+                        <span className="text-muted">Local</span>
+                      )}
                     </td>
                     <td>
                       <Button variant="outline-secondary" size="sm" onClick={() => void deleteSupplier(supplier.id)}>
@@ -349,6 +357,7 @@ const Suppliers: React.FC = () => {
                   <th>Unit Cost</th>
                   <th>Total Cost</th>
                   <th>Expected Delivery</th>
+                  <th>Provider Order</th>
                   <th>Status</th>
                   <th>Status Reason</th>
                 </tr>
@@ -363,6 +372,7 @@ const Suppliers: React.FC = () => {
                     <td>{formatCurrency(Number(po.unit_cost))}</td>
                     <td>{formatCurrency(po.total_cost)}</td>
                     <td>{po.expected_delivery}</td>
+                    <td>{po.external_order_id ?? '-'}</td>
                     <td>
                       <span className={`badge ${po.status === PurchaseOrderStatus.DELIVERED ? 'badge-completed' : po.status === PurchaseOrderStatus.REJECTED ? 'badge-blocked' : 'badge-pending'}`}>
                         {po.status_label ?? po.status}

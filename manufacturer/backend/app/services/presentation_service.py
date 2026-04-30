@@ -61,4 +61,5 @@ def serialize_purchase_order(order: Any) -> dict[str, Any]:
         "status_reason": order.status_reason,
         "unit_cost": float(order.unit_cost),
         "total_cost": total_cost,
+        "external_order_id": getattr(order, "external_order_id", None),
     }

@@ -27,6 +27,7 @@ export enum EventType {
   ORDER_COMPLETED = 'ORDER_COMPLETED',
   PO_CREATED = 'PO_CREATED',
   PO_DELIVERED = 'PO_DELIVERED',
+  PO_REJECTED = 'PO_REJECTED',
   PO_REJECTED_CAPACITY = 'PO_REJECTED_CAPACITY',
   MATERIAL_CONSUMED = 'MATERIAL_CONSUMED',
   INVENTORY_ADDED = 'INVENTORY_ADDED',
@@ -57,6 +58,8 @@ export interface Supplier {
   unit_cost: number;
   lead_time_days: number;
   quantity_breaks?: Array<{ qty: number; price: number }>;
+  external_provider_url?: string | null;
+  external_product_id?: number | null;
 }
 
 export interface InventoryLevel {
@@ -105,6 +108,7 @@ export interface PurchaseOrder {
   status_reason?: string | null;
   unit_cost: number;
   total_cost: number;
+  external_order_id?: number | null;
 }
 
 export interface Event {

@@ -36,6 +36,7 @@ class EventType(str, Enum):
     ORDER_COMPLETED = "ORDER_COMPLETED"
     PO_CREATED = "PO_CREATED"
     PO_DELIVERED = "PO_DELIVERED"
+    PO_REJECTED = "PO_REJECTED"
     PO_REJECTED_CAPACITY = "PO_REJECTED_CAPACITY"
     MATERIAL_CONSUMED = "MATERIAL_CONSUMED"
     INVENTORY_ADDED = "INVENTORY_ADDED"
@@ -84,6 +85,8 @@ class SupplierBase(BaseModel):
     unit_cost: float
     lead_time_days: int
     quantity_breaks: Optional[list[dict[str, Any]]] = None
+    external_provider_url: Optional[str] = None
+    external_product_id: Optional[int] = None
 
 
 class SupplierCreate(SupplierBase):
@@ -95,6 +98,8 @@ class SupplierUpdate(BaseModel):
     unit_cost: Optional[float] = None
     lead_time_days: Optional[int] = None
     quantity_breaks: Optional[list[dict[str, Any]]] = None
+    external_provider_url: Optional[str] = None
+    external_product_id: Optional[int] = None
 
 
 class Supplier(SupplierBase):
@@ -193,6 +198,7 @@ class PurchaseOrder(BaseModel):
     status_reason: Optional[str] = None
     unit_cost: float
     total_cost: float
+    external_order_id: Optional[int] = None
 
     class Config:
         from_attributes = True

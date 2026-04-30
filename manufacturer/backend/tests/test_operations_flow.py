@@ -7,11 +7,15 @@ import sys
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import httpx
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-sys.path.append(str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+for module_name in list(sys.modules):
+    if module_name == "app" or module_name.startswith("app."):
+        del sys.modules[module_name]
 
 from app.api.routes.inventory import router as inventory_router  # noqa: E402
 from app.api.routes.inventory import manual_adjust_inventory  # noqa: E402
@@ -36,6 +40,7 @@ from app.services.config_service import ConfigService  # noqa: E402
 from app.services.inventory_service import InventoryService  # noqa: E402
 from app.services.order_service import OrderService  # noqa: E402
 from app.services.production_service import ProductionService  # noqa: E402
+from app.services.simulation_service import SimulationService  # noqa: E402
 from app.services.supplier_service import PurchaseOrderService  # noqa: E402
 from app.utils.database import Base, get_db  # noqa: E402
 
@@ -224,6 +229,119 @@ def test_blocked_orders_unblock_after_purchase_order_delivery():
         assert order.status == OrderStatus.RELEASED
         assert order.status_reason is None
         assert session.query(Event).filter(Event.event_type == EventType.ORDER_UNBLOCKED_MATERIALS).count() == 1
+    finally:
+        session.close()
+
+
+def test_external_provider_purchase_order_delivers_after_provider_poll(monkeypatch):
+    session = make_session()
+    try:
+        sim_date = date(2026, 4, 19)
+        config = seed_config(session, sim_date)
+        config.demand_distribution_mean = 0
+        config.demand_distribution_variance = 0
+        session.commit()
+
+        material = create_material(session, "Control Board")
+        inventory = session.query(Inventory).filter_by(product_id=material.id).one()
+        inventory.quantity = Decimal("5")
+        supplier = Supplier(
+            name="ChipSupply Co",
+            product_id=material.id,
+            unit_cost=Decimal("40.00"),
+            lead_time_days=3,
+            quantity_breaks=[{"qty": 20, "price": 32.00}],
+            external_provider_url="http://provider.test",
+            external_product_id=1,
+        )
+        session.add(supplier)
+        session.commit()
+        session.refresh(supplier)
+
+        poll_statuses = ["SHIPPED", "SHIPPED", "DELIVERED"]
+        seen_requests: list[tuple[str, str]] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen_requests.append((request.method, request.url.path))
+            if request.method == "POST" and request.url.path == "/api/orders":
+                return httpx.Response(
+                    201,
+                    json={
+                        "schema_version": 1,
+                        "order": {
+                            "id": 17,
+                            "buyer": "manufacturer",
+                            "product_id": 1,
+                            "product_name": "Control Board",
+                            "quantity": 50,
+                            "unit_price": "32.00",
+                            "total_price": "1600.00",
+                            "placed_day": 1,
+                            "expected_delivery_day": 4,
+                            "shipped_day": None,
+                            "delivered_day": None,
+                            "status": "PENDING",
+                            "status_reason": None,
+                            "created_at": "2026-04-19T00:00:00",
+                        },
+                    },
+                )
+
+            status = poll_statuses.pop(0)
+            return httpx.Response(
+                200,
+                json={
+                    "schema_version": 1,
+                    "order": {
+                        "id": 17,
+                        "buyer": "manufacturer",
+                        "product_id": 1,
+                        "product_name": "Control Board",
+                        "quantity": 50,
+                        "unit_price": "32.00",
+                        "total_price": "1600.00",
+                        "placed_day": 1,
+                        "expected_delivery_day": 4,
+                        "shipped_day": 2 if status != "PENDING" else None,
+                        "delivered_day": 4 if status == "DELIVERED" else None,
+                        "status": status,
+                        "status_reason": None,
+                        "created_at": "2026-04-19T00:00:00",
+                    },
+                },
+            )
+
+        transport = httpx.MockTransport(handler)
+        real_client = httpx.Client
+
+        def client_factory(*args, **kwargs):
+            kwargs["transport"] = transport
+            return real_client(*args, **kwargs)
+
+        monkeypatch.setattr("app.services.supplier_service.httpx.Client", client_factory)
+
+        po = PurchaseOrderService(session).create_purchase_order(
+            PurchaseOrderCreate(supplier_id=supplier.id, product_id=material.id, quantity=50),
+            sim_date,
+        )
+        assert po.external_order_id == 17
+        assert po.unit_cost == Decimal("32.00")
+        assert po.status == PurchaseOrderStatus.PENDING
+
+        for _ in range(3):
+            SimulationService(session).advance_day()
+
+        session.refresh(po)
+        session.refresh(inventory)
+        assert po.status == PurchaseOrderStatus.DELIVERED
+        assert po.actual_delivery == date(2026, 4, 22)
+        assert inventory.quantity == Decimal("55")
+        assert seen_requests == [
+            ("POST", "/api/orders"),
+            ("GET", "/api/orders/17"),
+            ("GET", "/api/orders/17"),
+            ("GET", "/api/orders/17"),
+        ]
     finally:
         session.close()
 

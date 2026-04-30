@@ -1,0 +1,23 @@
+{
+  "manufacturer": {
+    "port": 8002,
+    "providers": [
+      {
+        "name": "ChipSupply Co",
+        "url": "http://localhost:8001",
+        "products": [
+          {
+            "manufacturer_product_name": "Control Board",
+            "external_product_id": 1,
+            "unit_cost": 40.0,
+            "lead_time_days": 3,
+            "quantity_breaks": [
+              { "qty": 20, "price": 32.0 },
+              { "qty": 200, "price": 25.0 }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

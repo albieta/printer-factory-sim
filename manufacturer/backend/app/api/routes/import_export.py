@@ -83,6 +83,8 @@ def serialize_supplier(supplier: Supplier) -> dict[str, Any]:
         "unit_cost": supplier.unit_cost,
         "lead_time_days": supplier.lead_time_days,
         "quantity_breaks": supplier.quantity_breaks,
+        "external_provider_url": supplier.external_provider_url,
+        "external_product_id": supplier.external_product_id,
     }
 
 
@@ -331,6 +333,8 @@ def import_full_state_payload(db: Session, payload: dict[str, Any]) -> ImportRes
                     unit_cost=parse_decimal_value(supplier["unit_cost"], f"suppliers[{index}].unit_cost"),
                     lead_time_days=int(supplier["lead_time_days"]),
                     quantity_breaks=supplier.get("quantity_breaks"),
+                    external_provider_url=supplier.get("external_provider_url"),
+                    external_product_id=supplier.get("external_product_id"),
                 )
             )
 
@@ -405,6 +409,7 @@ def import_full_state_payload(db: Session, payload: dict[str, Any]) -> ImportRes
                     ),
                     status_reason=purchase_order.get("status_reason"),
                     unit_cost=parse_decimal_value(purchase_order["unit_cost"], f"purchase_orders[{index}].unit_cost"),
+                    external_order_id=purchase_order.get("external_order_id"),
                 )
             )
 

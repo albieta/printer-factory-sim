@@ -54,6 +54,8 @@ class Supplier(Base):
     unit_cost = Column(DECIMAL(10, 2), nullable=False)
     lead_time_days = Column(Integer, nullable=False)
     quantity_breaks = Column(JSON, nullable=True)
+    external_provider_url = Column(String(255), nullable=True)
+    external_product_id = Column(Integer, nullable=True)
 
     product = relationship("Product")
     purchase_orders = relationship("PurchaseOrder", back_populates="supplier")
@@ -116,6 +118,7 @@ class PurchaseOrder(Base):
     status = Column(Enum(PurchaseOrderStatus), nullable=False, default=PurchaseOrderStatus.PENDING)
     status_reason = Column(String(255), nullable=True)
     unit_cost = Column(DECIMAL(10, 2), nullable=False)
+    external_order_id = Column(Integer, nullable=True)
 
     supplier = relationship("Supplier", back_populates="purchase_orders")
     product = relationship("Product")
@@ -131,6 +134,7 @@ class EventType(PyEnum):
     ORDER_COMPLETED = "ORDER_COMPLETED"
     PO_CREATED = "PO_CREATED"
     PO_DELIVERED = "PO_DELIVERED"
+    PO_REJECTED = "PO_REJECTED"
     PO_REJECTED_CAPACITY = "PO_REJECTED_CAPACITY"
     MATERIAL_CONSUMED = "MATERIAL_CONSUMED"
     INVENTORY_ADDED = "INVENTORY_ADDED"

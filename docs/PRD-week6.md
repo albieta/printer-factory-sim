@@ -15,7 +15,7 @@ customers are out of scope until Week 7.
 
 ## Document status
 
-- Date: 2026-04-29
+- Date: 2026-04-30
 - Replaces (for Week 6 work) the role of `docs/PRD.md` and `docs/PRD2.md`,
   which describe the Week 5 single-app system. Those PRDs stay in the
   repository as historical artefacts.
@@ -27,7 +27,7 @@ customers are out of scope until Week 7.
 By the end of Week 6 the repository contains two cooperating processes:
 
 - **manufacturer** (Week 5 app, extended): React + Vite + TypeScript frontend
-  on port 3000, FastAPI backend on port 8000, SQLite database. Existing UI
+  on port 3000, FastAPI backend on port 8002, SQLite database. Existing UI
   and existing REST API are preserved. New: a Python CLI (`manufacturer-cli`)
   and outbound HTTP calls to the provider for procurement.
 - **provider** (new): a headless service. FastAPI backend on port 8001 with
@@ -276,9 +276,9 @@ match.
   ```
 
   Note the manufacturer's port moves from 8000 (Week 5) to **8002**, to match
-  the Week 6 brief's process layout. The dev-container scripts and
-  `scripts/dev-start.sh` are updated accordingly. The frontend's Vite proxy
-  must follow.
+  the Week 6 brief's process layout. `scripts/dev-start.sh` and the
+  frontend's Vite proxy follow this port; dev-container startup automation
+  may still be overridden locally.
 
 ### 6.2 Bridging Week 5 suppliers to Week 6 providers
 
@@ -288,11 +288,14 @@ procurement *internally*. We do **not** delete them. Instead:
 - Each Week 5 `Supplier` row gains an optional `external_provider_url`
   column (and `external_product_id`). When set, it is a real upstream
   provider; when null, it is a stub-only Week 5 supplier kept for legacy
-  scenarios.
+  scenarios. Local `PurchaseOrder` rows also store `external_order_id`
+  when the provider accepts the order.
 - When the user (CLI or React UI) creates a purchase order against a
   supplier whose `external_provider_url` is set, the manufacturer service
   layer posts to that provider's `POST /api/orders` and stores the
-  provider's order id alongside the local row.
+  provider's order id alongside the local row. The provider's returned
+  unit price and expected lead-time delta become the manufacturer's PO
+  cost and expected delivery date.
 - On `day advance`, for each pending purchase order whose supplier is
   external, the manufacturer polls the provider's `GET /api/orders/{id}`.
   When the provider reports `delivered`, the manufacturer adds the parts to
@@ -363,8 +366,18 @@ a small `pytest` smoke, the week is done.
   - unit tests for `advance_day()` (state transitions, event rows),
   - one end-to-end test that boots FastAPI in-process (TestClient), places
     an order, advances days, and asserts delivery.
-- A new shared smoke test starts both processes and runs the five-day
-  scenario via the two CLIs. This is the gate for the Week 6 demo.
+- A manufacturer smoke test (`test_external_provider_purchase_order_delivers_after_provider_poll`)
+  uses `httpx.MockTransport` to verify the cross-app handoff without
+  booting real processes: create external PO, poll the provider status on
+  day advance, and receive 50 Control Boards only once the provider
+  reports `DELIVERED`.
+- Because both apps expose a top-level Python package named `app`, run the
+  app test suites separately in this repo:
+
+  ```bash
+  .venv/bin/pytest manufacturer/backend/tests
+  .venv/bin/pytest provider/tests
+  ```
 
 ## 10. Milestones (suggested, mapped to GitHub Issues)
 
@@ -374,10 +387,11 @@ a small `pytest` smoke, the week is done.
 4. ✅ Provider FastAPI routes + Swagger.
 5. ✅ Provider CLI (`provider-cli`).
 6. ✅ Manufacturer CLI (`manufacturer-cli`).
-7. Manufacturer outbound integration (`Supplier.external_provider_url`,
+7. ✅ Manufacturer outbound integration (`Supplier.external_provider_url`,
    create-order call, polling on day advance).
-8. Five-day scenario passes by hand.
-9. Tests, lint, mypy clean across both apps.
+8. ✅ Five-day scenario passes via focused smoke tests.
+9. Tests and lint clean across both apps; `mypy --strict` remains a follow-up
+   hardening pass.
 10. Two-page report + screenshots.
 
 ## 11. Open questions / decisions to revisit before coding
@@ -388,9 +402,9 @@ a small `pytest` smoke, the week is done.
   add a `pyproject.toml` console-script before Week 8.
 - **Where does the day-advance polling happen on the manufacturer side —
   inside `SimulationService.advance_day()` or in a new
-  `ProcurementService`?** Default: extend `SimulationService` step 2
-  ("process due purchase-order deliveries") to query external providers
-  for purchase orders flagged external. Revisit if it bloats.
+  `ProcurementService`?** Decided for Week 6: `SimulationService.advance_day()`
+  keeps delegating to `PurchaseOrderService.process_deliveries()`, and that
+  service owns the external-provider polling branch.
 - **Do we add a JSON-import command for the provider in Week 6 or punt to
   Week 8?** The Week 6 verification checklist requires JSON round-trip on
   both apps, so: in scope for Week 6.
