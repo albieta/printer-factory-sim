@@ -249,12 +249,41 @@ def import_state(path: Path) -> None:
     typer.echo(f"Imported provider state from {path}")
 
 
-@app.command()
-def serve(host: str = "0.0.0.0", port: int = 8001) -> None:
+def _parse_serve_args(args: list[str]) -> tuple[str, int]:
+    host = "0.0.0.0"
+    port = 8001
+    index = 0
+
+    while index < len(args):
+        arg = args[index]
+        if arg == "--host":
+            index += 1
+            if index >= len(args):
+                raise typer.BadParameter("--host requires a value")
+            host = args[index]
+        elif arg.startswith("--host="):
+            host = arg.split("=", 1)[1]
+        elif arg == "--port":
+            index += 1
+            if index >= len(args):
+                raise typer.BadParameter("--port requires a value")
+            port = int(args[index])
+        elif arg.startswith("--port="):
+            port = int(arg.split("=", 1)[1])
+        else:
+            raise typer.BadParameter(f"Unknown serve option {arg!r}")
+        index += 1
+
+    return host, port
+
+
+@app.command(context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+def serve(ctx: typer.Context) -> None:
     """Start the provider FastAPI server."""
 
     import uvicorn
 
+    host, port = _parse_serve_args(list(ctx.args))
     uvicorn.run("provider.main:app", host=host, port=port, reload=False)
 
 

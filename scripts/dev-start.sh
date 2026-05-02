@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROVIDER_PORT="${PROVIDER_PORT:-8001}"
 DEFAULT_BACKEND_PORT="${BACKEND_PORT:-8002}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 STARTUP_WAIT_SECONDS="${STARTUP_WAIT_SECONDS:-60}"
@@ -71,6 +72,20 @@ trap cleanup EXIT INT TERM
 
 backend_started=false
 frontend_started=false
+provider_started=false
+
+if is_port_listening "$PROVIDER_PORT"; then
+  :
+else
+  (
+    cd "$ROOT_DIR/provider"
+    "$ROOT_DIR/.venv/bin/python" scripts/seed_data.py
+    cd "$ROOT_DIR"
+    exec "$ROOT_DIR/.venv/bin/python" -m provider.cli serve --port "$PROVIDER_PORT"
+  ) &
+  provider_pid=$!
+  provider_started=true
+fi
 
 if is_port_listening "$DEFAULT_BACKEND_PORT"; then
   BACKEND_PORT="$DEFAULT_BACKEND_PORT"
@@ -99,6 +114,11 @@ else
   frontend_started=true
 fi
 
+if ! wait_for_http "http://127.0.0.1:$PROVIDER_PORT/health" "$STARTUP_WAIT_SECONDS"; then
+  echo "Provider on port $PROVIDER_PORT did not become ready within ${STARTUP_WAIT_SECONDS}s." >&2
+  exit 1
+fi
+
 if ! wait_for_http "http://127.0.0.1:$BACKEND_PORT/health" "$STARTUP_WAIT_SECONDS"; then
   echo "Backend on port $BACKEND_PORT did not become ready within ${STARTUP_WAIT_SECONDS}s." >&2
   exit 1
@@ -110,7 +130,12 @@ if ! wait_for_http "http://127.0.0.1:$FRONTEND_PORT" "$STARTUP_WAIT_SECONDS"; th
 fi
 
 echo "Frontend: http://localhost:$FRONTEND_PORT"
-echo "API docs: http://localhost:$BACKEND_PORT/docs"
+echo "Manufacturer API docs: http://localhost:$BACKEND_PORT/docs"
+echo "Provider API docs: http://localhost:$PROVIDER_PORT/docs"
+if [ "$provider_started" = false ]; then
+  echo "Provider already running on $PROVIDER_PORT, reusing it."
+  echo "If provider code changed, restart the existing server so the running API matches the files on disk."
+fi
 if [ "$backend_started" = false ]; then
   echo "Backend already running on $BACKEND_PORT, reusing it."
   echo "If backend code changed, restart the existing server so the running API matches the files on disk."
@@ -120,12 +145,19 @@ fi
 if [ "$frontend_started" = false ]; then
   echo "Frontend already running on $FRONTEND_PORT, reusing it."
 fi
-echo "Press Ctrl+C to stop both services."
+echo "Press Ctrl+C to stop services started by this script."
 
-if [ "$backend_started" = true ] && [ "$frontend_started" = true ]; then
-  wait -n "$backend_pid" "$frontend_pid"
-elif [ "$backend_started" = true ]; then
-  wait "$backend_pid"
-elif [ "$frontend_started" = true ]; then
-  wait "$frontend_pid"
+pids=()
+if [ "$provider_started" = true ]; then
+  pids+=("$provider_pid")
+fi
+if [ "$backend_started" = true ]; then
+  pids+=("$backend_pid")
+fi
+if [ "$frontend_started" = true ]; then
+  pids+=("$frontend_pid")
+fi
+
+if [ "${#pids[@]}" -gt 0 ]; then
+  wait -n "${pids[@]}"
 fi

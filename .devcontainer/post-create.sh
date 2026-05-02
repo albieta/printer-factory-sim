@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-STATE_DIR="/tmp/printer-factory-sim"
+STATE_DIR="$ROOT_DIR/.devcontainer/state"
 SETUP_COMPLETE_FILE="$STATE_DIR/post-create-complete"
 cd "$ROOT_DIR"
 

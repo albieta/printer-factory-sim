@@ -1,7 +1,7 @@
 {
   "name": "DGSI Lab (Ubuntu 22.04)",
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu-22.04",
-  "waitFor": "postStartCommand",
+  "waitFor": "postCreateCommand",
   "postCreateCommand": "bash .devcontainer/post-create.sh",
   "postStartCommand": "bash .devcontainer/post-start.sh",
   "customizations": {
@@ -13,9 +13,10 @@
       ]
     }
   },
-  "forwardPorts": [3000, 8000],
+  "forwardPorts": [3000, 8001, 8002],
   "portsAttributes": {
     "3000": { "label": "Frontend" },
-    "8000": { "label": "FastAPI" }
+    "8001": { "label": "Provider API" },
+    "8002": { "label": "Manufacturer API" }
   }
 }

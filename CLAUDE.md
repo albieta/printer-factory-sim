@@ -119,7 +119,7 @@ printer-factory-sim/
 ├── requirements.txt               # shared deps for both apps
 ├── .gitignore
 ├── .devcontainer/                 # dev container bootstrap (manufacturer)
-├── scripts/dev-start.sh           # starts manufacturer (backend + frontend)
+├── scripts/dev-start.sh           # starts provider + manufacturer + frontend
 ├── docs/
 │   ├── PRD.md                     # Week 5 original PRD
 │   ├── PRD2.md                    # Week 5 retrospective PRD
