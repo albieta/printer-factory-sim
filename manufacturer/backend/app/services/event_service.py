@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from app.models.models import Event, EventType
 from datetime import date
-from typing import List, Optional
+from typing import Any, List, Optional
 
 
 class EventService:
@@ -27,7 +27,7 @@ class EventService:
         query = query.order_by(Event.timestamp.desc())
         return query.limit(limit).all()
 
-    def get_timeseries_data(self, metric: str, from_date: Optional[date] = None, to_date: Optional[date] = None) -> List[dict]:
+    def get_timeseries_data(self, metric: str, from_date: Optional[date] = None, to_date: Optional[date] = None) -> list[dict[str, Any]]:
         """Get time series data for charting"""
         query = self.db.query(Event)
         

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import List
+from typing import Any, List, Optional, cast
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -27,7 +27,7 @@ class InventoryService:
     def get_all_inventory(self) -> List[Inventory]:
         return self.db.query(Inventory).all()
 
-    def get_inventory_snapshot(self) -> List[dict]:
+    def get_inventory_snapshot(self) -> list[dict[str, Any]]:
         accepted_order_demand = self.get_accepted_order_material_demand()
         pending_inbound_by_material = self.get_pending_inbound_material_quantity()
         inventory_by_product = {item.product_id: item for item in self.get_all_inventory()}
@@ -38,7 +38,7 @@ class InventoryService:
             .all()
         )
 
-        snapshot: list[dict] = []
+        snapshot: list[dict[str, Any]] = []
         for material in materials:
             inventory = inventory_by_product.get(material.id)
             if inventory:
@@ -97,10 +97,10 @@ class InventoryService:
         return inventory.quantity >= required_quantity
 
     def get_total_inventory_count(self) -> Decimal:
-        result = self.db.query(func.sum(Inventory.quantity)).scalar()
-        return result if result else Decimal(0)
+        raw = cast(Optional[Decimal], self.db.query(func.sum(Inventory.quantity)).scalar())
+        return raw if raw is not None else Decimal(0)
 
-    def get_capacity_info(self) -> dict:
+    def get_capacity_info(self) -> dict[str, Any]:
         config = self.db.query(SimulationConfig).first()
         total_inventory = self.get_total_inventory_count()
         warehouse_capacity = config.warehouse_capacity if config else 2200
@@ -160,7 +160,7 @@ class InventoryService:
         item: Inventory,
         accepted_order_demand: float = 0.0,
         pending_inbound_quantity: float = 0.0,
-    ) -> dict:
+    ) -> dict[str, Any]:
         product = self.db.query(Product).filter(Product.id == item.product_id).first()
         return {
             "product_id": item.product_id,

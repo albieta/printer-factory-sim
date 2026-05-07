@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.models.models import Order as OrderModel
 from app.models.models import OrderStatus as ModelOrderStatus
 from app.schemas.schemas import Order, OrderCreate, OrderResponse, OrderStatus
 from app.services.order_service import OrderError, OrderService, ProductNotFoundError
@@ -12,7 +15,7 @@ from app.utils.database import get_db
 router = APIRouter()
 
 
-def serialize_order(order) -> dict:
+def serialize_order(order: OrderModel) -> dict[str, Any]:
     return {
         "id": order.id,
         "buyer": order.buyer,

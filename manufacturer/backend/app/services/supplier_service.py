@@ -62,7 +62,7 @@ class SupplierService:
 
         return float(supplier.unit_cost)
 
-    def serialize_supplier(self, supplier: Supplier) -> dict:
+    def serialize_supplier(self, supplier: Supplier) -> dict[str, Any]:
         return {
             "id": supplier.id,
             "name": supplier.name,
@@ -205,7 +205,7 @@ class PurchaseOrderService:
         self.db.refresh(new_po)
         return new_po
 
-    def process_deliveries(self, sim_date: date) -> List[dict]:
+    def process_deliveries(self, sim_date: date) -> list[dict[str, Any]]:
         due_pos = self.db.query(PurchaseOrder).join(Supplier).filter(
             PurchaseOrder.status == PurchaseOrderStatus.PENDING,
             PurchaseOrder.expected_delivery <= sim_date,
@@ -299,5 +299,5 @@ class PurchaseOrderService:
 
         return results
 
-    def serialize_purchase_order(self, order: PurchaseOrder) -> dict:
+    def serialize_purchase_order(self, order: PurchaseOrder) -> dict[str, Any]:
         return serialize_purchase_order(order)

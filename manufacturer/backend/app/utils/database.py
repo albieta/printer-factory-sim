@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Generator
 
 from sqlalchemy import create_engine, text
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.engine import Connection
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.services.starter_profile import STARTER_INVENTORY, build_starter_config
 
@@ -17,7 +19,9 @@ engine = create_engine(
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-Base = declarative_base()
+
+class Base(DeclarativeBase):
+    pass
 
 
 MIGRATIONS: dict[str, list[tuple[str, str]]] = {
@@ -46,7 +50,7 @@ def get_db_path() -> Path:
     return Path(__file__).resolve().parents[2] / "printer_factory_sim.db"
 
 
-def column_exists(connection, table_name: str, column_name: str) -> bool:
+def column_exists(connection: Connection, table_name: str, column_name: str) -> bool:
     rows = connection.execute(text(f"PRAGMA table_info({table_name})")).mappings().all()
     return any(row["name"] == column_name for row in rows)
 
@@ -145,7 +149,7 @@ def bootstrap_database() -> None:
         session.close()
 
 
-def get_db():
+def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
         yield db

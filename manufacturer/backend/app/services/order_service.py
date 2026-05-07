@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from typing import List, Tuple
+from typing import Any, List, Tuple
 
 from sqlalchemy.orm import Session
 
@@ -28,9 +28,9 @@ class OrderService:
     def get_bom_requirements(self, product_id: str) -> List[BillOfMaterials]:
         return self.db.query(BillOfMaterials).filter(BillOfMaterials.finished_product_id == product_id).all()
 
-    def check_materials_availability(self, product_id: str, quantity: int) -> Tuple[bool, List[dict]]:
+    def check_materials_availability(self, product_id: str, quantity: int) -> Tuple[bool, list[dict[str, Any]]]:
         bom_entries = self.get_bom_requirements(product_id)
-        unavailable: list[dict] = []
+        unavailable: list[dict[str, Any]] = []
 
         for bom in bom_entries:
             required_qty = bom.quantity * quantity
@@ -51,14 +51,14 @@ class OrderService:
 
         return len(unavailable) == 0, unavailable
 
-    def build_blocked_reason(self, unavailable: List[dict]) -> str:
+    def build_blocked_reason(self, unavailable: list[dict[str, Any]]) -> str:
         if not unavailable:
             return "Release blocked because one or more required materials are unavailable."
         names = ", ".join(item["material_name"] for item in unavailable[:3])
         suffix = "" if len(unavailable) <= 3 else ", and others"
         return f"Release blocked by missing material stock: {names}{suffix}."
 
-    def _record_event(self, event_type: EventType, sim_date: date, details: dict) -> None:
+    def _record_event(self, event_type: EventType, sim_date: date, details: dict[str, Any]) -> None:
         self.db.add(
             Event(
                 event_type=event_type,
@@ -68,7 +68,7 @@ class OrderService:
         )
         self.db.commit()
 
-    def _build_order_event_details(self, order: ManufacturingOrder, extras: dict | None = None) -> dict:
+    def _build_order_event_details(self, order: ManufacturingOrder, extras: dict[str, Any] | None = None) -> dict[str, Any]:
         details = {
             "order_id": order.id,
             "reference_code": order.reference_code,
@@ -80,7 +80,7 @@ class OrderService:
             details.update(extras)
         return details
 
-    def release_order(self, order_id: str, sim_date: date) -> dict:
+    def release_order(self, order_id: str, sim_date: date) -> dict[str, Any]:
         order = self.get_order_by_id(order_id)
         if not order:
             return {"success": False, "error": "Order not found"}
@@ -132,7 +132,7 @@ class OrderService:
 
         return response
 
-    def reject_order(self, order_id: str, sim_date: date) -> dict:
+    def reject_order(self, order_id: str, sim_date: date) -> dict[str, Any]:
         order = self.get_order_by_id(order_id)
         if not order:
             return {"success": False, "error": "Order not found"}
@@ -224,5 +224,5 @@ class OrderService:
         self.db.refresh(order)
         return order
 
-    def serialize_order(self, order: ManufacturingOrder) -> dict:
+    def serialize_order(self, order: ManufacturingOrder) -> dict[str, Any]:
         return serialize_manufacturing_order(order)

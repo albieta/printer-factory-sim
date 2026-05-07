@@ -9,9 +9,10 @@ app (CLI or FastAPI server). Both are gitignored via `*.db`.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Generator
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 
 DATABASE_URL = "sqlite:///./provider.db"
@@ -24,7 +25,9 @@ engine = create_engine(
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-Base = declarative_base()
+
+class Base(DeclarativeBase):
+    pass
 
 
 def get_db_path() -> Path:
@@ -58,7 +61,7 @@ def bootstrap_database() -> None:
     ensure_schema()
 
 
-def get_db():
+def get_db() -> Generator[Session, None, None]:
     """FastAPI dependency yielding a scoped SQLAlchemy session."""
 
     db = SessionLocal()

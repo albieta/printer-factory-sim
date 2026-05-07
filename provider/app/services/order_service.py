@@ -125,6 +125,10 @@ class OrderService:
             return order
 
         # Accepted: reserve stock atomically with the order row.
+        # stock is guaranteed non-None here: if it were None, stock_qty == 0,
+        # and quantity > 0 (validated above), so the rejection branch above
+        # would have returned already.
+        assert stock is not None
         stock.quantity = stock_qty - quantity
 
         order = Order(

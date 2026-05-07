@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
-from typing import List, Tuple
+from typing import Any, Tuple
 
 from sqlalchemy.orm import Session
 
@@ -22,10 +22,10 @@ class ProductionService:
         product = self.db.query(Product).filter(Product.id == product_id).first()
         return float(product.assembly_hours) if product and product.assembly_hours else 0.0
 
-    def execute_production(self, sim_date: date) -> List[dict]:
+    def execute_production(self, sim_date: date) -> list[dict[str, Any]]:
         released_orders = self.db.query(ManufacturingOrder).filter(ManufacturingOrder.status == OrderStatus.RELEASED).order_by(ManufacturingOrder.released_date, ManufacturingOrder.reference_code).all()
         available_hours = self.get_available_assembly_hours(sim_date)
-        results: list[dict] = []
+        results: list[dict[str, Any]] = []
 
         for order in released_orders:
             if available_hours <= 0:
@@ -62,7 +62,7 @@ class ProductionService:
             return False, 0
 
         bom_entries = self.db.query(BillOfMaterials).filter(BillOfMaterials.finished_product_id == order.product_id).all()
-        unavailable: list[dict] = []
+        unavailable: list[dict[str, Any]] = []
         for bom in bom_entries:
             required_qty = bom.quantity * order.quantity
             inventory = self.db.query(Inventory).filter(Inventory.product_id == bom.material_id).first()
@@ -86,8 +86,11 @@ class ProductionService:
         for bom in bom_entries:
             required_qty = bom.quantity * order.quantity
             inventory = self.db.query(Inventory).filter(Inventory.product_id == bom.material_id).first()
+            # inventory is guaranteed non-None here: we already checked availability above
+            # and only reach this loop when all materials are in stock.
+            assert inventory is not None
             inventory.quantity -= required_qty
-            inventory.last_updated = sim_date
+            inventory.last_updated = datetime.combine(sim_date, datetime.min.time())
 
             event = Event(
                 event_type=EventType.MATERIAL_CONSUMED,
@@ -121,7 +124,7 @@ class ProductionService:
         self.db.commit()
         return True, required_hours
 
-    def mark_order_blocked_by_materials(self, order: ManufacturingOrder, unavailable: list[dict], sim_date: date) -> None:
+    def mark_order_blocked_by_materials(self, order: ManufacturingOrder, unavailable: list[dict[str, Any]], sim_date: date) -> None:
         from app.services.order_service import OrderService
 
         order.status = OrderStatus.BLOCKED

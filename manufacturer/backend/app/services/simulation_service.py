@@ -1,7 +1,9 @@
 from __future__ import annotations
+from typing import Any
 
 import random
 from datetime import date
+from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
@@ -23,7 +25,7 @@ class SimulationService:
         self.production_service = ProductionService(db)
         self.inventory_service = InventoryService(db)
 
-    def advance_day(self) -> dict:
+    def advance_day(self) -> dict[str, Any]:
         sim_date = self.config_service.advance_sim_date()
 
         po_results = self.po_service.process_deliveries(sim_date)
@@ -72,7 +74,7 @@ class SimulationService:
 
         return orders_created
 
-    def build_workflow_stages(self) -> list[dict]:
+    def build_workflow_stages(self) -> list[dict[str, Any]]:
         capacity = self.inventory_service.get_capacity_info()
         pending_orders = self.db.query(ManufacturingOrder).filter(ManufacturingOrder.status == OrderStatus.PENDING).count()
         blocked_orders = self.db.query(ManufacturingOrder).filter(ManufacturingOrder.status == OrderStatus.BLOCKED).count()
@@ -97,7 +99,7 @@ class SimulationService:
             for stage in WORKFLOW_STAGE_DEFS
         ]
 
-    def get_simulation_status(self) -> dict:
+    def get_simulation_status(self) -> dict[str, Any]:
         config = self.config_service.get_config()
         capacity = self.inventory_service.get_capacity_info()
 
@@ -151,14 +153,14 @@ class SimulationService:
 
         inventory_items = self.db.query(Inventory).all()
         for inventory in inventory_items:
-            inventory.quantity = 0
+            inventory.quantity = Decimal(0)
 
         for material_name, quantity in STARTER_INVENTORY.items():
             product_id = material_lookup.get(material_name)
             if not product_id:
                 continue
             inventory = self.inventory_service.get_inventory_by_product(product_id)
-            inventory.quantity = quantity
+            inventory.quantity = Decimal(quantity)
 
         config = self.config_service.get_config()
         for key, value in starter_config.items():

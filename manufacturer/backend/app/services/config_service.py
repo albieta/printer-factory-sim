@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Any
 
 from datetime import date, timedelta
 
@@ -65,7 +66,7 @@ class ConfigService:
         self.db.refresh(config)
         return config
 
-    def serialize_config(self) -> dict:
+    def serialize_config(self) -> dict[str, Any]:
         config = self.get_config()
         return {
             "id": config.id,

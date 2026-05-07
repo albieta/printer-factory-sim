@@ -3,6 +3,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from typing import Any
+
+from app.models.models import Product as ProductModel
 from app.schemas.schemas import CatalogResponse, Product
 from app.services.catalog_service import CatalogService
 from app.services.starter_profile import SCHEMA_VERSION
@@ -11,7 +14,7 @@ from app.utils.database import get_db
 router = APIRouter()
 
 
-def serialize_product(product) -> dict:
+def serialize_product(product: ProductModel) -> dict[str, Any]:
     return {
         "id": product.id,
         "name": product.name,

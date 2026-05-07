@@ -45,4 +45,4 @@ def load_seed_data() -> dict[str, Any]:
     """
 
     with seed_file_path().open(encoding="utf-8") as handle:
-        return json.load(handle)
+        return dict(json.load(handle))

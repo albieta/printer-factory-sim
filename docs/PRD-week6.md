@@ -390,9 +390,14 @@ a small `pytest` smoke, the week is done.
 7. ✅ Manufacturer outbound integration (`Supplier.external_provider_url`,
    create-order call, polling on day advance).
 8. ✅ Five-day scenario passes via focused smoke tests.
-9. Tests and lint clean across both apps; `mypy --strict` remains a follow-up
-   hardening pass.
-10. Two-page report + screenshots.
+9. ✅ Tests and lint clean across both apps.
+   - 42 tests passing; ruff: zero warnings.
+   - mypy --strict clean on provider and manufacturer service layers.
+   - Both apps migrated to SQLAlchemy 2.0 `Mapped[]` ORM style.
+   - `setup.cfg` configures the SQLAlchemy mypy plugin. Legacy `dashboard.py`
+     and Week 5 API route signatures excluded; annotating those is a
+     follow-up hardening pass.
+10. Two-page report + screenshots. (next)
 
 ## 11. Open questions / decisions to revisit before coding
 

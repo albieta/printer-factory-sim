@@ -3,28 +3,27 @@
 The shape follows `docs/PRD-week6.md` §5.1. Status fields are explicit
 enums, never scattered booleans, per the conventions in `CLAUDE.md`.
 
-The provider uses integer primary keys (matching the example schema in
-the Week 6 brief). The manufacturer uses UUID strings; the two apps are
-independent processes with no shared identifiers, so the difference is
-fine.
+Uses SQLAlchemy 2.0 declarative style with `Mapped[]` type annotations
+and `mapped_column()` so that mypy --strict can check all column access.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from enum import Enum as PyEnum
+from typing import Any, Optional
 
 from sqlalchemy import (
     DECIMAL,
     JSON,
-    Column,
     DateTime,
     Enum,
     ForeignKey,
     Integer,
     String,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.utils.database import Base
 
@@ -41,25 +40,25 @@ class Product(Base):
     __tablename__ = "products"
     __table_args__ = {"extend_existing": True}
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(255), nullable=False, unique=True)
-    description = Column(String(500), nullable=True)
-    lead_time_days = Column(Integer, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    description: Mapped[Optional[str]] = mapped_column(String(500), nullable=True, default=None)
+    lead_time_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, default=datetime.utcnow)
 
-    pricing_tiers = relationship(
+    pricing_tiers: Mapped[list["PricingTier"]] = relationship(
         "PricingTier",
         back_populates="product",
         cascade="all, delete-orphan",
         order_by="PricingTier.min_quantity",
     )
-    stock = relationship(
+    stock: Mapped[Optional["Stock"]] = relationship(
         "Stock",
         back_populates="product",
         uselist=False,
         cascade="all, delete-orphan",
     )
-    orders = relationship("Order", back_populates="product")
+    orders: Mapped[list["Order"]] = relationship("Order", back_populates="product")
 
 
 class PricingTier(Base):
@@ -73,12 +72,12 @@ class PricingTier(Base):
     __tablename__ = "pricing_tiers"
     __table_args__ = {"extend_existing": True}
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
-    min_quantity = Column(Integer, nullable=False)
-    unit_price = Column(DECIMAL(10, 2), nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    product_id: Mapped[int] = mapped_column(Integer, ForeignKey("products.id"), nullable=False)
+    min_quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    unit_price: Mapped[Decimal] = mapped_column(DECIMAL(10, 2), nullable=False)
 
-    product = relationship("Product", back_populates="pricing_tiers")
+    product: Mapped["Product"] = relationship("Product", back_populates="pricing_tiers")
 
 
 class Stock(Base):
@@ -87,15 +86,17 @@ class Stock(Base):
     __tablename__ = "stock"
     __table_args__ = {"extend_existing": True}
 
-    product_id = Column(Integer, ForeignKey("products.id"), primary_key=True)
-    quantity = Column(Integer, nullable=False, default=0)
-    last_updated = Column(
+    product_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("products.id"), primary_key=True
+    )
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_updated: Mapped[Optional[datetime]] = mapped_column(
         DateTime,
         default=datetime.utcnow,
         onupdate=datetime.utcnow,
     )
 
-    product = relationship("Product", back_populates="stock")
+    product: Mapped["Product"] = relationship("Product", back_populates="stock")
 
 
 class OrderStatus(PyEnum):
@@ -121,21 +122,23 @@ class Order(Base):
     __tablename__ = "orders"
     __table_args__ = {"extend_existing": True}
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    buyer = Column(String(255), nullable=False)
-    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
-    quantity = Column(Integer, nullable=False)
-    unit_price = Column(DECIMAL(10, 2), nullable=False)
-    total_price = Column(DECIMAL(12, 2), nullable=False)
-    placed_day = Column(Integer, nullable=False)
-    expected_delivery_day = Column(Integer, nullable=False)
-    shipped_day = Column(Integer, nullable=True)
-    delivered_day = Column(Integer, nullable=True)
-    status = Column(Enum(OrderStatus), nullable=False, default=OrderStatus.PENDING)
-    status_reason = Column(String(255), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    buyer: Mapped[str] = mapped_column(String(255), nullable=False)
+    product_id: Mapped[int] = mapped_column(Integer, ForeignKey("products.id"), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    unit_price: Mapped[Decimal] = mapped_column(DECIMAL(10, 2), nullable=False)
+    total_price: Mapped[Decimal] = mapped_column(DECIMAL(12, 2), nullable=False)
+    placed_day: Mapped[int] = mapped_column(Integer, nullable=False)
+    expected_delivery_day: Mapped[int] = mapped_column(Integer, nullable=False)
+    shipped_day: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=None)
+    delivered_day: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=None)
+    status: Mapped[OrderStatus] = mapped_column(
+        Enum(OrderStatus), nullable=False, default=OrderStatus.PENDING
+    )
+    status_reason: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, default=None)
+    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, default=datetime.utcnow)
 
-    product = relationship("Product", back_populates="orders")
+    product: Mapped["Product"] = relationship("Product", back_populates="orders")
 
 
 class EventType(PyEnum):
@@ -160,13 +163,13 @@ class Event(Base):
     __tablename__ = "events"
     __table_args__ = {"extend_existing": True}
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    event_type = Column(Enum(EventType), nullable=False)
-    sim_day = Column(Integer, nullable=False)
-    entity_type = Column(String(64), nullable=True)
-    entity_id = Column(Integer, nullable=True)
-    timestamp = Column(DateTime, default=datetime.utcnow)
-    details = Column(JSON, nullable=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    event_type: Mapped[EventType] = mapped_column(Enum(EventType), nullable=False)
+    sim_day: Mapped[int] = mapped_column(Integer, nullable=False)
+    entity_type: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, default=None)
+    entity_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=None)
+    timestamp: Mapped[Optional[datetime]] = mapped_column(DateTime, default=datetime.utcnow)
+    details: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True, default=None)
 
 
 class SimState(Base):
@@ -181,5 +184,5 @@ class SimState(Base):
     __tablename__ = "sim_state"
     __table_args__ = {"extend_existing": True}
 
-    key = Column(String(64), primary_key=True)
-    value = Column(String(255), nullable=False)
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(String(255), nullable=False)

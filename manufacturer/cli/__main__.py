@@ -8,10 +8,8 @@ from pathlib import Path
 from typing import Iterator
 
 import typer
-import click
 import httpx
 from sqlalchemy.orm import Session
-from typer.core import TyperArgument, TyperOption
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1] / "backend"
 os.chdir(BACKEND_ROOT)
@@ -25,51 +23,6 @@ from app.services.simulation_service import SimulationService  # noqa: E402
 from app.services.supplier_service import PurchaseOrderService, SupplierService  # noqa: E402
 from app.utils.database import SessionLocal, bootstrap_database  # noqa: E402
 
-
-def _patch_typer_click_help() -> None:
-    """Keep Typer 0.9 help working with newer Click make_metavar signatures."""
-
-    click_parameter_make_metavar = click.core.Parameter.make_metavar
-    click_argument_make_metavar = click.core.Argument.make_metavar
-
-    def parameter_make_metavar(self, ctx=None):  # type: ignore[no-untyped-def]
-        if ctx is None:
-            ctx = click.Context(click.Command(name="manufacturer-cli"))
-        return click_parameter_make_metavar(self, ctx)
-
-    def click_argument_make_metavar_compat(self, ctx=None):  # type: ignore[no-untyped-def]
-        if ctx is None:
-            ctx = click.Context(click.Command(name="manufacturer-cli"))
-        return click_argument_make_metavar(self, ctx)
-
-    def option_make_metavar(self, ctx=None):  # type: ignore[no-untyped-def]
-        if ctx is None:
-            ctx = click.Context(click.Command(name="manufacturer-cli"))
-        return click_parameter_make_metavar(self, ctx)
-
-    def argument_make_metavar(self, ctx=None):  # type: ignore[no-untyped-def]
-        if ctx is None:
-            ctx = click.Context(click.Command(name="manufacturer-cli"))
-        if self.metavar is not None:
-            return self.metavar
-        var = (self.name or "").upper()
-        if not self.required:
-            var = f"[{var}]"
-        type_var = self.type.get_metavar(param=self, ctx=ctx)
-        if type_var:
-            var += f":{type_var}"
-        if self.nargs != 1:
-            var += "..."
-        return var
-
-    click.core.Parameter.make_metavar = parameter_make_metavar  # type: ignore[method-assign]
-    click.core.Option.make_metavar = parameter_make_metavar  # type: ignore[method-assign]
-    click.core.Argument.make_metavar = click_argument_make_metavar_compat  # type: ignore[method-assign]
-    TyperOption.make_metavar = option_make_metavar  # type: ignore[method-assign]
-    TyperArgument.make_metavar = argument_make_metavar  # type: ignore[method-assign]
-
-
-_patch_typer_click_help()
 
 app = typer.Typer(help="Manufacturer CLI for the 3D printer factory simulator.")
 suppliers_app = typer.Typer(help="Supplier commands.")
@@ -142,6 +95,7 @@ def supplier_catalog(supplier_name: str) -> None:
 
         external_supplier = next((row for row in suppliers if row.external_provider_url), None)
         if external_supplier is not None:
+            assert external_supplier.external_provider_url is not None
             try:
                 with httpx.Client(timeout=10.0) as client:
                     response = client.get(f"{external_supplier.external_provider_url.rstrip('/')}/api/catalog")
