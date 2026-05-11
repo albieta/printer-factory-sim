@@ -1,0 +1,12 @@
+{
+  "retailer": {
+    "name": "PrinterWorld",
+    "port": 8003,
+    "db_path": "retailer/retailer.db",
+    "manufacturer": {
+      "name": "Factory",
+      "url": "http://localhost:8002"
+    },
+    "markup_pct": 30
+  }
+}

@@ -101,6 +101,7 @@ def ensure_schema() -> None:
 def bootstrap_database() -> None:
     from app.models.models import ManufacturingOrder, Product, PurchaseOrder, Supplier
     from app.services.reference_service import backfill_references
+    from app.services.sales_service import SalesService
     from app.utils.app_config import get_configured_providers
 
     ensure_schema()
@@ -109,6 +110,8 @@ def bootstrap_database() -> None:
     try:
         backfill_references(session, ManufacturingOrder, "MO", "created_date")
         backfill_references(session, PurchaseOrder, "PO", "issue_date")
+        SalesService(session).seed_default_prices()
+        session.commit()
         for provider in get_configured_providers():
             provider_name = provider.get("name")
             provider_url = provider.get("url")

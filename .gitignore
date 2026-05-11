@@ -29,6 +29,9 @@ S3/math-solver/.env
 # Local app data
 *.db
 
+# Turn engine run outputs (per-run, not worth committing)
+logs/
+
 # Tool caches
 .pytest_cache/
 .ruff_cache/

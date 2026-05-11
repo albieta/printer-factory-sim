@@ -1,201 +1,252 @@
 # 3D Printer Production Simulator
 
-A multi-process simulation of a 3D printer supply chain.
+A multi-process simulation of a 3D printer supply chain, built across three course weeks.
 
-- The **manufacturer** app (Week 5, completed) is a full-stack manufacturing
-  simulation for a 3D printer factory: a React frontend for the planner's
-  workflows and a FastAPI backend for simulation logic, inventory,
-  suppliers, orders, and reporting.
-- The **provider** app (Week 6, completed) is a separate process that
-  sells raw materials to the manufacturer over a REST API. The
-  manufacturer talks to it via HTTP. The provider has a CLI but no UI.
+- The **provider** (port 8001) sells raw materials over a REST API.
+- The **manufacturer** (port 8002) buys raw materials, assembles printers, and sells them wholesale to the retailer. It has a full React planner dashboard.
+- The **retailer** (port 8003) buys finished printers from the manufacturer and sells them to end customers.
+- The **turn engine** (`engine/`) orchestrates all three apps in lockstep each simulated day: generates customer demand, runs agent decision logic, advances all day counters, and writes a KPI log.
+- A **skill file** (`skills/manufacturer-manager.md`) defines the manufacturer-manager agent's persona and decision framework. With `--agent manufacturer=llm`, the engine calls `claude --print` each day and parses the agent's `manufacturer-cli` commands for execution.
 
-Each app owns its own SQLite database and its own simulated-day counter.
-See [`CLAUDE.md`](CLAUDE.md) for the project conventions and
-[`docs/PRD-week6.md`](docs/PRD-week6.md) for the current plan.
+Each app owns its own SQLite database and its own simulated-day counter. All cross-app communication is HTTP/JSON — no shared databases or shared Python imports.
 
 ## Stack
 
 | Layer | Technology |
-| --- | --- |
-| Frontend | React 18 + Vite + TypeScript + Bootstrap |
-| Backend | FastAPI + SQLAlchemy + Pydantic |
-| Database | SQLite |
-| Charts | Plotly |
-| Tooling | npm, Python venv, pytest, Ruff, mypy |
+|---|---|
+| Frontend (manufacturer only) | React 18 + Vite + TypeScript + Bootstrap + Plotly |
+| Backend (all three apps) | FastAPI + SQLAlchemy + Pydantic |
+| Database | SQLite (one per app) |
+| CLIs | Typer (`manufacturer-cli`, `provider-cli`, `retailer-cli`) |
+| Turn engine | Python package (`engine/`), HTTP only |
+| Tooling | pytest, Ruff, mypy |
 
-## Dev Container Quick Start
+## Quick Start (dev container)
 
-Open the repository in the provided Docker dev container. On the first container creation, the devcontainer now does this automatically:
-
-- installs Python, Node.js 20, and required OS packages
-- creates `.venv`
-- installs Python dependencies from `requirements.txt`
-- installs frontend dependencies with `npm ci`
-- seeds the SQLite database with starter data
-
-On every container start, the devcontainer starts the full Week 6 stack:
+The dev container installs all dependencies and seeds the manufacturer database on first creation. On every container start it launches:
 
 - Provider API on `http://localhost:8001`
-- Manufacturer FastAPI on `http://localhost:8002`
-- Vite frontend on `http://localhost:3000`
-
-VS Code now waits for that startup step to finish before marking the container ready, so the first open can take a little longer but should no longer expose a half-started app.
-
-The devcontainer forwards ports `3000`, `8001`, and `8002`, so from your host
-machine you can open:
-
-- Frontend: `http://localhost:3000`
-- Provider docs: `http://localhost:8001/docs`
-- Manufacturer API docs: `http://localhost:8002/docs`
-- Manufacturer ReDoc: `http://localhost:8002/redoc`
-
-### Host Communication
-
-The app runs inside the dev container, but VS Code Dev Containers forwards container ports to matching ports on the host machine. That means the frontend listens on `0.0.0.0:3000` inside the container, VS Code exposes that port on the host, and your browser reaches it through `http://localhost:3000`. In the Week 6 manual flow, the manufacturer backend runs on port `8002`, the provider runs on port `8001`, and the frontend talks to the manufacturer through Vite's `/api` proxy inside the container.
-
-If you use VS Code Dev Containers, the Ports panel should show both forwarded ports automatically.
-
-## Manual Run
-
-If you want to run the full stack manually, or restart all services yourself,
-use:
-
-```bash
-bash scripts/dev-start.sh
-```
-
-That command starts all Week 6 services together:
-
-- provider API on `http://localhost:8001`
-- manufacturer API on `http://localhost:8002`
+- Manufacturer API on `http://localhost:8002`
 - React frontend on `http://localhost:3000`
 
-It also seeds the provider database before starting the provider. If services
-are already running on those ports, the script reuses them instead of trying
-to start duplicates.
+The retailer must be started manually (see below).
 
-Useful provider CLI commands:
+Forwarded ports: `3000`, `8001`, `8002`, `8003`.
 
+## Starting all three backends
+
+```bash
+# Provider
+PYTHONPATH=provider .venv/bin/uvicorn provider.main:app --host 0.0.0.0 --port 8001 &
+
+# Manufacturer (must run from its own directory for correct DB path)
+(cd manufacturer/backend && PYTHONPATH=. ../../.venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8002) &
+
+# Retailer
+.venv/bin/python -m retailer.cli serve --port 8003 &
+```
+
+Or use the all-in-one script:
+
+```bash
+bash scripts/dev-start-all.sh
+```
+
+## Seeding databases
+
+Each app needs its seed script run once after a fresh database:
+
+```bash
+(cd manufacturer/backend && PYTHONPATH=. ../../.venv/bin/python scripts/seed_data.py)
+(cd provider            && PYTHONPATH=. ../.venv/bin/python scripts/seed_data.py)
+(cd retailer            && PYTHONPATH=. ../.venv/bin/python scripts/seed_data.py --config ../retailer.json)
+```
+
+> **Important:** always run seed scripts from the app's own directory so that the relative SQLite path matches where the server writes.
+
+## Running the turn engine
+
+**Stub mode** (deterministic, ~10 seconds for 5 days):
+
+```bash
+.venv/bin/python -m engine \
+    --scenario engine/scenarios/week7-default.json \
+    --days 5 --seed 42 --log-dir logs/
+```
+
+**LLM mode** (manufacturer agent calls `claude --print` each day):
+
+```bash
+.venv/bin/python -m engine \
+    --scenario engine/scenarios/week7-acceptance.json \
+    --days 5 --seed 42 \
+    --agent manufacturer=llm \
+    --log-dir logs/acceptance/
+```
+
+After the run:
+
+```bash
+cat logs/kpi.csv                                    # daily KPI table
+cat logs/acceptance/manufacturer-agent-day-01.txt   # LLM reasoning + commands
+```
+
+## CLI reference
+
+**Manufacturer:**
+```bash
+.venv/bin/python -m manufacturer.cli inventory
+.venv/bin/python -m manufacturer.cli sales orders
+.venv/bin/python -m manufacturer.cli price list
+.venv/bin/python -m manufacturer.cli price set "Basic300" 800
+.venv/bin/python -m manufacturer.cli purchase list
+.venv/bin/python -m manufacturer.cli purchase create --supplier "ChipSupply Co" --product "Control Board" --qty 100
+.venv/bin/python -m manufacturer.cli suppliers list
+.venv/bin/python -m manufacturer.cli day advance
+```
+
+**Retailer:**
+```bash
+.venv/bin/python -m retailer.cli catalog
+.venv/bin/python -m retailer.cli stock
+.venv/bin/python -m retailer.cli purchase list
+.venv/bin/python -m retailer.cli purchase create "Basic300" 5
+.venv/bin/python -m retailer.cli day advance
+```
+
+**Provider:**
 ```bash
 .venv/bin/python -m provider.cli catalog
 .venv/bin/python -m provider.cli stock
 .venv/bin/python -m provider.cli orders list
-.venv/bin/python -m provider.cli day current
 .venv/bin/python -m provider.cli day advance
 ```
 
-For the manual supply-chain turn order, advance the provider first, then the
-manufacturer:
+## Day-advance order
 
-```bash
-.venv/bin/python -m provider.cli day advance
-.venv/bin/python -m manufacturer.cli day advance
+When operating manually (without the turn engine), advance apps in this order:
+
+```
+retailer → manufacturer → provider
 ```
 
-## Manual Setup Without The Dev Container
+The app being polled must be in its final state before the poller advances. The turn engine enforces this automatically.
 
-If you are not using the devcontainer, set the project up with:
-
-```bash
-python3 -m venv .venv
-.venv/bin/pip install --upgrade pip
-.venv/bin/pip install -r requirements.txt
-cd manufacturer/frontend && npm ci
-cd ../backend && ../../.venv/bin/python scripts/seed_data.py
-cd ../..
-bash scripts/dev-start.sh
-```
-
-## Auto-Start Logs
-
-When the devcontainer auto-starts the app, the stack log is written to:
-
-- `/tmp/printer-factory-sim/full-stack.log`
-
-That file is useful if a service fails during container startup.
-
-## Project Layout
+## Project layout
 
 ```text
 printer-factory-sim/
-├── .devcontainer/            # Devcontainer bootstrap and auto-start scripts
-├── CLAUDE.md                 # Project conventions / Claude Code contract
+├── CLAUDE.md                    # Project conventions and Claude Code contract
+├── README.md
+├── requirements.txt
+├── setup.cfg                    # mypy + ruff config
+├── retailer.json                # Retailer instance config (port, DB path, manufacturer URL)
+├── skills/
+│   └── manufacturer-manager.md  # LLM agent skill file (persona, commands, decision framework)
+├── engine/                      # Turn engine package
+│   ├── __main__.py              # CLI entry: python -m engine
+│   ├── runner.py                # Main turn loop
+│   ├── demand.py                # Customer demand generation
+│   ├── agents.py                # Stub and LLM manufacturer agents
+│   ├── kpi.py                   # KPI collection and CSV writing
+│   └── scenarios/
+│       ├── week7-default.json   # 5-day scenario with demand modifiers
+│       └── week7-acceptance.json# 5-day flat scenario for M5 gate
+├── manufacturer/
+│   ├── backend/                 # FastAPI + SQLAlchemy + Pydantic
+│   │   ├── main.py
+│   │   ├── app/
+│   │   │   ├── api/routes/      # includes sales.py (wholesale orders)
+│   │   │   ├── services/        # includes sales_service.py
+│   │   │   ├── models/
+│   │   │   └── schemas/
+│   │   ├── cli/
+│   │   ├── scripts/seed_data.py
+│   │   └── tests/
+│   └── frontend/                # React + Vite + TypeScript
+├── provider/                    # Raw material supplier app (port 8001)
+│   ├── main.py
+│   ├── app/
+│   ├── cli/
+│   ├── scripts/seed_data.py
+│   └── tests/
+├── retailer/                    # Finished printer retailer app (port 8003)
+│   ├── main.py
+│   ├── app/
+│   ├── cli/
+│   ├── scripts/seed_data.py
+│   └── tests/
 ├── docs/
-│   ├── PRD.md                # Week 5 original PRD
-│   ├── PRD2.md               # Week 5 retrospective PRD
-│   ├── PRD-week6.md          # Week 6 PRD (multi-app supply chain)
-│   └── report.md             # Week 5 report (in progress)
-├── manufacturer/             # Week 5 app, extended in Week 6
-│   ├── backend/              # FastAPI app, services, models, routes, seed script
-│   └── frontend/             # React + Vite + TS frontend
-├── provider/                 # Week 6 provider app: FastAPI, CLI, services, seed data
-├── scripts/dev-start.sh      # Starts provider + manufacturer backend + frontend
-├── requirements.txt          # Shared Python dependencies for both apps
-└── README.md
+│   ├── PRD.md                   # Week 5 original PRD
+│   ├── PRD2.md                  # Week 5 retrospective
+│   ├── PRD-week6.md             # Week 6 PRD
+│   ├── PRD-week7.md             # Week 7 PRD (current)
+│   └── report-week7.md          # Week 7 report
+└── scripts/
+    ├── dev-start.sh             # Starts provider + manufacturer + frontend
+    └── dev-start-all.sh         # Starts all three backends + frontend
 ```
 
-## Main Application URLs
+## React UI pages (manufacturer, port 3000)
 
-- `/` shows the factory overview dashboard
-- `/orders` manages manufacturing orders
-- `/inventory` shows stock levels and capacity
-- `/suppliers` manages procurement sources
-- `/production` tracks production flow
-- `/reports` shows charts and historical metrics
-- `/settings` manages simulation configuration
+| Path | Purpose |
+|---|---|
+| `/` | Overview dashboard — bottleneck analysis, advance day |
+| `/orders` | Manufacturing orders — release into assembly queue |
+| `/inventory` | Raw material stock levels and warehouse capacity |
+| `/suppliers` | Procurement sources and purchase orders |
+| `/production` | Production flow and capacity tracking |
+| `/reports` | Charts and event history |
+| `/settings` | Simulation configuration |
 
-## API Highlights
+## Key API endpoints
 
-Manufacturer API:
+**Manufacturer (port 8002):**
 
-- `GET /api/config/` returns the current simulation configuration
-- `GET /api/materials/` lists materials
-- `GET /api/inventory/` returns stock levels
-- `GET /api/orders/mfg/` lists manufacturing orders
-- `POST /api/simulation/advance-day/` advances the simulation by one day
-- `GET /api/events/` returns event history
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/simulation/status` | Current date, order counts, capacity |
+| POST | `/api/simulation/advance-day` | Advance one simulated day |
+| GET | `/api/inventory/` | Raw material stock |
+| GET | `/api/sales/orders` | Inbound orders from the retailer |
+| GET | `/api/sales/prices` | Wholesale prices per printer model |
+| PUT | `/api/sales/prices/{model}` | Update wholesale price |
 
-Provider API:
+**Retailer (port 8003):**
 
-- `GET /api/catalog` lists sellable raw materials and pricing tiers
-- `GET /api/stock` returns provider stock levels
-- `POST /api/orders` creates a provider-side purchase order
-- `GET /api/orders/{id}` returns provider order lifecycle state
-- `POST /api/day/advance` advances the provider simulation by one day
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/catalog` | Printer models with retail prices |
+| GET | `/api/stock` | Finished-printer inventory |
+| POST | `/api/orders` | Place a customer order |
+| POST | `/api/purchases` | Place a purchase order with the manufacturer |
+| POST | `/api/day/advance` | Advance one simulated day |
 
-## Seed Data
+**Provider (port 8001):**
 
-The seeded database includes:
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/catalog` | Raw materials with pricing tiers |
+| GET | `/api/stock` | Provider stock levels |
+| POST | `/api/orders` | Place a purchase order |
+| POST | `/api/day/advance` | Advance one simulated day |
 
-- 3 printer models
-- 6 raw materials
-- 6 suppliers
-- starter inventory
-- a default simulation configuration
+Full interactive docs at `/docs` on each backend.
 
-The seed script is idempotent. If the database is already initialized, it exits without duplicating records.
-
-Provider seed data lives in `provider/seed/seed-provider.json` and covers the
-same six raw materials used by the manufacturer's BOMs.
-
-## Development Commands
-
-Run tests:
+## Development commands
 
 ```bash
+# Tests (run each suite in isolation — shared pytest invocation causes path conflicts)
 .venv/bin/pytest manufacturer/backend/tests
 .venv/bin/pytest provider/tests
-```
+.venv/bin/pytest retailer/tests
 
-Run linting:
-
-```bash
+# Lint
 .venv/bin/ruff check .
-```
 
-Run type checking:
-
-```bash
-.venv/bin/mypy --strict manufacturer
+# Type checking
+(cd provider             && ../.venv/bin/mypy --config-file ../setup.cfg --explicit-package-bases app cli)
+(cd manufacturer/backend && ../../.venv/bin/mypy --config-file ../../setup.cfg app)
+(cd retailer             && ../.venv/bin/mypy --config-file ../setup.cfg --explicit-package-bases app cli)
+(cd engine               && ../.venv/bin/mypy --config-file ../setup.cfg .)
 ```

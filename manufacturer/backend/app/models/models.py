@@ -208,6 +208,10 @@ class EventType(PyEnum):
     INVENTORY_ADDED = "INVENTORY_ADDED"
     DAY_ADVANCED = "DAY_ADVANCED"
     PRODUCTION_BLOCKED_CAPACITY = "PRODUCTION_BLOCKED_CAPACITY"
+    SALES_ORDER_PLACED = "SALES_ORDER_PLACED"
+    SALES_ORDER_DELIVERED = "SALES_ORDER_DELIVERED"
+    SALES_ORDER_CANCELLED = "SALES_ORDER_CANCELLED"
+    WHOLESALE_PRICE_CHANGED = "WHOLESALE_PRICE_CHANGED"
 
 
 class Event(Base):
@@ -221,6 +225,60 @@ class Event(Base):
     sim_date: Mapped[date] = mapped_column(Date, nullable=False)
     timestamp: Mapped[Optional[datetime]] = mapped_column(DateTime, default=datetime.utcnow)
     details: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True, default=None)
+
+
+class SalesOrderStatus(PyEnum):
+    PENDING = "PENDING"
+    DELIVERED = "DELIVERED"
+    CANCELLED = "CANCELLED"
+
+
+class WholesalePrice(Base):
+    __tablename__ = "wholesale_prices"
+    __table_args__ = {"extend_existing": True}
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    product_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("products.id"), unique=True, nullable=False
+    )
+    price: Mapped[Decimal] = mapped_column(DECIMAL(10, 2), nullable=False)
+    lead_time_days: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+
+    product: Mapped["Product"] = relationship("Product")
+
+
+class SalesOrder(Base):
+    __tablename__ = "sales_orders"
+    __table_args__ = {"extend_existing": True}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    product_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("products.id"), nullable=False
+    )
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    buyer_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    unit_price: Mapped[Decimal] = mapped_column(DECIMAL(10, 2), nullable=False)
+    total_price: Mapped[Decimal] = mapped_column(DECIMAL(10, 2), nullable=False)
+    placed_day: Mapped[int] = mapped_column(Integer, nullable=False)
+    expected_delivery_day: Mapped[int] = mapped_column(Integer, nullable=False)
+    delivered_day: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, default=None
+    )
+    status: Mapped[SalesOrderStatus] = mapped_column(
+        Enum(SalesOrderStatus), nullable=False, default=SalesOrderStatus.PENDING
+    )
+
+    product: Mapped["Product"] = relationship("Product")
+
+
+class MfgDayCounter(Base):
+    __tablename__ = "mfg_day_counter"
+    __table_args__ = {"extend_existing": True}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    current_day: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
 class SimulationConfig(Base):

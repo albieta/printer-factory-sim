@@ -1,0 +1,17 @@
+{
+  "seed": 42,
+  "base_demand": { "mean": 3, "variance": 1 },
+  "base_price": 999,
+  "days": [
+    { "day": 1 },
+    { "day": 2, "demand_modifier": 1.5 },
+    { "day": 3, "supply_modifier": 0.7 },
+    { "day": 4 },
+    { "day": 5, "demand_modifier": 0.8 }
+  ],
+  "apps": {
+    "provider":     { "url": "http://localhost:8001" },
+    "manufacturer": { "url": "http://localhost:8002" },
+    "retailer":     { "url": "http://localhost:8003" }
+  }
+}

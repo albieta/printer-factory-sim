@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "initial_day": 0,
+  "catalog": [
+    {
+      "model_name": "Basic300",
+      "retail_price": 999.00,
+      "initial_stock": 0
+    },
+    {
+      "model_name": "Pro450",
+      "retail_price": 1449.00,
+      "initial_stock": 0
+    },
+    {
+      "model_name": "Elite700",
+      "retail_price": 2149.00,
+      "initial_stock": 0
+    }
+  ]
+}

@@ -19,6 +19,7 @@ from app.models.models import Product, Supplier  # noqa: E402
 from app.schemas.schemas import PurchaseOrderCreate  # noqa: E402
 from app.services.config_service import ConfigService  # noqa: E402
 from app.services.inventory_service import InventoryService  # noqa: E402
+from app.services.sales_service import ModelNotFoundError, SalesService  # noqa: E402
 from app.services.simulation_service import SimulationService  # noqa: E402
 from app.services.supplier_service import PurchaseOrderService, SupplierService  # noqa: E402
 from app.utils.database import SessionLocal, bootstrap_database  # noqa: E402
@@ -28,10 +29,14 @@ app = typer.Typer(help="Manufacturer CLI for the 3D printer factory simulator.")
 suppliers_app = typer.Typer(help="Supplier commands.")
 purchase_app = typer.Typer(help="Purchase-order commands.")
 day_app = typer.Typer(help="Simulated-day commands.")
+sales_app = typer.Typer(help="Sales order commands (retailer purchases).")
+price_app = typer.Typer(help="Wholesale price commands.")
 
 app.add_typer(suppliers_app, name="suppliers")
 app.add_typer(purchase_app, name="purchase")
 app.add_typer(day_app, name="day")
+app.add_typer(sales_app, name="sales")
+app.add_typer(price_app, name="price")
 
 
 @contextmanager
@@ -232,6 +237,84 @@ def current_day() -> None:
 
     with _session() as db:
         typer.echo(ConfigService(db).get_sim_date().isoformat())
+
+
+@sales_app.command("list")
+def sales_list() -> None:
+    """List sales orders placed by retailers."""
+    with _session() as db:
+        svc = SalesService(db)
+        orders = svc.list_orders()
+        rows = [
+            [
+                o.id,
+                o.product.name if o.product else "?",
+                o.quantity,
+                o.buyer_name,
+                o.placed_day,
+                o.expected_delivery_day,
+                o.status.value,
+            ]
+            for o in orders
+        ]
+    _echo_rows(["id", "model", "qty", "buyer", "placed", "due", "status"], rows)
+
+
+@sales_app.command("show")
+def sales_show(order_id: int = typer.Argument(..., help="Sales order ID.")) -> None:
+    """Show details for one sales order."""
+    with _session() as db:
+        order = SalesService(db).get_order(order_id)
+        if order is None:
+            typer.echo(f"Sales order {order_id} not found.", err=True)
+            raise typer.Exit(1)
+        data = {
+            "id": order.id,
+            "model": order.product.name if order.product else None,
+            "quantity": order.quantity,
+            "buyer_name": order.buyer_name,
+            "unit_price": float(order.unit_price),
+            "total_price": float(order.total_price),
+            "placed_day": order.placed_day,
+            "expected_delivery_day": order.expected_delivery_day,
+            "delivered_day": order.delivered_day,
+            "status": order.status.value,
+        }
+    typer.echo(json.dumps(data, indent=2))
+
+
+@price_app.command("list")
+def price_list() -> None:
+    """List wholesale prices for all printer models."""
+    with _session() as db:
+        wps = SalesService(db).list_prices()
+        rows = [
+            [wp.product.name if wp.product else "?", float(wp.price), wp.lead_time_days]
+            for wp in wps
+        ]
+    _echo_rows(["model", "wholesale_price", "lead_time_days"], rows)
+
+
+@price_app.command("set")
+def price_set(
+    model: str = typer.Argument(..., help="Printer model name."),
+    price: float = typer.Argument(..., help="New wholesale price."),
+    lead_time: int = typer.Option(3, "--lead-time", "-l", help="Lead time in days."),
+) -> None:
+    """Set the wholesale price (and lead time) for a printer model."""
+    from decimal import Decimal
+
+    with _session() as db:
+        try:
+            svc = SalesService(db)
+            wp = svc.set_price(model, Decimal(str(price)), lead_time)
+            db.commit()
+            model_name = wp.product.name if wp.product else model
+            msg = f"Wholesale price for {model_name!r}: ${float(wp.price):.2f}, {wp.lead_time_days}d lead."
+        except ModelNotFoundError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(1)
+    typer.echo(msg)
 
 
 if __name__ == "__main__":

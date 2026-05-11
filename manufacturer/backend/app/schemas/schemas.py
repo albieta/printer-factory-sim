@@ -42,6 +42,10 @@ class EventType(str, Enum):
     INVENTORY_ADDED = "INVENTORY_ADDED"
     DAY_ADVANCED = "DAY_ADVANCED"
     PRODUCTION_BLOCKED_CAPACITY = "PRODUCTION_BLOCKED_CAPACITY"
+    SALES_ORDER_PLACED = "SALES_ORDER_PLACED"
+    SALES_ORDER_DELIVERED = "SALES_ORDER_DELIVERED"
+    SALES_ORDER_CANCELLED = "SALES_ORDER_CANCELLED"
+    WHOLESALE_PRICE_CHANGED = "WHOLESALE_PRICE_CHANGED"
 
 
 class ProductBase(BaseModel):
@@ -307,6 +311,7 @@ class DayAdvanceResult(BaseModel):
     orders_created: int
     orders_completed: int
     purchase_orders_delivered: int
+    sales_orders_delivered: int = 0
 
 
 class ResetConfirm(BaseModel):
@@ -318,3 +323,42 @@ class ImportResult(BaseModel):
     success: bool
     message: str
     errors: Optional[list[str]] = None
+
+
+# ── Sales (retailer ↔ manufacturer wholesale) ─────────────────────────────────
+
+
+class SalesOrderStatus(str, Enum):
+    PENDING = "PENDING"
+    DELIVERED = "DELIVERED"
+    CANCELLED = "CANCELLED"
+
+
+class SalesOrderCreate(BaseModel):
+    model_name: str
+    quantity: int
+    buyer_name: str
+
+
+class SalesOrderOut(BaseModel):
+    id: int
+    model_name: str
+    quantity: int
+    buyer_name: str
+    unit_price: float
+    total_price: float
+    placed_day: int
+    expected_delivery_day: int
+    delivered_day: Optional[int] = None
+    status: SalesOrderStatus
+
+
+class WholesalePriceOut(BaseModel):
+    model_name: str
+    price: float
+    lead_time_days: int
+
+
+class WholesalePriceSet(BaseModel):
+    price: float
+    lead_time_days: int = 3

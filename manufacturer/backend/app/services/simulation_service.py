@@ -12,6 +12,7 @@ from app.services.config_service import ConfigService
 from app.services.inventory_service import InventoryService
 from app.services.order_service import OrderService
 from app.services.production_service import ProductionService
+from app.services.sales_service import SalesService
 from app.services.starter_profile import STARTER_INVENTORY, WORKFLOW_STAGE_DEFS, build_starter_config
 from app.services.supplier_service import PurchaseOrderService
 
@@ -24,9 +25,14 @@ class SimulationService:
         self.po_service = PurchaseOrderService(db)
         self.production_service = ProductionService(db)
         self.inventory_service = InventoryService(db)
+        self.sales_service = SalesService(db)
 
     def advance_day(self) -> dict[str, Any]:
         sim_date = self.config_service.advance_sim_date()
+
+        # Increment integer day counter and deliver any due sales orders.
+        new_sales_day = self.sales_service.increment_day()
+        sales_delivered = len(self.sales_service.process_deliveries(new_sales_day))
 
         po_results = self.po_service.process_deliveries(sim_date)
         pos_delivered = sum(1 for result in po_results if result["status"] == "delivered")
@@ -44,6 +50,7 @@ class SimulationService:
                 "orders_created": orders_created,
                 "orders_completed": orders_completed,
                 "pos_delivered": pos_delivered,
+                "sales_orders_delivered": sales_delivered,
             },
         )
         self.db.add(event)
@@ -55,6 +62,7 @@ class SimulationService:
             "orders_created": orders_created,
             "orders_completed": orders_completed,
             "purchase_orders_delivered": pos_delivered,
+            "sales_orders_delivered": sales_delivered,
         }
 
     def generate_daily_demand(self, sim_date: date) -> int:
