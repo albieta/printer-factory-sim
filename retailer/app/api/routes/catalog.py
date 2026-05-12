@@ -24,9 +24,11 @@ def set_price(
     db: Session = Depends(get_db),
 ) -> CatalogItemOut:
     from decimal import Decimal
+    from app.utils.config import RetailerConfig
+    cfg: RetailerConfig = request.app.state.config
     svc = CatalogService(db)
     try:
-        item = svc.set_price(model_name, Decimal(str(body.price)))
+        item = svc.set_price(model_name, Decimal(str(body.price)), cfg.manufacturer.url)
     except ModelNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except CatalogError as exc:

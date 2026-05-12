@@ -9,8 +9,10 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.models.models import (
+    BillOfMaterials,
     Event,
     EventType,
+    Inventory,
     MfgDayCounter,
     Product,
     ProductType,
@@ -185,11 +187,13 @@ class SalesService:
         )
 
     def process_deliveries(self, current_day: int) -> list[SalesOrder]:
-        """Mark PENDING sales orders as DELIVERED when their delivery day has arrived."""
+        """Mark PENDING and RELEASED sales orders as DELIVERED when their delivery day has arrived."""
         due = (
             self._db.query(SalesOrder)
             .filter(
-                SalesOrder.status == SalesOrderStatus.PENDING,
+                SalesOrder.status.in_(
+                    [SalesOrderStatus.PENDING, SalesOrderStatus.RELEASED]
+                ),
                 SalesOrder.expected_delivery_day <= current_day,
             )
             .all()
@@ -208,6 +212,91 @@ class SalesService:
             )
             delivered.append(order)
         return delivered
+
+    # ── production management ─────────────────────────────────────────────────
+
+    def release_order(self, order_id: int) -> SalesOrder:
+        """Transition a PENDING sales order to RELEASED after a BOM availability check."""
+        order = self.get_order(order_id)
+        if order is None:
+            raise SalesError(f"Sales order {order_id} not found")
+        if order.status != SalesOrderStatus.PENDING:
+            raise SalesError(
+                f"Order {order_id} is {order.status.value} — only PENDING orders can be released"
+            )
+
+        bom_entries = (
+            self._db.query(BillOfMaterials)
+            .filter_by(finished_product_id=order.product_id)
+            .all()
+        )
+        shortfalls: list[str] = []
+        for entry in bom_entries:
+            needed = entry.quantity * order.quantity
+            inv = (
+                self._db.query(Inventory)
+                .filter_by(product_id=entry.material_id)
+                .one_or_none()
+            )
+            available = inv.quantity if inv is not None else Decimal("0")
+            if available < needed:
+                mat_name = entry.material.name if entry.material else entry.material_id
+                shortfalls.append(
+                    f"{mat_name}: need {float(needed):.0f}, have {float(available):.0f}"
+                )
+        if shortfalls:
+            raise SalesError(
+                f"Insufficient materials for order {order_id}: " + "; ".join(shortfalls)
+            )
+
+        order.status = SalesOrderStatus.RELEASED
+        self._db.flush()
+        model_name = order.product.name if order.product else str(order.product_id)
+        self._db.add(
+            Event(
+                event_type=EventType.SALES_ORDER_RELEASED,
+                sim_date=self._sim_date(),
+                details={
+                    "order_id": order_id,
+                    "model": model_name,
+                    "quantity": order.quantity,
+                },
+            )
+        )
+        return order
+
+    def list_released(self) -> list[SalesOrder]:
+        """Return all RELEASED sales orders (queued for production)."""
+        return (
+            self._db.query(SalesOrder)
+            .filter(SalesOrder.status == SalesOrderStatus.RELEASED)
+            .order_by(SalesOrder.placed_day, SalesOrder.id)
+            .all()
+        )
+
+    def get_capacity_summary(self) -> dict[str, object]:
+        """Return daily assembly capacity and utilisation from released sales orders."""
+        from app.services.config_service import ConfigService
+
+        daily_hours = ConfigService(self._db).get_daily_assembly_hours()
+        released = self.list_released()
+
+        used_hours = 0.0
+        for o in released:
+            product = self._db.query(Product).filter_by(id=o.product_id).one_or_none()
+            if product and product.assembly_hours:
+                used_hours += float(product.assembly_hours) * o.quantity
+
+        available_hours = max(0.0, daily_hours - used_hours)
+        utilisation_pct = round((used_hours / daily_hours * 100) if daily_hours > 0 else 0.0, 1)
+
+        return {
+            "daily_assembly_hours": daily_hours,
+            "used_hours": round(used_hours, 2),
+            "available_hours": round(available_hours, 2),
+            "utilisation_pct": utilisation_pct,
+            "released_orders_count": len(released),
+        }
 
     # ── seeding ───────────────────────────────────────────────────────────────
 

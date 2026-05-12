@@ -109,7 +109,7 @@ printer-factory-sim/
 │   ├── backend/
 │   │   ├── app/
 │   │   │   ├── api/routes/
-│   │   │   │   └── sales.py   # NEW: POST /api/orders, GET /api/prices
+│   │   │   │   └── sales.py   # NEW: POST /api/sales/orders, GET /api/sales/prices
 │   │   │   ├── models/models.py  # NEW: SalesOrder table, wholesale_price col
 │   │   │   ├── schemas/schemas.py
 │   │   │   └── services/
@@ -167,16 +167,18 @@ pending → confirmed → in_progress → shipped → delivered
 cancelled | rejected
 ```
 
-The retailer polls the manufacturer's `GET /api/orders/{id}` on each day
+The retailer polls the manufacturer's `GET /api/sales/orders/{id}` on each day
 advance, identical to the pattern the manufacturer uses against the provider.
 When the manufacturer reports `delivered`, the retailer adds printers to stock
 and auto-fulfils any backordered customer orders in FIFO order.
 
-**Price constraint (enforced at order placement):** the retailer's retail
-price for a model must be at least `wholesale_price × (1 + markup_pct / 100)`.
-`markup_pct` comes from config (default 30). The retailer fetches the current
-wholesale price from `GET /api/prices` on the manufacturer at startup and on
-each day advance.
+**Price constraint (enforced on every `PUT /api/catalog/{model}/price` call and
+`retailer-cli price set` command):** the retail price for a model must be at
+least `wholesale_price × 1.15` (minimum 15 % margin). The current wholesale
+price is fetched live from `GET /api/sales/prices` on the manufacturer; if the
+manufacturer is unreachable the call fails with an error rather than silently
+allowing an under-priced update. Both the REST route and the CLI command enforce
+the same floor through `CatalogService.set_price()`.
 
 **Multi-instance design:** every path — database file, log file, config file —
 is resolved from the config provided at startup. No hardcoded paths or
@@ -210,6 +212,7 @@ A second instance would use a different config file pointing to a different
 | Method | Path                      | Purpose                                                  |
 |--------|---------------------------|----------------------------------------------------------|
 | GET    | `/api/catalog`            | Printer models with retail prices.                       |
+| PUT    | `/api/catalog/{model}/price` | Set retail price for a model (enforces ≥ wholesale × 1.15). |
 | GET    | `/api/stock`              | Current finished-printer inventory.                      |
 | POST   | `/api/orders`             | End customer places an order.                            |
 | GET    | `/api/orders`             | List customer orders. Optional `?status=` filter.        |
@@ -238,7 +241,7 @@ Response: the persisted customer order including `placed_day`, `status`
 ```
 
 The retailer's service layer immediately POSTs to the manufacturer's
-`POST /api/orders`, stores the manufacturer's returned order id, and
+`POST /api/sales/orders`, stores the manufacturer's returned order id, and
 tracks the purchase order through the same polling-on-day-advance
 mechanism used between manufacturer and provider.
 
@@ -247,11 +250,11 @@ mechanism used between manufacturer and provider.
 On `POST /api/day/advance`:
 
 1. Poll the manufacturer for each pending purchase order (`GET
-   /api/orders/{id}`). For orders reported `delivered`, add printers to
+   /api/sales/orders/{id}`). For orders reported `delivered`, add printers to
    stock.
 2. Auto-fulfil backordered customer orders in FIFO order, consuming newly
    arrived stock.
-3. Fetch updated wholesale prices from `GET /api/prices` so the price
+3. Fetch updated wholesale prices from `GET /api/sales/prices` so the price
    constraint check remains current.
 4. Increment `current_day`.
 5. Write one `Event` row per stock update, per fulfilment, per backorder
@@ -292,7 +295,7 @@ initial retail price and zero starting stock:
 | P3D Mini      | 649 EUR     | 0             |
 
 Retail prices must exceed `wholesale_price × 1.15` (minimum 15% margin).
-The seed loader validates this against the manufacturer's `/api/prices`
+The seed loader validates this against the manufacturer's `/api/sales/prices`
 endpoint at seed time, or uses the config's `markup_pct` if the
 manufacturer is not yet running.
 
@@ -334,22 +337,22 @@ Two additions to `manufacturer/backend/app/models/models.py`:
 
 - **`WholesalePrice`** table (or column on an existing `Product` row):
   one wholesale price per finished printer model, editable via CLI and
-  visible via `GET /api/prices`.
+  visible via `GET /api/sales/prices`.
 
 Existing `ManufacturingOrder`, `PurchaseOrder`, and `Inventory` tables are
 unchanged.
 
 ### 5.2 New REST endpoints (manufacturer, port 8002)
 
-| Method | Path                        | Purpose                                         |
-|--------|-----------------------------|-------------------------------------------------|
-| POST   | `/api/orders`               | Retailer places a purchase order for printers.  |
-| GET    | `/api/orders`               | List sales orders. Optional `?status=` filter.  |
-| GET    | `/api/orders/{id}`          | Single sales order — the retailer polls this.   |
-| GET    | `/api/prices`               | Wholesale prices per model.                     |
-| PUT    | `/api/prices/{model}`       | Update wholesale price for a model.             |
+| Method | Path                              | Purpose                                         |
+|--------|-----------------------------------|-------------------------------------------------|
+| POST   | `/api/sales/orders`               | Retailer places a purchase order for printers.  |
+| GET    | `/api/sales/orders`               | List sales orders. Optional `?status=` filter.  |
+| GET    | `/api/sales/orders/{id}`          | Single sales order — the retailer polls this.   |
+| GET    | `/api/sales/prices`               | Wholesale prices per model.                     |
+| PUT    | `/api/sales/prices/{model}`       | Update wholesale price for a model.             |
 
-`POST /api/orders` request body:
+`POST /api/sales/orders` request body:
 
 ```json
 { "buyer": "PrinterWorld", "model": "P3D Classic", "quantity": 10 }
@@ -385,11 +388,28 @@ same daily capacity.
 ### 5.4 New CLI commands (manufacturer)
 
 ```text
-manufacturer-cli sales orders [--status S]   # list inbound sales orders
-manufacturer-cli sales order <order_id>      # detail for one sales order
-manufacturer-cli price list                  # current wholesale prices
-manufacturer-cli price set <model> <price>   # set wholesale price
+manufacturer-cli sales orders [--status S]          # list inbound sales orders
+manufacturer-cli sales order <order_id>             # detail for one sales order
+manufacturer-cli price list                         # current wholesale prices
+manufacturer-cli price set <model> <price>          # set wholesale price
+manufacturer-cli production release <order_id>      # release PENDING order to production (checks BOM)
+manufacturer-cli production status                  # list RELEASED orders in the production pipeline
+manufacturer-cli capacity                           # daily assembly hours + current utilisation
 ```
+
+`production release` transitions a sales order from `PENDING → RELEASED` after
+verifying that all BOM raw-material quantities are in stock. Returns an error if
+materials are insufficient or the order is not in `PENDING` status.
+
+`production status` lists every RELEASED sales order (model, qty, buyer, due day).
+An empty table means no orders have been manually released yet.
+
+`capacity` reports:
+- `daily_assembly_hours` — total assembly hours available per day (from `SimulationConfig`)
+- `used_hours` — hours consumed by currently RELEASED sales orders
+- `available_hours` — remaining hours for the day
+- `utilisation_pct` — `used_hours / daily_assembly_hours × 100`
+- `released_orders_count` — number of RELEASED orders
 
 These are added to the existing `manufacturer-cli` entrypoint.
 
@@ -415,13 +435,52 @@ three services.
 
 ### 6.2 Scenario file format
 
-`engine/scenarios/week7-default.json`:
+A scenario is a JSON file. `engine/scenarios/week7-default.json` is the
+canonical example; any number of custom scenarios can be written and passed
+to `--scenario`.
+
+**Top-level fields:**
+
+| Field         | Required | Meaning                                                             |
+|---------------|----------|---------------------------------------------------------------------|
+| `seed`        | no       | Integer RNG seed for reproducible demand; omit for random.         |
+| `base_demand` | no       | `{"mean": N, "variance": V}` for daily customer order count. Defaults: mean=5, variance=2. |
+| `base_price`  | no       | Reference retail price used in the demand curve (higher price → lower demand). |
+| `days`        | yes      | Array of per-day signal objects (see below).                        |
+| `apps`        | no       | Override app URLs. Defaults: provider=8001, manufacturer=8002, retailer=8003. |
+
+**`days` array — one entry per simulated day:**
+
+```json
+"days": [
+  { "day": 1 },
+  { "day": 2, "demand_modifier": 1.5 },
+  { "day": 3, "supply_modifier": 0.7 },
+  { "day": 4 },
+  { "day": 5, "demand_modifier": 0.8 }
+]
+```
+
+Each entry must include `"day"` (1-based integer matching the engine's day
+counter). Days not listed in the array get an empty signal — all modifiers
+default to their neutral value. The number of entries does not need to match
+`--days`; extra entries are ignored, missing entries use defaults.
+
+**Per-day signal fields:**
+
+| Field             | Default | Meaning                                                       |
+|-------------------|---------|---------------------------------------------------------------|
+| `day`             | —       | 1-based day number. Required.                                  |
+| `demand_modifier` | 1.0     | Multiplier on `base_demand.mean` for customer order count. `1.5` = 50 % more demand. |
+| `supply_modifier` | 1.0     | Injected as a market signal into manufacturer and provider agent prompts. Does not directly change order quantities. |
+
+**Full annotated example:**
 
 ```json
 {
   "seed": 42,
-  "base_demand": { "mean": 5, "variance": 2 },
-  "base_price": 799,
+  "base_demand": { "mean": 3, "variance": 1 },
+  "base_price": 999,
   "days": [
     { "day": 1 },
     { "day": 2, "demand_modifier": 1.5 },
@@ -437,13 +496,11 @@ three services.
 }
 ```
 
-Fields per day entry:
-
-| Field             | Default | Meaning                                              |
-|-------------------|---------|------------------------------------------------------|
-| `demand_modifier` | 1.0     | Scales mean customer demand up/down.                 |
-| `supply_modifier` | 1.0     | Injected into manufacturer and provider agent prompts. |
-| `price_shock`     | null    | Optional dict `{model: delta}` to shift retail prices temporarily. |
+- Day 1: normal demand (modifier = 1.0).
+- Day 2: demand spike (`1.5` → mean = 4.5 orders instead of 3).
+- Day 3: supply pressure signal injected into agent prompt; demand is normal.
+- Day 4: no modifiers — neutral day.
+- Day 5: demand dip (`0.8` → mean = 2.4 orders).
 
 ### 6.3 Customer demand generation
 
@@ -581,24 +638,40 @@ to finished printers, sells wholesale to retailers).
 
 **`## Available Commands`** — an exhaustive list of CLI commands the agent
 may call, grouped by concern (check state, purchasing, production, pricing).
-Each command gets a one-line description. Commands the agent must *not* call
-(`day advance`, anything on provider or retailer directly) are listed under
-**`## DO NOT`**.
+Current command groups (v1.1):
+
+- *Read state:* `inventory`, `sales orders`, `sales order <id>`,
+  `purchase list`, `price list`, `suppliers list`,
+  `production status`, `capacity`
+- *Production:* `production release <order_id>`
+- *Purchasing:* `purchase create --supplier … --product … --qty …`
+- *Pricing:* `price set "<model>" <price>`
+
+Commands the agent must *not* call (`day advance`, anything on provider or
+retailer directly) are listed under **`## DO NOT`**.
 
 **`## Decision Framework`** — a numbered, step-by-step procedure the agent
 follows each day, in order:
 
-1. **Assess.** Run read-only commands; summarise state in 2–3 sentences.
-2. **Fulfil what you can.** Release pending sales orders where parts are
-   in stock and capacity is available. Prioritise oldest orders.
+1. **Assess.** Run all read-only commands (`inventory`, `sales orders`,
+   `purchase list`, `production status`, `capacity`); summarise state in
+   2–3 sentences.
+2. **Fulfil what you can.** Sales orders are *not* released automatically —
+   the agent must call `production release <order_id>` explicitly. For each
+   PENDING order (oldest first), check `capacity` for available assembly hours
+   and attempt release. Log one reasoning line before each call. If release
+   errors (insufficient materials), skip and note the shortfall. Stop once
+   available hours are exhausted.
 3. **Order what you need.** For each part where stock is below two days
    of expected consumption, check suppliers and place the best purchase
    order. Justify supplier choice in one sentence.
-4. **Adjust prices.** If orders exceed capacity by > 50% for 2+ consecutive
-   days, raise wholesale prices 5–10%. If utilisation < 40% for 2+ days,
-   lower them 5–10%. Never below cost + 15% margin.
+4. **Adjust prices.** Use `capacity` output (`daily_assembly_hours`,
+   `utilisation_pct`) to gauge load. If pending orders exceed 2× unit
+   throughput and utilisation > 80 %, raise prices 5–10%. If pending orders
+   are 0 and utilisation < 20 %, lower prices 5% to stimulate demand. Never
+   below cost + 15% margin.
 5. **Log your reasoning.** Before each mutating command, print one line:
-   `"releasing order 17 because P3D-Classic stock=8 and all parts available"`.
+   `"releasing order 17 — Basic300 ×3, 6h needed, 8h available, all parts in stock"`.
 
 **`## Market Signals`** — how to interpret `demand_modifier` and
 `supply_modifier` values injected by the turn engine into the prompt:
@@ -613,9 +686,9 @@ and their rationale, then exits. It does not call `day advance`.
 
 ### 7.3 Versioning
 
-The skill file carries a `## Version` line at the top (e.g. `v1.0 — Week 7`).
-Breaking changes (new commands added, decision framework revised) increment
-the version so diffs remain readable.
+The skill file carries a `## Version` line at the top. Current version is
+`v1.1 — Week 7 (FIX-3)`. Breaking changes (new commands added, decision
+framework revised) increment the version so diffs remain readable.
 
 ---
 
@@ -684,7 +757,7 @@ Milestone 5 is complete when:
 | Network failure     | Retailer surfaces errors from manufacturer; engine surfaces errors from any app. No silent swallowing. |
 | Idempotency         | Order placement is not idempotent. Engine must not retry on transient failure; surface and abort. |
 | Auth                | None this week.                                                     |
-| Schema version      | Manufacturer's new `/api/orders` (sales) returns `schema_version: "2"`. Provider's contract is `schema_version: "1"` and unchanged. |
+| Schema version      | Manufacturer's new `/api/sales/orders` returns `schema_version: "2"`. Provider's contract is `schema_version: "1"` and unchanged. |
 
 ---
 

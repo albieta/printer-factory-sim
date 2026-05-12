@@ -79,10 +79,10 @@ not — discuss with the user first.
 │ (port 8003)     │  │ routes→services→SQLite   │  │ routes→services→SQLite │
 │ routes→services │  └──────────┬───────────────┘  └────────────────────────┘
 │ →SQLite         │             │ httpx                        ▲
-└──────┬──────────┘             │ POST /api/orders             │
-       │ httpx                  │ GET  /api/orders/{id}        │
-       │ POST /api/orders       └──────────────────────────────┘
-       │ GET  /api/orders/{id}
+└──────┬──────────┘             │ POST /api/sales/orders       │
+       │ httpx                  │ GET  /api/sales/orders/{id}  │
+       │ POST /api/sales/orders └──────────────────────────────┘
+       │ GET  /api/sales/orders/{id}
        └──────────────────────▶ manufacturer (port 8002)
 ```
 
@@ -133,8 +133,8 @@ file; no hardcoded ports or singletons.
 Manufacturer additions (Week 7): `SalesOrder` (inbound orders from
 retailers), `WholesalePrice` (per-model wholesale price). Sales order
 lifecycle: `pending → released → in_progress → shipped → delivered`.
-New REST endpoints: `POST /api/orders` (sales), `GET /api/orders/{id}`,
-`GET /api/prices`, `PUT /api/prices/{model}`.
+New REST endpoints: `POST /api/sales/orders`, `GET /api/sales/orders/{id}`,
+`GET /api/sales/prices`, `PUT /api/sales/prices/{model}`.
 
 ## Repository layout
 

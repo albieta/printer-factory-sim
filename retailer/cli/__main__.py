@@ -251,10 +251,11 @@ def price_set(
     model: str = typer.Argument(..., help="Printer model name."),
     price: float = typer.Argument(..., help="New retail price."),
 ) -> None:
-    """Set the retail price for a model."""
+    """Set the retail price for a model (minimum 15 % above manufacturer wholesale)."""
+    cfg = _require_cfg()
     with _session() as db:
         try:
-            item = CatalogService(db).set_price(model, Decimal(str(price)))
+            item = CatalogService(db).set_price(model, Decimal(str(price)), cfg.manufacturer.url)
             db.commit()
             msg = f"Retail price for {item.model_name!r} set to {float(item.retail_price):.2f}."
         except ModelNotFoundError as exc:

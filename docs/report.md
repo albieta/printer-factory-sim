@@ -349,3 +349,164 @@ The PRD was also useful as a discussion tool for the team. We did not follow
 it blindly, but when we changed direction, such as replacing Streamlit with
 React or choosing not to use SimPy, the PRD made those changes visible and
 easier to justify.
+
+---
+
+## 6. Week 7 — Supply Chain Completion and Turn Engine
+
+### 6.1 Manufacturer CLI additions (Week 7)
+
+Week 7 extended the manufacturer app with three production-management CLI
+commands required by the full spec:
+
+| Command | Purpose |
+|---------|---------|
+| `manufacturer-cli production release <order_id>` | Transition a PENDING sales order to RELEASED after verifying BOM material availability in inventory |
+| `manufacturer-cli production status` | List all RELEASED orders currently in the production pipeline (model, qty, buyer, due day) |
+| `manufacturer-cli capacity` | Report daily assembly hours from `SimulationConfig`, hours consumed by released orders, and utilisation % |
+
+The `production release` command performs an explicit BOM check before
+accepting the transition: it queries `BillOfMaterials` for each material
+required per unit, compares against live `Inventory` quantities, and returns a
+descriptive error listing any shortfalls. This mirrors the same check the
+automated day-advance pipeline performs, but makes it available as a manual
+control for the LLM agent.
+
+The `capacity` command derives its figures from `SimulationConfig.daily_assembly_hours`
+(default 8 h/day) and each printer model's `Product.assembly_hours`
+(Basic300 = 2 h, Pro450 = 4 h, Elite700 = 6 h), so a day with one released
+3-unit Basic300 order reports 6 h used, 2 h available, 75 % utilisation.
+
+These commands were also added to the manufacturer skill file
+(`skills/manufacturer-manager.md`) so the LLM agent can observe and act on
+production state each turn.
+
+### 6.3 Skill file — manufacturer-manager (v1.1)
+
+The manufacturer-manager skill file (`skills/manufacturer-manager.md`) was
+revised from v1.0 to v1.1 to align with the new CLI surface added in FIX-2.
+
+**Key changes:**
+
+- **Read state block** expanded to include `manufacturer-cli production status`
+  and `manufacturer-cli capacity`, giving the agent a concrete view of the
+  production pipeline and assembly-hour utilisation before making decisions.
+- **Production block** added with `manufacturer-cli production release <order_id>`,
+  making explicit the command the agent must call to advance a sales order into
+  production.
+- **Step 2 (Fulfil)** rewritten. The previous version said fulfilment is
+  automatic, which was inaccurate — the agent must explicitly release each
+  PENDING order using `production release`. The updated step instructs the
+  agent to check capacity first, iterate orders oldest-first, print one
+  reasoning line before each release, and stop when assembly hours are
+  exhausted.
+- **Step 4 (Adjust prices)** now uses the real `capacity` command output
+  (`daily_assembly_hours`, `utilisation_pct`) instead of a hardcoded
+  "5 units/day" assumption. The agent derives unit throughput from assembly
+  hours (average 4 h/unit across the three models).
+- **DO NOT** block gained one rule: never release the same order twice
+  (the service returns an error on non-PENDING orders, so this prevents
+  wasted calls).
+
+**Observed agent behaviour after v1.1:** In a 1-day verification run, the
+agent correctly called `capacity` during Step 1, then released two PENDING
+sales orders (Basic300 and Pro450) with printed reasoning lines before each
+`production release` command, and produced a coherent 5-bullet Step 5 summary
+that identified LCD Screen stock as the next risk to watch.
+
+### 6.2 SalesOrder status lifecycle
+
+The `SalesOrderStatus` enum was extended to include `RELEASED` as an
+intermediate state between `PENDING` and `DELIVERED`. The corresponding
+`SALES_ORDER_RELEASED` event type was added to `EventType` so every release
+decision appears in the audit log. The schema enum (`schemas.py`) was
+updated in parallel to keep the REST API consistent.
+
+### 6.5 Developer startup script (`dev-start-all.sh`)
+
+`scripts/dev-start-all.sh` was added to start all four processes (provider,
+manufacturer backend, retailer, React frontend) in a single command, mirroring
+the existing `dev-start.sh` which only covered the original two apps. The script
+follows the same pattern: it checks whether each port is already in use before
+starting a new process, seeds the retailer database before launching its server,
+and waits for each app's `/health` endpoint before printing the ready URLs.
+A `RETAILER_PORT` environment variable (default 8003) allows port overrides
+without editing the file.
+
+### 6.6 REST endpoint path alignment
+
+`CLAUDE.md` and `docs/PRD-week7.md` §5.2 previously documented the
+manufacturer's sales endpoints as `/api/orders` and `/api/prices`. The actual
+implementation mounts the sales router under the `/sales` prefix, giving paths
+`/api/sales/orders`, `/api/sales/orders/{id}`, `/api/sales/prices`, and
+`/api/sales/prices/{model}`. All documentation was updated to match the
+implementation; no code changes were required.
+
+### 6.7 Scenario file format documentation
+
+The turn engine's scenario format was documented explicitly in PRD-week7.md
+§6.2. The format uses a `days` array where each entry carries a `"day"` key
+(1-based) plus optional `demand_modifier` and `supply_modifier` signals. Days
+absent from the array receive neutral defaults (`modifier = 1.0`). The section
+now includes a full annotated example and a top-level-fields reference table so
+new scenarios can be written without reading the engine source.
+
+### 6.4 Retailer retail-price enforcement (15 % markup floor)
+
+The retailer's `CatalogService.set_price()` method enforces a minimum retail
+price of `wholesale_price × 1.15`. Before accepting any price update — whether
+via `PUT /api/catalog/{model}/price` (REST) or `retailer-cli price set` (CLI) —
+the service fetches the current wholesale price from the manufacturer's
+`GET /api/sales/prices` endpoint. If the proposed price falls below the floor,
+the call fails with a descriptive error (`CatalogError`) that propagates as an
+HTTP 400 in the REST route and a printed error message in the CLI, with no write
+to the database. If the manufacturer is unreachable, the update is also rejected
+rather than silently permitted.
+
+### 6.8 Simulation observations from milestone validation runs
+
+Four findings emerged from running the full milestone suite after the Week 7
+implementation was complete.
+
+#### State machine audit gap
+
+Adding `RELEASED` as an intermediate `SalesOrderStatus` exposed a bug in
+`SalesService.process_deliveries()`: the method filtered exclusively on
+`status == PENDING`, so orders the LLM agent had already released were never
+delivered to the retailer. The fix changed the filter to
+`status.in_([PENDING, RELEASED])`. This is a recurring pattern when extending
+an enum: every query that matches on status values must be re-audited to ensure
+the new state is either included or explicitly excluded from each query.
+
+#### LLM agent decision quality
+
+In 5-day acceptance runs the manufacturer-manager agent consistently followed
+the skill file decision framework. On days with PENDING sales orders it called
+`production status` and `capacity` to assess load, then released orders
+oldest-first with a printed reasoning line before each `production release`
+call. On the day with `supply_modifier = 0.7` the agent noted the constrained
+supply signal and chose not to release further orders beyond available capacity.
+No "no such command" errors appeared, confirming the FIX-3 skill file update
+aligned correctly with the FIX-1 and FIX-2 CLI changes.
+
+#### Engine resilience under API rate limits
+
+During an earlier validation run the Claude API returned a rate-limit response
+on days 4 and 5 (`You've hit your limit`), causing `claude --print` to exit
+with code 1. The engine logged a `WARNING` and continued advancing all three
+apps' day counters normally. The KPI CSV accumulated rows for all 5 days and
+all 5 agent transcript files were written (the day-4 and day-5 transcripts
+contained the rate-limit message rather than agent output). This confirms the
+engine's agent-failure path is correct: a broken agent degrades gracefully
+rather than halting the simulation.
+
+#### Persistent retailer backlog
+
+Across all stub and LLM runs `retailer_stock_total` remained at 0 throughout.
+This is expected behaviour, not a bug: the retailer starts with zero inventory,
+purchase orders have a 3-day lead time, and the engine generates new customer
+demand every day. Demand continuously outruns replenishment within a 3–5 day
+window. The growing `retailer_backordered_customers` count (rising ~10–12
+orders per day in normal-demand days, ~20 on the `demand_modifier = 1.5` day)
+is a measurable supply chain metric that would drive a real agent to place
+larger or more frequent purchase orders.

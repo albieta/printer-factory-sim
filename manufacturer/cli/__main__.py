@@ -19,7 +19,7 @@ from app.models.models import Product, Supplier  # noqa: E402
 from app.schemas.schemas import PurchaseOrderCreate  # noqa: E402
 from app.services.config_service import ConfigService  # noqa: E402
 from app.services.inventory_service import InventoryService  # noqa: E402
-from app.services.sales_service import ModelNotFoundError, SalesService  # noqa: E402
+from app.services.sales_service import ModelNotFoundError, SalesError, SalesService  # noqa: E402
 from app.services.simulation_service import SimulationService  # noqa: E402
 from app.services.supplier_service import PurchaseOrderService, SupplierService  # noqa: E402
 from app.utils.database import SessionLocal, bootstrap_database  # noqa: E402
@@ -31,12 +31,14 @@ purchase_app = typer.Typer(help="Purchase-order commands.")
 day_app = typer.Typer(help="Simulated-day commands.")
 sales_app = typer.Typer(help="Sales order commands (retailer purchases).")
 price_app = typer.Typer(help="Wholesale price commands.")
+production_app = typer.Typer(help="Production pipeline commands.")
 
 app.add_typer(suppliers_app, name="suppliers")
 app.add_typer(purchase_app, name="purchase")
 app.add_typer(day_app, name="day")
 app.add_typer(sales_app, name="sales")
 app.add_typer(price_app, name="price")
+app.add_typer(production_app, name="production")
 
 
 @contextmanager
@@ -239,8 +241,8 @@ def current_day() -> None:
         typer.echo(ConfigService(db).get_sim_date().isoformat())
 
 
-@sales_app.command("list")
-def sales_list() -> None:
+@sales_app.command("orders")
+def sales_orders() -> None:
     """List sales orders placed by retailers."""
     with _session() as db:
         svc = SalesService(db)
@@ -260,8 +262,8 @@ def sales_list() -> None:
     _echo_rows(["id", "model", "qty", "buyer", "placed", "due", "status"], rows)
 
 
-@sales_app.command("show")
-def sales_show(order_id: int = typer.Argument(..., help="Sales order ID.")) -> None:
+@sales_app.command("order")
+def sales_order(order_id: int = typer.Argument(..., help="Sales order ID.")) -> None:
     """Show details for one sales order."""
     with _session() as db:
         order = SalesService(db).get_order(order_id)
@@ -315,6 +317,55 @@ def price_set(
             typer.echo(str(exc), err=True)
             raise typer.Exit(1)
     typer.echo(msg)
+
+
+@production_app.command("release")
+def production_release(
+    order_id: int = typer.Argument(..., help="Sales order ID to release to production."),
+) -> None:
+    """Release a PENDING sales order to production after checking BOM material availability."""
+    with _session() as db:
+        try:
+            order = SalesService(db).release_order(order_id)
+            db.commit()
+            model_name = order.product.name if order.product else str(order.product_id)
+            msg = (
+                f"Sales order {order.id} released — "
+                f"model={model_name}, qty={order.quantity}, "
+                f"due day {order.expected_delivery_day}."
+            )
+        except SalesError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(1)
+    typer.echo(msg)
+
+
+@production_app.command("status")
+def production_status() -> None:
+    """List sales orders that have been released into the production pipeline."""
+    with _session() as db:
+        orders = SalesService(db).list_released()
+        rows = [
+            [
+                o.id,
+                o.product.name if o.product else "?",
+                o.quantity,
+                o.buyer_name,
+                o.placed_day,
+                o.expected_delivery_day,
+                o.status.value,
+            ]
+            for o in orders
+        ]
+    _echo_rows(["id", "model", "qty", "buyer", "placed", "due", "status"], rows)
+
+
+@app.command()
+def capacity() -> None:
+    """Show daily assembly capacity and current utilisation from released sales orders."""
+    with _session() as db:
+        summary = SalesService(db).get_capacity_summary()
+    typer.echo(json.dumps(summary, indent=2))
 
 
 if __name__ == "__main__":
