@@ -765,8 +765,32 @@ the commit that closes it):
    - 38 unit tests passing across pricing, stock, catalog, customer
      orders, purchase orders (with `MockTransport`), and day advance.
      mypy --strict clean across 30 source files; ruff clean.
-3. Retailer REST + Swagger.
-4. Retailer CLI (`retailer-cli`) including config-file support.
+3. ✅ Retailer REST + Swagger.
+   - `retailer/app/api/routes/` modules: `catalog.py`, `stock.py`,
+     `orders.py`, `purchases.py`, `day.py`, `events.py`.
+   - `retailer/app/api/routes/__init__.py` aggregates all routers under
+     `/api/{catalog,stock,orders,purchases,day,events}` with tag groups.
+   - `retailer/main.py` — FastAPI app with CORS, `/health`, `/docs`, and
+     `bootstrap_database()` on startup.
+   - `retailer/app/utils/deps.py` — `get_manufacturer_client()` FastAPI
+     dependency reads `RETAILER_MANUFACTURER_URL` at call time (no hard-
+     coding). `RETAILER_NAME` and `RETAILER_MANUFACTURER_NAME` env vars
+     are also read at request time by the purchases router.
+   - All routes are thin wrappers over the existing service layer; no
+     business logic added. mypy --strict and ruff clean; 38 tests pass.
+4. ✅ Retailer CLI (`retailer-cli`) including config-file support.
+   - `retailer/cli/__main__.py` (run via `python -m retailer.cli`).
+   - Parses `--config <path>` from `sys.argv` *before* the first `app.*`
+     import so that `RETAILER_DB_URL`, `RETAILER_MANUFACTURER_URL`,
+     `RETAILER_NAME`, and `RETAILER_MANUFACTURER_NAME` are set before
+     SQLAlchemy creates its engine.
+   - Sub-apps: `customers` (orders, order), `purchase` (list, create),
+     `price` (set), `day` (advance, current).
+   - Root commands: `catalog`, `stock`, `fulfill`, `export`, `import`,
+     `serve` (starts uvicorn on the configured port).
+   - `retailer/app/services/admin_service.py` — full-state JSON export and
+     destructive import (all tables serialised/restored in one transaction).
+   - mypy --strict clean across 30 source files; ruff clean; 38 tests pass.
 5. Manufacturer sales-orders inbound (`SalesOrder` model, service,
    `/api/sales/...` routes, `manufacturer-cli sales|production|price`
    verbs).
