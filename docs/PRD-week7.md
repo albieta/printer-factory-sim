@@ -718,9 +718,53 @@ root.
 Suggested issue breakdown (each item one GitHub Issue, referenced in
 the commit that closes it):
 
-1. Retailer scaffolding — models, schemas, seed loader, SQLAlchemy.
-2. Retailer service layer — catalog, stock, customer orders,
+1. ✅ Retailer scaffolding — models, schemas, seed loader, SQLAlchemy.
+   - SQLAlchemy 2.0 `Mapped[]` models in `retailer/app/models/models.py`:
+     `CatalogEntry`, `Stock`, `CustomerOrder` (with the
+     `PENDING/BACKORDERED/FULFILLED/CANCELLED` lifecycle),
+     `PurchaseOrder` (with `external_order_id` for manufacturer
+     polling), `Event`, `SimState`.
+   - Pydantic v2 schemas in `retailer/app/schemas/schemas.py` with the
+     `schema_version` envelope (same convention as the provider).
+   - Database bootstrap (`retailer/app/utils/database.py`) reads the
+     `RETAILER_DB_URL` env var so a future CLI can spin up multiple
+     instances on different DB files.
+   - Seed JSON (`retailer/seed/seed-retailer.json`) for the three
+     printer models with retail prices that clear the 15 % markup floor
+     over the wholesale prices in §5.6.
+   - Idempotent seed loader (`retailer/scripts/seed_data.py`) with
+     schema-version, duplicate-name, and positivity validation.
+   - mypy --strict clean across all 13 retailer source files; ruff clean.
+2. ✅ Retailer service layer — catalog, stock, customer orders,
    backorder/fulfil, purchase orders, pricing floor.
+   - Shared infrastructure: `event_service.py` (audit-log writer that
+     does not commit, so the row stays in the same transaction as the
+     state change), `sim_state_service.py` (current-day get/set on the
+     `sim_state` key/value table).
+   - `pricing.py` — pure functions `compute_floor` and
+     `validate_retail_price`. Enforces the `MINIMUM_MARKUP_PCT = 15`
+     hard floor regardless of the configured markup.
+   - `catalog_service.py`, `stock_service.py` — CRUD over the
+     `catalog` and `stock` tables, with auto-create for new product
+     names and refusal to drive stock negative.
+   - `manufacturer_client.py` — `ManufacturerClient(base_url,
+     transport=None)` wraps the three outbound calls the retailer
+     needs (`POST /api/sales/orders`, `GET /api/sales/orders/{id}`,
+     `GET /api/prices`). Tests inject `httpx.MockTransport`.
+   - `customer_order_service.py` — `place_order` decides fulfil vs
+     backorder atomically; `auto_fulfil_backorders` sweeps the FIFO
+     queue on day advance; `cancel_order` refuses terminal states.
+   - `purchase_order_service.py` — `place_purchase_order` posts to
+     the manufacturer and snapshots the response; `poll_pending_orders`
+     polls each pending PO, delivers into stock on `DELIVERED`, and
+     records `REJECTED`/`CANCELLED` short-circuits without touching
+     stock.
+   - `day_service.py` — orchestrates the day pipeline: poll POs,
+     auto-fulfil backorders, increment day, commit, return summary.
+     Step order is fixed: deliveries land before the backorder sweep.
+   - 38 unit tests passing across pricing, stock, catalog, customer
+     orders, purchase orders (with `MockTransport`), and day advance.
+     mypy --strict clean across 30 source files; ruff clean.
 3. Retailer REST + Swagger.
 4. Retailer CLI (`retailer-cli`) including config-file support.
 5. Manufacturer sales-orders inbound (`SalesOrder` model, service,
