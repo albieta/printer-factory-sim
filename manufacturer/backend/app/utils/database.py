@@ -42,6 +42,7 @@ MIGRATIONS: dict[str, list[tuple[str, str]]] = {
         ("assembly_lines", "ALTER TABLE simulation_config ADD COLUMN assembly_lines INTEGER NOT NULL DEFAULT 1"),
         ("workers_per_line", "ALTER TABLE simulation_config ADD COLUMN workers_per_line INTEGER NOT NULL DEFAULT 1"),
         ("shift_hours", "ALTER TABLE simulation_config ADD COLUMN shift_hours FLOAT NOT NULL DEFAULT 8.0"),
+        ("sim_day", "ALTER TABLE simulation_config ADD COLUMN sim_day INTEGER NOT NULL DEFAULT 0"),
     ],
 }
 
@@ -101,6 +102,7 @@ def ensure_schema() -> None:
 def bootstrap_database() -> None:
     from app.models.models import ManufacturingOrder, Product, PurchaseOrder, Supplier
     from app.services.reference_service import backfill_references
+    from app.services.wholesale_price_service import WholesalePriceService
     from app.utils.app_config import get_configured_providers
 
     ensure_schema()
@@ -144,6 +146,8 @@ def bootstrap_database() -> None:
                 supplier.unit_cost = product_config.get("unit_cost", supplier.unit_cost)
                 supplier.lead_time_days = product_config.get("lead_time_days", supplier.lead_time_days)
                 supplier.quantity_breaks = product_config.get("quantity_breaks", supplier.quantity_breaks)
+        session.commit()
+        WholesalePriceService(session).ensure_defaults()
         session.commit()
     finally:
         session.close()

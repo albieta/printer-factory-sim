@@ -5,7 +5,7 @@ import os
 import sys
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Optional
 
 import typer
 import httpx
@@ -15,12 +15,14 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1] / "backend"
 os.chdir(BACKEND_ROOT)
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.models.models import Product, Supplier  # noqa: E402
+from app.models.models import Product, SalesOrderStatus, Supplier  # noqa: E402
 from app.schemas.schemas import PurchaseOrderCreate  # noqa: E402
 from app.services.config_service import ConfigService  # noqa: E402
 from app.services.inventory_service import InventoryService  # noqa: E402
+from app.services.sales_order_service import SalesOrderService  # noqa: E402
 from app.services.simulation_service import SimulationService  # noqa: E402
 from app.services.supplier_service import PurchaseOrderService, SupplierService  # noqa: E402
+from app.services.wholesale_price_service import WholesalePriceService  # noqa: E402
 from app.utils.database import SessionLocal, bootstrap_database  # noqa: E402
 
 
@@ -28,10 +30,16 @@ app = typer.Typer(help="Manufacturer CLI for the 3D printer factory simulator.")
 suppliers_app = typer.Typer(help="Supplier commands.")
 purchase_app = typer.Typer(help="Purchase-order commands.")
 day_app = typer.Typer(help="Simulated-day commands.")
+sales_app = typer.Typer(help="Inbound sales-order commands.")
+production_app = typer.Typer(help="Production management commands.")
+price_app = typer.Typer(help="Wholesale pricing commands.")
 
 app.add_typer(suppliers_app, name="suppliers")
 app.add_typer(purchase_app, name="purchase")
 app.add_typer(day_app, name="day")
+app.add_typer(sales_app, name="sales")
+app.add_typer(production_app, name="production")
+app.add_typer(price_app, name="price")
 
 
 @contextmanager
@@ -232,6 +240,145 @@ def current_day() -> None:
 
     with _session() as db:
         typer.echo(ConfigService(db).get_sim_date().isoformat())
+
+
+# ── sales orders ─────────────────────────────────────────────────────────────
+
+@sales_app.command("orders")
+def sales_orders(
+    status: Optional[str] = typer.Option(None, "--status", help="Filter by status"),
+) -> None:
+    """List inbound sales orders from retailers."""
+    with _session() as db:
+        model_status = SalesOrderStatus(status.upper()) if status else None
+        orders = SalesOrderService(db).list_orders(status=model_status)
+        _echo_rows(
+            ["ref", "retailer", "model", "qty", "status", "day"],
+            [
+                [
+                    o.reference_code or o.id[:8],
+                    o.retailer_name,
+                    o.product.name if o.product else "?",
+                    o.quantity,
+                    o.status.value,
+                    o.placed_day,
+                ]
+                for o in orders
+            ],
+        )
+
+
+@sales_app.command("order")
+def sales_order(order_id: str) -> None:
+    """Show detail for one sales order."""
+    with _session() as db:
+        order = SalesOrderService(db).get_order(order_id)
+        if order is None:
+            typer.echo(f"Sales order {order_id!r} not found.", err=True)
+            raise typer.Exit(1)
+        typer.echo(json.dumps(SalesOrderService(db).serialize_order(order), indent=2))
+
+
+# ── production ────────────────────────────────────────────────────────────────
+
+@production_app.command("release")
+def production_release(order_id: str) -> None:
+    """Release a PENDING sales order to production."""
+    with _session() as db:
+        result = SalesOrderService(db).release_to_production(order_id)
+        if not result["success"]:
+            typer.echo(f"Error: {result.get('error')}", err=True)
+            raise typer.Exit(1)
+        db.commit()
+        order = result["order"]
+        typer.echo(
+            f"Released: {order.reference_code} → {order.status.value} "
+            f"(mfg order {result['mfg_order_id']})"
+        )
+
+
+@production_app.command("status")
+def production_status() -> None:
+    """Show all active (non-terminal) sales orders."""
+    with _session() as db:
+        active = SalesOrderService(db).get_production_status()
+        if not active:
+            typer.echo("No active production orders.")
+            return
+        _echo_rows(
+            ["ref", "retailer", "model", "qty", "status", "day"],
+            [
+                [
+                    o.get("reference_code") or o["id"][:8],
+                    o["retailer"],
+                    o.get("model", "?"),
+                    o["quantity"],
+                    o["status"],
+                    o["placed_day"],
+                ]
+                for o in active
+            ],
+        )
+
+
+# ── capacity ──────────────────────────────────────────────────────────────────
+
+@app.command()
+def capacity() -> None:
+    """Show daily assembly capacity and current utilisation."""
+    with _session() as db:
+        cfg = ConfigService(db).get_config()
+        inv = InventoryService(db).get_capacity_info()
+        _echo_rows(
+            ["metric", "value"],
+            [
+                ["assembly_lines", cfg.assembly_lines],
+                ["workers_per_line", cfg.workers_per_line],
+                ["shift_hours", cfg.shift_hours],
+                ["daily_assembly_hours", cfg.daily_assembly_hours],
+                ["warehouse_capacity", inv["warehouse_capacity"]],
+                ["current_usage", f"{inv['current_usage']:.1f}"],
+                ["available_capacity", f"{inv['available_capacity']:.1f}"],
+                ["usage_pct", f"{inv['usage_percentage']:.1f}%"],
+            ],
+        )
+
+
+# ── wholesale prices ──────────────────────────────────────────────────────────
+
+@price_app.command("list")
+def price_list() -> None:
+    """Show wholesale prices for all printer models."""
+    with _session() as db:
+        prices = WholesalePriceService(db).list_prices()
+        _echo_rows(["model", "wholesale_price"], [[name, str(p)] for name, p in prices.items()])
+
+
+@price_app.command("set")
+def price_set(
+    model: str = typer.Argument(..., help="Printer model name"),
+    price: str = typer.Argument(..., help="New wholesale price"),
+) -> None:
+    """Set the wholesale price for a printer model."""
+    from decimal import Decimal, InvalidOperation
+
+    try:
+        new_price = Decimal(price)
+    except InvalidOperation:
+        typer.echo(f"Invalid price: {price!r}", err=True)
+        raise typer.Exit(1)
+
+    with _session() as db:
+        try:
+            result = WholesalePriceService(db).set_price(model, new_price)
+            db.commit()
+        except ValueError as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(1) from exc
+        typer.echo(
+            f"Wholesale price for {model} set to {result['price']} "
+            f"(was {result['previous_price'] or 'unset'})."
+        )
 
 
 if __name__ == "__main__":

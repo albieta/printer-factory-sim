@@ -208,6 +208,11 @@ class EventType(PyEnum):
     INVENTORY_ADDED = "INVENTORY_ADDED"
     DAY_ADVANCED = "DAY_ADVANCED"
     PRODUCTION_BLOCKED_CAPACITY = "PRODUCTION_BLOCKED_CAPACITY"
+    SALES_ORDER_PLACED = "SALES_ORDER_PLACED"
+    SALES_ORDER_RELEASED = "SALES_ORDER_RELEASED"
+    SALES_ORDER_SHIPPED = "SALES_ORDER_SHIPPED"
+    SALES_ORDER_DELIVERED = "SALES_ORDER_DELIVERED"
+    WHOLESALE_PRICE_CHANGED = "WHOLESALE_PRICE_CHANGED"
 
 
 class Event(Base):
@@ -236,3 +241,61 @@ class SimulationConfig(Base):
     demand_distribution_mean: Mapped[float] = mapped_column(Float, nullable=False, default=5.0)
     demand_distribution_variance: Mapped[float] = mapped_column(Float, nullable=False, default=2.0)
     sim_date: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
+    sim_day: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class SalesOrderStatus(PyEnum):
+    PENDING = "PENDING"
+    CONFIRMED = "CONFIRMED"
+    IN_PROGRESS = "IN_PROGRESS"
+    SHIPPED = "SHIPPED"
+    DELIVERED = "DELIVERED"
+    REJECTED = "REJECTED"
+    CANCELLED = "CANCELLED"
+
+
+class SalesOrder(Base):
+    """Inbound order placed by a retailer for finished printers."""
+
+    __tablename__ = "sales_orders"
+    __table_args__ = {"extend_existing": True}
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    reference_code: Mapped[Optional[str]] = mapped_column(
+        String(32), nullable=True, unique=True, default=None
+    )
+    retailer_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    product_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("products.id"), nullable=False
+    )
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[SalesOrderStatus] = mapped_column(
+        Enum(SalesOrderStatus), nullable=False, default=SalesOrderStatus.PENDING
+    )
+    status_reason: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, default=None)
+    unit_price: Mapped[Decimal] = mapped_column(DECIMAL(10, 2), nullable=False)
+    total_price: Mapped[Decimal] = mapped_column(DECIMAL(10, 2), nullable=False)
+    placed_day: Mapped[int] = mapped_column(Integer, nullable=False)
+    expected_ship_day: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=None)
+    shipped_day: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=None)
+    delivered_day: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=None)
+    created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, default=datetime.utcnow)
+
+    product: Mapped["Product"] = relationship("Product")
+
+
+class WholesalePrice(Base):
+    """Manufacturer's wholesale price per finished-printer model."""
+
+    __tablename__ = "wholesale_prices"
+    __table_args__ = {"extend_existing": True}
+
+    product_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("products.id"), primary_key=True
+    )
+    price: Mapped[Decimal] = mapped_column(DECIMAL(10, 2), nullable=False)
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, default=datetime.utcnow)
+
+    product: Mapped["Product"] = relationship("Product")

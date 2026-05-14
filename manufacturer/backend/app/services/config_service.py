@@ -84,9 +84,13 @@ class ConfigService:
     def get_sim_date(self) -> date:
         return self.get_config().sim_date
 
+    def get_sim_day(self) -> int:
+        return self.get_config().sim_day
+
     def advance_sim_date(self) -> date:
         config = self.get_config()
         config.sim_date += timedelta(days=1)
+        config.sim_day = (config.sim_day or 0) + 1
         self.db.commit()
         self.db.refresh(config)
         return config.sim_date

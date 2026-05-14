@@ -791,9 +791,53 @@ the commit that closes it):
    - `retailer/app/services/admin_service.py` — full-state JSON export and
      destructive import (all tables serialised/restored in one transaction).
    - mypy --strict clean across 30 source files; ruff clean; 38 tests pass.
-5. Manufacturer sales-orders inbound (`SalesOrder` model, service,
+5. ✅ Manufacturer sales-orders inbound (`SalesOrder` model, service,
    `/api/sales/...` routes, `manufacturer-cli sales|production|price`
    verbs).
+   - **Models** (`manufacturer/backend/app/models/models.py`):
+     - `SalesOrderStatus` enum: `PENDING → CONFIRMED → IN_PROGRESS →
+       SHIPPED → DELIVERED` with short-circuit `REJECTED`/`CANCELLED`.
+     - `SalesOrder` table: integer day fields (`placed_day`,
+       `expected_ship_day`, `shipped_day`, `delivered_day`) for
+       compatibility with the retailer's day model.
+     - `WholesalePrice` table: one row per printer model.
+     - `SimulationConfig.sim_day` integer column (alongside existing
+       `sim_date`); seeded to 0; incremented by `ConfigService.
+       advance_sim_date()`.
+     - New `EventType` values: `SALES_ORDER_PLACED`,
+       `SALES_ORDER_RELEASED`, `SALES_ORDER_SHIPPED`,
+       `SALES_ORDER_DELIVERED`, `WHOLESALE_PRICE_CHANGED`.
+     - DB migration for `sim_day` in `database.py` (existing tables
+       get DEFAULT 0). New tables created by `create_all`.
+   - **Services**:
+     - `sales_order_service.py` — `create_from_retailer` (validates
+       model, snapshots wholesale price, generates `SO-NNNN-NNN` ref
+       code), `release_to_production` (creates `ManufacturingOrder` in
+       RELEASED state, moves SO to CONFIRMED), `list_orders`,
+       `get_order`, `get_production_status`, `serialize_order`
+       (wire format the retailer expects: `retailer`, `model`, integer
+       days).
+     - `wholesale_price_service.py` — `ensure_defaults` (seeds PRD
+       §5.6 prices: Basic300=450, Pro450=800, Elite700=1400),
+       `list_prices`, `get_price`, `set_price` (emits
+       `WHOLESALE_PRICE_CHANGED`). `ensure_defaults` called at
+       `bootstrap_database()`.
+   - **REST endpoints** (all under `/api/`):
+     - `POST/GET /api/sales/orders`, `GET /api/sales/orders/{id}`
+     - `POST /api/production/release`, `GET /api/production/status`
+     - `GET /api/capacity`
+     - `GET /api/prices`, `POST /api/prices`
+   - **CLI** (`manufacturer-cli`):
+     - `sales orders [--status S]`, `sales order <id>`
+     - `production release <id>`, `production status`
+     - `capacity`
+     - `price list`, `price set <model> <price>`
+   - **Tests**: `test_sales_order_service.py` — 18 new tests covering
+     create, list, filter, get, release, rejection of double-release,
+     wire-format serialisation, and `WholesalePriceService` CRUD.
+   - mypy --strict clean across 38 manufacturer source files; ruff
+     clean; 33 manufacturer + 38 retailer + 27 provider = 98 tests
+     passing.
 6. Manufacturer day-advance: production progression + ship to retailer.
 7. Customer demand generator + smoke scenario file + sim config.
 8. Turn engine Phase 1 (deterministic): one full 3-day run with all
