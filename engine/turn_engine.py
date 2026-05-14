@@ -27,6 +27,7 @@ from typing import Any
 
 import httpx
 
+from engine.api_logger import ApiLogger
 from engine.demand import generate_customer_demand, get_day_signal
 from engine.agent_runner import build_prompt, run_agent
 
@@ -37,23 +38,27 @@ DEFAULT_TIMEOUT = 10.0  # seconds for routine API calls
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 
-def _post(url: str, payload: dict[str, Any]) -> dict[str, Any]:
+def _post(url: str, payload: dict[str, Any], logger: ApiLogger | None = None) -> dict[str, Any]:
     with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
         r = client.post(url, json=payload)
+        if logger:
+            logger.log("POST", url, payload, r.status_code, r.json())
         r.raise_for_status()
     return dict(r.json())
 
 
-def _get(url: str) -> dict[str, Any]:
+def _get(url: str, logger: ApiLogger | None = None) -> dict[str, Any]:
     with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
         r = client.get(url)
+        if logger:
+            logger.log("GET", url, None, r.status_code, r.json())
         r.raise_for_status()
     return dict(r.json())
 
 
-def _retailer_base_prices(retailer_url: str) -> dict[str, float]:
+def _retailer_base_prices(retailer_url: str, logger: ApiLogger | None = None) -> dict[str, float]:
     """Fetch the retailer's current catalog prices (used as demand baseline)."""
-    data = _get(f"{retailer_url}/api/catalog")
+    data = _get(f"{retailer_url}/api/catalog", logger=logger)
     catalog = data.get("entries", data.get("catalog", []))
     prices: dict[str, float] = {}
     for entry in catalog:
@@ -75,6 +80,7 @@ def inject_customer_demand(
     day: int,
     retail_prices: dict[str, float],
     base_prices: dict[str, float],
+    logger: ApiLogger | None = None,
 ) -> list[dict[str, Any]]:
     """Generate and inject demand orders into the retailer."""
 
@@ -90,10 +96,62 @@ def inject_customer_demand(
                     "product_name": model,
                     "quantity": qty,
                 },
+                logger=logger,
             )
             results.append({"model": model, "qty": qty, "result": result})
         except httpx.HTTPError as exc:
             results.append({"model": model, "qty": qty, "error": str(exc)})
+    return results
+
+
+def forward_demand_to_manufacturer(
+    mfr_cfg: dict[str, Any],
+    retailer_name: str,
+    demand_results: list[dict[str, Any]],
+    logger: ApiLogger | None = None,
+) -> list[dict[str, Any]]:
+    """Forward each demand order to the manufacturer as a SalesOrder.
+
+    This bridges the gap in Phase 1 where the retailer (with no skill file)
+    doesn't auto-restock from the manufacturer. The turn engine directly
+    POSTs sales orders to /api/sales/orders at the manufacturer.
+
+    Parameters
+    ----------
+    mfr_cfg:
+        Manufacturer config from sim.json with 'url' key.
+    retailer_name:
+        Name of the retailer to set as source of sales order.
+    demand_results:
+        List of demand order results from inject_customer_demand.
+    logger:
+        Optional API logger to record all calls.
+
+    Returns
+    -------
+    List of results for each order forwarded. Each item has keys:
+    - "model", "qty": order details
+    - "result": response from manufacturer (on success)
+    - "error": error message (on failure)
+    """
+    results = []
+    for order in demand_results:
+        if "error" in order:
+            # Skip orders that failed to place at retailer
+            continue
+        try:
+            result = _post(
+                f"{mfr_cfg['url']}/api/sales/orders",
+                {
+                    "retailer": retailer_name,
+                    "model": order["model"],
+                    "quantity": order["qty"],
+                },
+                logger=logger,
+            )
+            results.append({"model": order["model"], "qty": order["qty"], "result": result})
+        except httpx.HTTPError as exc:
+            results.append({"model": order["model"], "qty": order["qty"], "error": str(exc)})
     return results
 
 
@@ -114,7 +172,7 @@ def run_role_agent(
     return run_agent(role, day, prompt, skill_file, cwd=cwd)
 
 
-def advance_app(app_url: str, app_name: str) -> dict[str, Any]:
+def advance_app(app_url: str, app_name: str, logger: ApiLogger | None = None) -> dict[str, Any]:
     """Advance one app day and return the summary.
 
     Week 7 apps mostly use ``/api/day/advance``. The manufacturer
@@ -123,14 +181,14 @@ def advance_app(app_url: str, app_name: str) -> dict[str, Any]:
     """
 
     try:
-        result = _post(f"{app_url}/api/day/advance", {})
+        result = _post(f"{app_url}/api/day/advance", {}, logger=logger)
         print(f"  [{app_name}] day advanced → {result}")
         return result
     except httpx.HTTPError as exc:
         response = getattr(exc, "response", None)
         if response is not None and response.status_code == 404:
             try:
-                result = _post(f"{app_url}/api/simulation/advance-day", {})
+                result = _post(f"{app_url}/api/simulation/advance-day", {}, logger=logger)
                 print(f"  [{app_name}] day advanced → {result}")
                 return result
             except httpx.HTTPError as fallback_exc:
@@ -161,22 +219,34 @@ def run_day(
     mfr: dict[str, Any] = config.get("manufacturer", {})
     providers: list[dict[str, Any]] = config.get("providers", [])
 
+    # Initialize API logger for this day
+    api_logger = ApiLogger(day)
+
     # ── 1. Inject demand at each retailer ────────────────────────────────────
     demand_results = []
     base_prices_cache: dict[str, dict[str, float]] = {}
     for r_cfg in retailers:
         r_url = r_cfg["url"]
         try:
-            retail_prices = _retailer_base_prices(r_url)
+            retail_prices = _retailer_base_prices(r_url, logger=api_logger)
         except httpx.HTTPError:
             retail_prices = {}
         # Use current retail prices as both actual and base prices.
         # (Week 8 will snapshot seed prices separately for elasticity.)
         base_prices_cache[r_url] = retail_prices
         demand_results.append(
-            inject_customer_demand(r_cfg, scenario, day, retail_prices, retail_prices)
+            inject_customer_demand(r_cfg, scenario, day, retail_prices, retail_prices, logger=api_logger)
         )
     summary["demand_injected"] = demand_results
+
+    # ── 1.5. Forward demand to manufacturer (Phase 1 bridge) ──────────────────
+    sales_forward_results = []
+    for i, r_cfg in enumerate(retailers):
+        r_name = r_cfg.get("name", "retailer")
+        sales_forward_results.append(
+            forward_demand_to_manufacturer(mfr, r_name, demand_results[i], logger=api_logger)
+        )
+    summary["sales_forwarded"] = sales_forward_results
 
     # ── 2. Role decision hooks ────────────────────────────────────────────────
     agent_outputs = {}
@@ -200,14 +270,14 @@ def run_day(
     advance_results = {}
     for r_cfg in retailers:
         advance_results[r_cfg.get("name", "retailer")] = advance_app(
-            r_cfg["url"], r_cfg.get("name", "retailer")
+            r_cfg["url"], r_cfg.get("name", "retailer"), logger=api_logger
         )
 
-    advance_results[mfr_name] = advance_app(mfr["url"], mfr_name)
+    advance_results[mfr_name] = advance_app(mfr["url"], mfr_name, logger=api_logger)
 
     for p_cfg in providers:
         advance_results[p_cfg.get("name", "provider")] = advance_app(
-            p_cfg["url"], p_cfg.get("name", "provider")
+            p_cfg["url"], p_cfg.get("name", "provider"), logger=api_logger
         )
 
     summary["advance_results"] = advance_results

@@ -39,6 +39,9 @@ def run_agent(
 
     If *skill_file* is ``None``, the stub path is taken: no subprocess is
     spawned and a single-line marker is written to the log.
+
+    Log format: for skill_file agents, logs the full prompt followed by
+    the Claude response. For stubs, just logs the stub marker.
     """
 
     LOGS_DIR.mkdir(exist_ok=True)
@@ -75,7 +78,14 @@ def run_agent(
         partial = (exc.stdout or b"").decode("utf-8", errors="replace")
         stdout = partial + f"\n[timeout] {role} agent exceeded {timeout_seconds}s on day {day}\n"
 
-    log.write_text(stdout, encoding="utf-8")
+    # Log both prompt and response to the log file
+    log_content = (
+        "=== PROMPT SENT TO CLAUDE ===\n"
+        f"{prompt}\n\n"
+        "=== CLAUDE RESPONSE ===\n"
+        f"{stdout}"
+    )
+    log.write_text(log_content, encoding="utf-8")
     return stdout
 
 
