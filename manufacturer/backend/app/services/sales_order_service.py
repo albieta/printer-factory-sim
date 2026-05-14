@@ -39,6 +39,10 @@ from app.models.models import (
 )
 from app.services.config_service import ConfigService
 
+# How many day-advance ticks a SalesOrder spends in each in-flight state.
+_PRODUCTION_DAYS = 1   # IN_PROGRESS → SHIPPED after this many ticks
+_SHIPPING_DAYS = 1     # SHIPPED → DELIVERED after this many ticks
+
 # Default lead time (days) from release to expected shipment.
 DEFAULT_LEAD_DAYS = 3
 
@@ -177,6 +181,7 @@ class SalesOrderService:
         )
 
         order.status = SalesOrderStatus.CONFIRMED
+        order.linked_mfg_order_id = mfg_order.id
         self.db.add(
             Event(
                 event_type=EventType.SALES_ORDER_RELEASED,
@@ -213,6 +218,113 @@ class SalesOrderService:
             .all()
         )
         return [self.serialize_order(o) for o in active]
+
+    def progress_sales_orders(self, sim_day: int) -> dict[str, int]:
+        """Advance SalesOrder states as part of day-advance.
+
+        Called *after* `execute_production()` so any ManufacturingOrders
+        that completed this tick are already in COMPLETED state.
+
+        Three transitions in fixed order:
+        1. CONFIRMED → IN_PROGRESS  (linked MO just completed)
+        2. IN_PROGRESS → SHIPPED    (one tick in production elapsed)
+        3. SHIPPED → DELIVERED      (one tick in transit elapsed)
+
+        Returns counts for the day-advance summary.
+        """
+
+        sim_date = self.config.get_sim_date()
+        counts = {"in_progress": 0, "shipped": 0, "delivered": 0}
+
+        # ── 1. CONFIRMED → IN_PROGRESS ────────────────────────────────────────
+        confirmed = (
+            self.db.query(SalesOrder)
+            .filter(
+                SalesOrder.status == SalesOrderStatus.CONFIRMED,
+                SalesOrder.linked_mfg_order_id.is_not(None),
+            )
+            .all()
+        )
+        for so in confirmed:
+            mfg = (
+                self.db.query(ManufacturingOrder)
+                .filter_by(id=so.linked_mfg_order_id)
+                .one_or_none()
+            )
+            if mfg is None or mfg.status != OrderStatus.COMPLETED:
+                continue
+            so.status = SalesOrderStatus.IN_PROGRESS
+            so.in_progress_day = sim_day
+            self.db.add(
+                Event(
+                    event_type=EventType.SALES_ORDER_RELEASED,  # re-use; no separate type yet
+                    sim_date=sim_date,
+                    details={
+                        "transition": "CONFIRMED_TO_IN_PROGRESS",
+                        "order_id": so.id,
+                        "sim_day": sim_day,
+                    },
+                )
+            )
+            counts["in_progress"] += 1
+
+        self.db.flush()
+
+        # ── 2. IN_PROGRESS → SHIPPED ─────────────────────────────────────────
+        in_progress = (
+            self.db.query(SalesOrder)
+            .filter(
+                SalesOrder.status == SalesOrderStatus.IN_PROGRESS,
+                SalesOrder.in_progress_day < sim_day,
+            )
+            .all()
+        )
+        for so in in_progress:
+            so.status = SalesOrderStatus.SHIPPED
+            so.shipped_day = sim_day
+            so.expected_ship_day = sim_day  # update to actual
+            self.db.add(
+                Event(
+                    event_type=EventType.SALES_ORDER_SHIPPED,
+                    sim_date=sim_date,
+                    details={
+                        "order_id": so.id,
+                        "reference_code": so.reference_code,
+                        "shipped_day": sim_day,
+                    },
+                )
+            )
+            counts["shipped"] += 1
+
+        self.db.flush()
+
+        # ── 3. SHIPPED → DELIVERED ────────────────────────────────────────────
+        shipped = (
+            self.db.query(SalesOrder)
+            .filter(
+                SalesOrder.status == SalesOrderStatus.SHIPPED,
+                SalesOrder.shipped_day < sim_day,
+            )
+            .all()
+        )
+        for so in shipped:
+            so.status = SalesOrderStatus.DELIVERED
+            so.delivered_day = sim_day
+            self.db.add(
+                Event(
+                    event_type=EventType.SALES_ORDER_DELIVERED,
+                    sim_date=sim_date,
+                    details={
+                        "order_id": so.id,
+                        "reference_code": so.reference_code,
+                        "delivered_day": sim_day,
+                    },
+                )
+            )
+            counts["delivered"] += 1
+
+        self.db.flush()
+        return counts
 
     def serialize_order(self, order: SalesOrder) -> dict[str, Any]:
         """Return the wire format the retailer expects."""

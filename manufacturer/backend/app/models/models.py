@@ -279,11 +279,18 @@ class SalesOrder(Base):
     total_price: Mapped[Decimal] = mapped_column(DECIMAL(10, 2), nullable=False)
     placed_day: Mapped[int] = mapped_column(Integer, nullable=False)
     expected_ship_day: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=None)
+    in_progress_day: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=None)
     shipped_day: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=None)
     delivered_day: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=None)
+    linked_mfg_order_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("manufacturing_orders.id"), nullable=True, default=None
+    )
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, default=datetime.utcnow)
 
     product: Mapped["Product"] = relationship("Product")
+    linked_mfg_order: Mapped[Optional["ManufacturingOrder"]] = relationship(
+        "ManufacturingOrder", foreign_keys=[linked_mfg_order_id]
+    )
 
 
 class WholesalePrice(Base):

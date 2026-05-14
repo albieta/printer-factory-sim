@@ -29,6 +29,7 @@ from app.models.models import (  # noqa: E402
     OrderStatus,
     Product,
     ProductType,
+    SalesOrder,  # noqa: F401
     SalesOrderStatus,
     SimulationConfig,
     WholesalePrice,
@@ -275,3 +276,220 @@ def test_ensure_defaults_seeds_missing_prices(session):
 
     price = WholesalePriceService(session).get_price("Pro450")
     assert price == Decimal("800.00")
+
+
+# ── progress_sales_orders 3-day progression tests ────────────────────────────
+
+
+def _make_completed_mfg_order(session: object, product_id: str, quantity: int, sim_date: date) -> ManufacturingOrder:
+    """Helper: create a ManufacturingOrder already in COMPLETED state."""
+    mfg = ManufacturingOrder(
+        product_id=product_id,
+        quantity=quantity,
+        status=OrderStatus.COMPLETED,
+        created_date=sim_date,
+        released_date=sim_date,
+        completed_date=sim_date,
+        reference_code=f"MO-TEST-{quantity}",
+    )
+    session.add(mfg)  # type: ignore[arg-type]
+    session.flush()  # type: ignore[union-attr]
+    return mfg
+
+
+def test_progress_confirmed_to_in_progress_when_mo_completed(seeded):
+    """CONFIRMED SO with a COMPLETED linked MO transitions to IN_PROGRESS."""
+    svc = SalesOrderService(seeded)
+    order = svc.create_from_retailer("PrinterWorld", "Elite700", 2)
+    seeded.commit()
+
+    result = svc.release_to_production(order.id)
+    seeded.commit()
+    mfg_id = result["mfg_order_id"]
+
+    # Manually complete the linked ManufacturingOrder.
+    mfg = seeded.query(ManufacturingOrder).filter_by(id=mfg_id).one()
+    mfg.status = OrderStatus.COMPLETED
+    seeded.commit()
+
+    counts = svc.progress_sales_orders(sim_day=1)
+    seeded.commit()
+
+    assert counts["in_progress"] == 1
+    assert counts["shipped"] == 0
+    seeded.refresh(order)
+    assert order.status == SalesOrderStatus.IN_PROGRESS
+    assert order.in_progress_day == 1
+
+
+def test_progress_confirmed_stays_when_mo_not_completed(seeded):
+    """CONFIRMED SO with a RELEASED linked MO stays CONFIRMED."""
+    svc = SalesOrderService(seeded)
+    order = svc.create_from_retailer("PrinterWorld", "Elite700", 2)
+    seeded.commit()
+    svc.release_to_production(order.id)
+    seeded.commit()
+
+    counts = svc.progress_sales_orders(sim_day=1)
+    seeded.commit()
+
+    assert counts["in_progress"] == 0
+    seeded.refresh(order)
+    assert order.status == SalesOrderStatus.CONFIRMED
+
+
+def test_progress_in_progress_to_shipped(seeded):
+    """IN_PROGRESS SO whose in_progress_day < sim_day transitions to SHIPPED."""
+    svc = SalesOrderService(seeded)
+    order = svc.create_from_retailer("PrinterWorld", "Basic300", 1)
+    seeded.commit()
+    svc.release_to_production(order.id)
+    seeded.commit()
+
+    mfg = seeded.query(ManufacturingOrder).filter_by(id=order.linked_mfg_order_id).one()
+    mfg.status = OrderStatus.COMPLETED
+    seeded.commit()
+
+    # Day 1: CONFIRMED → IN_PROGRESS
+    svc.progress_sales_orders(sim_day=1)
+    seeded.commit()
+
+    # Day 2: IN_PROGRESS → SHIPPED (in_progress_day=1 < 2)
+    counts = svc.progress_sales_orders(sim_day=2)
+    seeded.commit()
+
+    assert counts["shipped"] == 1
+    seeded.refresh(order)
+    assert order.status == SalesOrderStatus.SHIPPED
+    assert order.shipped_day == 2
+
+
+def test_progress_shipped_to_delivered(seeded):
+    """SHIPPED SO whose shipped_day < sim_day transitions to DELIVERED."""
+    svc = SalesOrderService(seeded)
+    order = svc.create_from_retailer("PrinterWorld", "Elite700", 3)
+    seeded.commit()
+    svc.release_to_production(order.id)
+    seeded.commit()
+
+    mfg = seeded.query(ManufacturingOrder).filter_by(id=order.linked_mfg_order_id).one()
+    mfg.status = OrderStatus.COMPLETED
+    seeded.commit()
+
+    svc.progress_sales_orders(sim_day=1)  # → IN_PROGRESS
+    seeded.commit()
+    svc.progress_sales_orders(sim_day=2)  # → SHIPPED
+    seeded.commit()
+
+    counts = svc.progress_sales_orders(sim_day=3)  # → DELIVERED
+    seeded.commit()
+
+    assert counts["delivered"] == 1
+    seeded.refresh(order)
+    assert order.status == SalesOrderStatus.DELIVERED
+    assert order.delivered_day == 3
+
+
+def test_full_3_day_progression(seeded):
+    """End-to-end: order placed day 0, progresses through all states by day 3."""
+    svc = SalesOrderService(seeded)
+    order = svc.create_from_retailer("BestPrinters", "Elite700", 5)
+    seeded.commit()
+    assert order.status == SalesOrderStatus.PENDING
+
+    result = svc.release_to_production(order.id)
+    seeded.commit()
+    assert result["success"] is True
+    seeded.refresh(order)
+    assert order.status == SalesOrderStatus.CONFIRMED
+
+    mfg = seeded.query(ManufacturingOrder).filter_by(id=order.linked_mfg_order_id).one()
+    mfg.status = OrderStatus.COMPLETED
+    seeded.commit()
+
+    # Day 1: CONFIRMED → IN_PROGRESS
+    counts1 = svc.progress_sales_orders(sim_day=1)
+    seeded.commit()
+    assert counts1["in_progress"] == 1
+    seeded.refresh(order)
+    assert order.status == SalesOrderStatus.IN_PROGRESS
+
+    # Day 2: IN_PROGRESS → SHIPPED
+    counts2 = svc.progress_sales_orders(sim_day=2)
+    seeded.commit()
+    assert counts2["shipped"] == 1
+    seeded.refresh(order)
+    assert order.status == SalesOrderStatus.SHIPPED
+
+    # Day 3: SHIPPED → DELIVERED
+    counts3 = svc.progress_sales_orders(sim_day=3)
+    seeded.commit()
+    assert counts3["delivered"] == 1
+    seeded.refresh(order)
+    assert order.status == SalesOrderStatus.DELIVERED
+    assert order.delivered_day == 3
+
+
+def test_progress_emits_delivered_event(seeded):
+    """SALES_ORDER_DELIVERED event is emitted when SO reaches DELIVERED."""
+    svc = SalesOrderService(seeded)
+    order = svc.create_from_retailer("PrinterWorld", "Basic300", 2)
+    seeded.commit()
+    svc.release_to_production(order.id)
+    seeded.commit()
+
+    mfg = seeded.query(ManufacturingOrder).filter_by(id=order.linked_mfg_order_id).one()
+    mfg.status = OrderStatus.COMPLETED
+    seeded.commit()
+
+    svc.progress_sales_orders(sim_day=1)
+    seeded.commit()
+    svc.progress_sales_orders(sim_day=2)
+    seeded.commit()
+    svc.progress_sales_orders(sim_day=3)
+    seeded.commit()
+
+    delivered_events = seeded.query(Event).filter_by(event_type=EventType.SALES_ORDER_DELIVERED).all()
+    assert len(delivered_events) == 1
+    assert delivered_events[0].details["order_id"] == order.id
+
+
+def test_progress_no_effect_on_pending_orders(seeded):
+    """PENDING orders (not yet released) are unaffected by progress_sales_orders."""
+    svc = SalesOrderService(seeded)
+    order = svc.create_from_retailer("PrinterWorld", "Elite700", 1)
+    seeded.commit()
+
+    counts = svc.progress_sales_orders(sim_day=5)
+    seeded.commit()
+
+    assert counts == {"in_progress": 0, "shipped": 0, "delivered": 0}
+    seeded.refresh(order)
+    assert order.status == SalesOrderStatus.PENDING
+
+
+def test_multiple_orders_progress_independently(seeded):
+    """Two orders at different stages each advance one step per call."""
+    svc = SalesOrderService(seeded)
+    o1 = svc.create_from_retailer("A", "Elite700", 1)
+    o2 = svc.create_from_retailer("B", "Basic300", 1)
+    seeded.commit()
+
+    svc.release_to_production(o1.id)
+    svc.release_to_production(o2.id)
+    seeded.commit()
+
+    # Complete only o1's linked MO.
+    mfg1 = seeded.query(ManufacturingOrder).filter_by(id=o1.linked_mfg_order_id).one()
+    mfg1.status = OrderStatus.COMPLETED
+    seeded.commit()
+
+    counts = svc.progress_sales_orders(sim_day=1)
+    seeded.commit()
+
+    # Only o1 should have advanced; o2's MO is still RELEASED.
+    assert counts["in_progress"] == 1
+    seeded.refresh(o1)
+    seeded.refresh(o2)
+    assert o1.status == SalesOrderStatus.IN_PROGRESS
+    assert o2.status == SalesOrderStatus.CONFIRMED

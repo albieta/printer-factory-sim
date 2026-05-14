@@ -37,6 +37,11 @@ class SimulationService:
         production_results = self.production_service.execute_production(sim_date)
         orders_completed = sum(1 for result in production_results if result["status"] == "completed")
 
+        from app.services.sales_order_service import SalesOrderService
+
+        sim_day = self.config_service.get_sim_day()
+        so_counts = SalesOrderService(self.db).progress_sales_orders(sim_day)
+
         event = Event(
             event_type=EventType.DAY_ADVANCED,
             sim_date=sim_date,
@@ -44,6 +49,9 @@ class SimulationService:
                 "orders_created": orders_created,
                 "orders_completed": orders_completed,
                 "pos_delivered": pos_delivered,
+                "so_in_progress": so_counts["in_progress"],
+                "so_shipped": so_counts["shipped"],
+                "so_delivered": so_counts["delivered"],
             },
         )
         self.db.add(event)
@@ -55,6 +63,9 @@ class SimulationService:
             "orders_created": orders_created,
             "orders_completed": orders_completed,
             "purchase_orders_delivered": pos_delivered,
+            "sales_orders_in_progress": so_counts["in_progress"],
+            "sales_orders_shipped": so_counts["shipped"],
+            "sales_orders_delivered": so_counts["delivered"],
         }
 
     def generate_daily_demand(self, sim_date: date) -> int:

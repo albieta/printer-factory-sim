@@ -838,7 +838,31 @@ the commit that closes it):
    - mypy --strict clean across 38 manufacturer source files; ruff
      clean; 33 manufacturer + 38 retailer + 27 provider = 98 tests
      passing.
-6. Manufacturer day-advance: production progression + ship to retailer.
+6. ✅ Manufacturer day-advance: production progression + ship to retailer.
+   - `SalesOrder` gains `in_progress_day` (int) and `linked_mfg_order_id`
+     (FK → `manufacturing_orders`) columns; DB migrations added to
+     `database.py`.
+   - `SalesOrderService.progress_sales_orders(sim_day)` implements the
+     three fixed-order transitions per tick:
+     1. `CONFIRMED → IN_PROGRESS`: linked `ManufacturingOrder` is
+        `COMPLETED`; records `in_progress_day`.
+     2. `IN_PROGRESS → SHIPPED`: `in_progress_day < sim_day`; records
+        `shipped_day`, updates `expected_ship_day` to actual.
+     3. `SHIPPED → DELIVERED`: `shipped_day < sim_day`; records
+        `delivered_day`; emits `SALES_ORDER_DELIVERED`.
+   - `SimulationService.advance_day()` calls
+     `SalesOrderService.progress_sales_orders(sim_day)` after
+     `execute_production()`, before committing the `DAY_ADVANCED` event.
+     Day-advanced event details now include `so_in_progress`,
+     `so_shipped`, `so_delivered` counts; advance result dict includes
+     matching keys.
+   - `release_to_production()` sets `order.linked_mfg_order_id` when
+     creating the linked `ManufacturingOrder`.
+   - **Tests**: 8 new tests covering all three transitions individually,
+     full end-to-end 3-day progression, event emission, no-op on PENDING
+     orders, and independent progression of two orders at different stages.
+   - 26 tests in `test_sales_order_service.py`, 41 manufacturer tests
+     total. mypy --strict clean (38 files); ruff clean.
 7. Customer demand generator + smoke scenario file + sim config.
 8. Turn engine Phase 1 (deterministic): one full 3-day run with all
    stubs and `logs/` capture.
