@@ -147,6 +147,39 @@ class CustomerOrderService:
         self.db.flush()
         return order
 
+    def mark_backordered(self, order_id: int, sim_day: int) -> CustomerOrder:
+        """Explicitly move a pending customer order into the backorder queue."""
+
+        order = self.get_order(order_id)
+        if order is None:
+            raise ValueError(f"Customer order {order_id} not found")
+        if order.status == CustomerOrderStatus.BACKORDERED:
+            return order
+        if order.status != CustomerOrderStatus.PENDING:
+            raise ValueError(
+                f"Customer order {order_id} cannot be backordered from state {order.status.value}"
+            )
+
+        available = self.stock.get_quantity(order.product_name)
+        order.status = CustomerOrderStatus.BACKORDERED
+        order.status_reason = (
+            f"Manually backordered on day {sim_day}; available stock was {available}"
+        )
+        self.events.record(
+            EventType.CUSTOMER_ORDER_BACKORDERED,
+            sim_day,
+            entity_type="customer_order",
+            entity_id=order.id,
+            details={
+                "product_name": order.product_name,
+                "requested": order.quantity,
+                "available": available,
+                "manual": True,
+            },
+        )
+        self.db.flush()
+        return order
+
     def auto_fulfil_backorders(self, sim_day: int) -> list[CustomerOrder]:
         """Fulfil any backordered orders whose model now has enough stock.
 

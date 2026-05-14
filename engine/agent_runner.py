@@ -51,7 +51,18 @@ def run_agent(
 
     try:
         result = subprocess.run(
-            ["claude", "--print", "--prompt", prompt],
+            [
+                "claude",
+                "--print",
+                "--permission-mode",
+                "bypassPermissions",
+                "--allowedTools",
+                "Bash",
+                "--add-dir",
+                str(Path(cwd).resolve()),
+                "--",
+                prompt,
+            ],
             capture_output=True,
             text=True,
             cwd=cwd,

@@ -54,11 +54,16 @@ def _get(url: str) -> dict[str, Any]:
 def _retailer_base_prices(retailer_url: str) -> dict[str, float]:
     """Fetch the retailer's current catalog prices (used as demand baseline)."""
     data = _get(f"{retailer_url}/api/catalog")
-    return {
-        entry["product_name"]: float(entry["retail_price"])
-        for entry in data.get("catalog", [])
-        if isinstance(entry.get("retail_price"), (int, float))
-    }
+    catalog = data.get("entries", data.get("catalog", []))
+    prices: dict[str, float] = {}
+    for entry in catalog:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            prices[str(entry["product_name"])] = float(entry["retail_price"])
+        except (KeyError, TypeError, ValueError):
+            continue
+    return prices
 
 
 # ── per-turn steps ────────────────────────────────────────────────────────────
@@ -76,11 +81,15 @@ def inject_customer_demand(
     signal = get_day_signal(scenario, day)
     orders = generate_customer_demand(day, signal, retail_prices, base_prices)
     results = []
-    for model, qty in orders:
+    for index, (model, qty) in enumerate(orders, 1):
         try:
             result = _post(
                 f"{retailer_cfg['url']}/api/orders",
-                {"product_name": model, "quantity": qty},
+                {
+                    "customer": f"synthetic-day-{day:03d}-{index:03d}",
+                    "product_name": model,
+                    "quantity": qty,
+                },
             )
             results.append({"model": model, "qty": qty, "result": result})
         except httpx.HTTPError as exc:
@@ -106,13 +115,27 @@ def run_role_agent(
 
 
 def advance_app(app_url: str, app_name: str) -> dict[str, Any]:
-    """POST /api/day/advance to one app; return the summary."""
+    """Advance one app day and return the summary.
+
+    Week 7 apps mostly use ``/api/day/advance``. The manufacturer
+    backend exposes ``/api/simulation/advance-day`` instead, so we
+    fallback to that route on 404 for compatibility.
+    """
 
     try:
         result = _post(f"{app_url}/api/day/advance", {})
         print(f"  [{app_name}] day advanced → {result}")
         return result
     except httpx.HTTPError as exc:
+        response = getattr(exc, "response", None)
+        if response is not None and response.status_code == 404:
+            try:
+                result = _post(f"{app_url}/api/simulation/advance-day", {})
+                print(f"  [{app_name}] day advanced → {result}")
+                return result
+            except httpx.HTTPError as fallback_exc:
+                print(f"  [{app_name}] advance FAILED: {fallback_exc}", file=sys.stderr)
+                return {"error": str(fallback_exc)}
         print(f"  [{app_name}] advance FAILED: {exc}", file=sys.stderr)
         return {"error": str(exc)}
 

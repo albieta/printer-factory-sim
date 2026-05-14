@@ -56,6 +56,8 @@ if _config_path:
         os.environ.setdefault("RETAILER_MANUFACTURER_NAME", _mfr["name"])
     if "name" in _r:
         os.environ.setdefault("RETAILER_NAME", _r["name"])
+    if "markup_pct" in _r:
+        os.environ.setdefault("RETAILER_MARKUP_PCT", str(_r["markup_pct"]))
 
 # ── app.* imports (safe now that env vars are set) ────────────────────────────
 
@@ -71,6 +73,7 @@ from app.services.day_service import DayService  # noqa: E402
 from app.services.manufacturer_client import ManufacturerClient  # noqa: E402
 from app.services.purchase_order_service import PurchaseOrderService  # noqa: E402
 from app.services.sim_state_service import SimStateService  # noqa: E402
+from app.services.starter_profile import DEFAULT_MARKUP_PCT  # noqa: E402
 from app.services.stock_service import StockService  # noqa: E402
 from app.utils.database import SessionLocal, bootstrap_database  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
@@ -91,6 +94,7 @@ app.add_typer(day_app, name="day")
 _RETAILER_NAME = os.environ.get("RETAILER_NAME", "PrinterWorld")
 _MANUFACTURER_NAME = os.environ.get("RETAILER_MANUFACTURER_NAME", "Factory")
 _MANUFACTURER_URL = os.environ.get("RETAILER_MANUFACTURER_URL", "http://localhost:8002")
+_MARKUP_PCT = int(os.environ.get("RETAILER_MARKUP_PCT", str(DEFAULT_MARKUP_PCT)))
 
 
 # ── session helper ────────────────────────────────────────────────────────────
@@ -217,6 +221,21 @@ def fulfill(order_id: int) -> None:
             )
 
 
+@app.command()
+def backorder(order_id: int) -> None:
+    """Mark a pending customer order as backordered."""
+    with _session() as db:
+        sim_day = SimStateService(db).get_current_day()
+        try:
+            order = CustomerOrderService(db).mark_backordered(order_id, sim_day)
+            db.commit()
+        except ValueError as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(1) from exc
+
+        typer.echo(f"Order {order.id} is {order.status.value}.")
+
+
 # ── purchase orders ───────────────────────────────────────────────────────────
 
 @purchase_app.command("list")
@@ -305,7 +324,11 @@ def price_set(
 
         try:
             entry = CatalogService(db).set_retail_price(
-                model, new_price, wholesale_price=wholesale, markup_pct=30, sim_day=sim_day
+                model,
+                new_price,
+                wholesale_price=wholesale,
+                markup_pct=_MARKUP_PCT,
+                sim_day=sim_day,
             )
             db.commit()
         except ValueError as exc:

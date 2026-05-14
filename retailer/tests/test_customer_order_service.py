@@ -11,7 +11,7 @@ from decimal import Decimal
 import pytest
 from sqlalchemy.orm import Session
 
-from app.models.models import CustomerOrderStatus, EventType
+from app.models.models import CustomerOrder, CustomerOrderStatus, EventType
 from app.services.customer_order_service import CustomerOrderService
 from app.services.event_service import EventService
 from app.services.stock_service import StockService
@@ -96,6 +96,45 @@ def test_cancel_order_refuses_terminal_states(seeded_session: Session) -> None:
 
     with pytest.raises(ValueError, match="cannot be cancelled"):
         service.cancel_order(order.id, sim_day=2)
+
+
+def test_mark_backordered_moves_pending_order(seeded_session: Session) -> None:
+    service = CustomerOrderService(seeded_session)
+    order = CustomerOrder(
+        customer="manual",
+        product_name="Basic300",
+        quantity=1,
+        unit_price=Decimal("650"),
+        total_price=Decimal("650.00"),
+        placed_day=1,
+        status=CustomerOrderStatus.PENDING,
+    )
+    seeded_session.add(order)
+    seeded_session.commit()
+
+    backordered = service.mark_backordered(order.id, sim_day=2)
+    seeded_session.commit()
+
+    assert backordered.status == CustomerOrderStatus.BACKORDERED
+    assert backordered.status_reason is not None
+    assert "Manually backordered" in backordered.status_reason
+
+    backorder_events = EventService(seeded_session).list(
+        event_type=EventType.CUSTOMER_ORDER_BACKORDERED
+    )
+    assert len(backorder_events) == 1
+    assert backorder_events[0].details is not None
+    assert backorder_events[0].details["manual"] is True
+
+
+def test_mark_backordered_refuses_terminal_states(seeded_session: Session) -> None:
+    service = CustomerOrderService(seeded_session)
+    order = service.place_order("frank", "Basic300", 1, sim_day=1)
+    seeded_session.commit()
+    assert order.status == CustomerOrderStatus.FULFILLED
+
+    with pytest.raises(ValueError, match="cannot be backordered"):
+        service.mark_backordered(order.id, sim_day=2)
 
 
 def test_auto_fulfil_backorders_satisfies_what_it_can(seeded_session: Session) -> None:

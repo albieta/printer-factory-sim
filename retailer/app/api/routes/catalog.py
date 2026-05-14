@@ -13,7 +13,7 @@ from app.services.manufacturer_client import ManufacturerClient, ManufacturerErr
 from app.services.sim_state_service import SimStateService
 from app.services.starter_profile import SCHEMA_VERSION
 from app.utils.database import get_db
-from app.utils.deps import get_manufacturer_client
+from app.utils.deps import get_manufacturer_client, get_markup_pct
 
 router = APIRouter()
 
@@ -33,6 +33,7 @@ def set_price(
     payload: PriceSetRequest,
     db: Session = Depends(get_db),
     client: ManufacturerClient = Depends(get_manufacturer_client),
+    markup_pct: int = Depends(get_markup_pct),
 ) -> CatalogResponse:
     sim_day = SimStateService(db).get_current_day()
     try:
@@ -46,7 +47,7 @@ def set_price(
             product_name,
             payload.retail_price,
             wholesale_price=wholesale,
-            markup_pct=30,
+            markup_pct=markup_pct,
             sim_day=sim_day,
         )
     except ValueError as exc:

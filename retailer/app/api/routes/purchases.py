@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -18,10 +17,11 @@ from app.services.purchase_order_service import PurchaseOrderService
 from app.services.sim_state_service import SimStateService
 from app.services.starter_profile import SCHEMA_VERSION
 from app.utils.database import get_db
-from app.utils.deps import get_manufacturer_client
-
-_RETAILER_NAME = os.environ.get("RETAILER_NAME", "PrinterWorld")
-_MANUFACTURER_NAME = os.environ.get("RETAILER_MANUFACTURER_NAME", "Factory")
+from app.utils.deps import (
+    get_manufacturer_client,
+    get_manufacturer_name,
+    get_retailer_name,
+)
 
 router = APIRouter()
 
@@ -31,13 +31,15 @@ def place_purchase(
     payload: PurchaseOrderCreate,
     db: Session = Depends(get_db),
     client: ManufacturerClient = Depends(get_manufacturer_client),
+    retailer_name: str = Depends(get_retailer_name),
+    manufacturer_name: str = Depends(get_manufacturer_name),
 ) -> PurchaseOrderResponse:
     sim_day = SimStateService(db).get_current_day()
     service = PurchaseOrderService(db, client)
     try:
         order = service.place_purchase_order(
-            retailer_name=_RETAILER_NAME,
-            manufacturer_name=_MANUFACTURER_NAME,
+            retailer_name=retailer_name,
+            manufacturer_name=manufacturer_name,
             product_name=payload.product_name,
             quantity=payload.quantity,
             sim_day=sim_day,

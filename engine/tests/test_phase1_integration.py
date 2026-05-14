@@ -8,6 +8,7 @@ This is the acceptance gate for PRD-week7 §10.1 (Phase 1 plumbing).
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import httpx
@@ -55,14 +56,17 @@ def _mock_transport() -> httpx.MockTransport:
             return httpx.Response(
                 200,
                 json={
-                    "catalog": [
-                        {"product_name": "Basic300", "retail_price": 650.0},
-                        {"product_name": "Elite700", "retail_price": 2000.0},
+                    "entries": [
+                        {"product_name": "Basic300", "retail_price": "650.00"},
+                        {"product_name": "Elite700", "retail_price": "2000.00"},
                     ]
                 },
             )
 
         if path == "/api/orders" and method == "POST":
+            payload = json.loads(request.content.decode())
+            if set(payload) != {"customer", "product_name", "quantity"}:
+                return httpx.Response(422, json={"detail": "invalid order payload"})
             return httpx.Response(
                 201,
                 json={"id": f"co-{host}-001", "status": "PENDING"},
@@ -150,6 +154,7 @@ def test_demand_injected_for_each_day(tmp_path: Any, monkeypatch: Any) -> None:
     retailer_orders = injected[0]
     # mean=2, variance=0 → 2 orders per model (Basic300 + Elite700) = 4 total
     assert len(retailer_orders) == 4
+    assert all("result" in order for order in retailer_orders)
 
 
 def test_agent_outputs_truncated_in_summary(tmp_path: Any, monkeypatch: Any) -> None:

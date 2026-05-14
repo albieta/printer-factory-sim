@@ -6,6 +6,7 @@ mocked as minimal HTTP responders.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import httpx
@@ -78,12 +79,15 @@ def _make_mock_app() -> httpx.MockTransport:
             return httpx.Response(
                 200,
                 json={
-                    "catalog": [
-                        {"product_name": "Basic300", "retail_price": 650.0},
+                    "entries": [
+                        {"product_name": "Basic300", "retail_price": "650.00"},
                     ]
                 },
             )
         if path == "/api/orders" and request.method == "POST":
+            payload = json.loads(request.content.decode())
+            if set(payload) != {"customer", "product_name", "quantity"}:
+                return httpx.Response(422, json={"detail": "invalid order payload"})
             return httpx.Response(201, json={"id": "co-001", "status": "PENDING"})
         if path == "/api/day/advance" and request.method == "POST":
             return httpx.Response(200, json={"current_day": 1, "purchase_orders_delivered": 0})
@@ -119,3 +123,6 @@ def test_run_day_returns_summary_with_expected_keys(tmp_path: Any, monkeypatch: 
     assert "PrinterWorld" in result["advance_results"]
     assert "Factory" in result["advance_results"]
     assert "ChipSupply Co" in result["advance_results"]
+    retailer_orders = result["demand_injected"][0]
+    assert retailer_orders
+    assert all("result" in order for order in retailer_orders)
