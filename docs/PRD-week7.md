@@ -889,8 +889,23 @@ the commit that closes it):
      price-factor elasticity, signal overlap resolution, stub-agent log
      writing, and ``run_day`` structure via ``httpx.MockTransport``.
    - mypy --strict clean (8 engine files); ruff clean.
-8. Turn engine Phase 1 (deterministic): one full 3-day run with all
-   stubs and `logs/` capture.
+8. ✅ Turn engine Phase 1 (deterministic): 2-day integration test suite.
+   - `config/sim-stub.json`: variant of `sim.json` with `skill: null` for
+     all three roles — used for Phase 1 manual runs and as the CI config.
+   - `engine/tests/test_phase1_integration.py`: 7 integration tests that
+     exercise `run_day()` for 2 consecutive days via `httpx.MockTransport`:
+     - All three apps advance each day (advance_results keys present).
+     - Stub log files created for every role on every day with `[stub]`
+       marker (`logs/day-001-Factory.log`, etc.).
+     - Demand injected per day (mean=2, variance=0 → 4 orders/day for
+       Basic300+Elite700).
+     - Agent output truncated to ≤ 200 chars in summary dict.
+     - `main()` returns non-zero on bad/missing args.
+     - `main()` returns 0 and writes logs for a valid 2-day stub run.
+   - Phase 1 manual command (all apps live):
+     ``python -m engine.turn_engine config/sim-stub.json
+     scenarios/smoke-test.json 3``
+   - 24 engine tests passing; mypy --strict clean (9 files); ruff clean.
 9. `skills/manufacturer-manager.md` v1 + Phase 2 invocation through
    `claude --print` + manual iteration on the skill until day 1 looks
    sane.
