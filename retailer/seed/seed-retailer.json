@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "initial_day": 0,
+  "manufacturer_name": "Factory",
+  "catalog": [
+    {
+      "product_name": "Basic300",
+      "description": "Entry-level 3D printer",
+      "retail_price": 650.00,
+      "initial_stock": 5
+    },
+    {
+      "product_name": "Pro450",
+      "description": "Mid-range 3D printer with dual filament support",
+      "retail_price": 1200.00,
+      "initial_stock": 3
+    },
+    {
+      "product_name": "Elite700",
+      "description": "High-end 3D printer with LCD touchscreen",
+      "retail_price": 2000.00,
+      "initial_stock": 1
+    }
+  ]
+}
