@@ -906,9 +906,29 @@ the commit that closes it):
      ``python -m engine.turn_engine config/sim-stub.json
      scenarios/smoke-test.json 3``
    - 24 engine tests passing; mypy --strict clean (9 files); ruff clean.
-9. `skills/manufacturer-manager.md` v1 + Phase 2 invocation through
-   `claude --print` + manual iteration on the skill until day 1 looks
-   sane.
+9. ✅ `skills/manufacturer-manager.md` v1.
+   - All six required sections from §7.1 present:
+     1. **Your Role** — names responsibilities (review sales orders, check
+        inventory, release production, order parts, adjust prices).
+     2. **Available Commands** — exact `bin/manufacturer-cli` invocations
+        grouped as: Check state / Production / Purchasing / Pricing.
+        Agent must not invent flags not listed here.
+     3. **DO NOT** — five explicit forbiddens: no `day advance`, no
+        over-releasing beyond capacity, no duplicate POs for inbound
+        parts, no invented flags, no invented names.
+     4. **Decision framework** — numbered 5-step process: Assess →
+        Fulfil (release PENDING SOs, oldest first, up to capacity) →
+        Order (replenish below reorder point of 50 units) → Adjust
+        prices (signal-gated: >1.5 raise ≤10 %, <0.5 lower ≤5 %) →
+        Log reasoning.
+     5. **Market signals** — `demand_modifier` and `supply_modifier`
+        interpretation; steady state = 0.8–1.2 range, no price action.
+     6. **When done** — templated 5-bullet summary; explicit "do not
+        run `day advance`" reminder.
+   - Body is ~1.1 KB (well within the 2 KB limit from §10.2).
+   - Phase 2 invocation: ``python -m engine.turn_engine config/sim.json
+     scenarios/smoke-test.json 1`` (``sim.json`` has the manufacturer
+     skill set; all other roles remain stub).
 10. Report (`docs/report-week7.md`) + screenshots + PDF.
 
 ## 13. Open questions / decisions to revisit before coding

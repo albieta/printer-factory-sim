@@ -80,7 +80,7 @@ if ! wait_for_workspace "$DEPENDENCY_WAIT_SECONDS"; then
   exit 0
 fi
 
-if ! is_port_listening 8001 || ! is_port_listening 8002 || ! is_port_listening 3000; then
+if ! is_port_listening 8001 || ! is_port_listening 8002 || ! is_port_listening 8003 || ! is_port_listening 3000; then
   nohup bash "$ROOT_DIR/scripts/dev-start.sh" >"$STACK_LOG_FILE" 2>&1 < /dev/null &
 fi
 
@@ -91,6 +91,11 @@ fi
 
 if ! wait_for_http "http://127.0.0.1:8002/health" "$STARTUP_WAIT_SECONDS"; then
   echo "Warning: manufacturer backend did not become ready on port 8002 within ${STARTUP_WAIT_SECONDS}s. See $STACK_LOG_FILE for details." >&2
+  exit 0
+fi
+
+if ! wait_for_http "http://127.0.0.1:8003/health" "$STARTUP_WAIT_SECONDS"; then
+  echo "Warning: retailer did not become ready on port 8003 within ${STARTUP_WAIT_SECONDS}s. See $STACK_LOG_FILE for details." >&2
   exit 0
 fi
 

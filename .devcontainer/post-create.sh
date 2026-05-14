@@ -34,4 +34,18 @@ fi
   "$ROOT_DIR/.venv/bin/python" scripts/seed_data.py
 )
 
+(
+  cd "$ROOT_DIR/provider"
+  "$ROOT_DIR/.venv/bin/python" scripts/seed_data.py
+)
+
+(
+  cd "$ROOT_DIR/retailer"
+  RETAILER_DB_URL="sqlite:///./retailer.db" \
+  RETAILER_MANUFACTURER_URL="http://localhost:8002" \
+  RETAILER_NAME="PrinterWorld" \
+  RETAILER_MANUFACTURER_NAME="Factory" \
+    "$ROOT_DIR/.venv/bin/python" scripts/seed_data.py
+)
+
 date -u +"%Y-%m-%dT%H:%M:%SZ" >"$SETUP_COMPLETE_FILE"

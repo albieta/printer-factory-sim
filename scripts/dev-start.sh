@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROVIDER_PORT="${PROVIDER_PORT:-8001}"
 DEFAULT_BACKEND_PORT="${BACKEND_PORT:-8002}"
+RETAILER_PORT="${RETAILER_PORT:-8003}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 STARTUP_WAIT_SECONDS="${STARTUP_WAIT_SECONDS:-60}"
 
@@ -73,7 +74,9 @@ trap cleanup EXIT INT TERM
 backend_started=false
 frontend_started=false
 provider_started=false
+retailer_started=false
 
+# ── Provider (port 8001) ──────────────────────────────────────────────────────
 if is_port_listening "$PROVIDER_PORT"; then
   :
 else
@@ -87,6 +90,7 @@ else
   provider_started=true
 fi
 
+# ── Manufacturer backend (port 8002) ─────────────────────────────────────────
 if is_port_listening "$DEFAULT_BACKEND_PORT"; then
   BACKEND_PORT="$DEFAULT_BACKEND_PORT"
 else
@@ -101,6 +105,31 @@ else
   backend_started=true
 fi
 
+# ── Retailer (port 8003) ──────────────────────────────────────────────────────
+if is_port_listening "$RETAILER_PORT"; then
+  :
+else
+  (
+    cd "$ROOT_DIR/retailer"
+    RETAILER_DB_URL="sqlite:///./retailer.db" \
+    RETAILER_MANUFACTURER_URL="http://localhost:${BACKEND_PORT}" \
+    RETAILER_NAME="PrinterWorld" \
+    RETAILER_MANUFACTURER_NAME="Factory" \
+      "$ROOT_DIR/.venv/bin/python" scripts/seed_data.py
+    cd "$ROOT_DIR"
+    exec env \
+      RETAILER_DB_URL="sqlite:///$ROOT_DIR/retailer/retailer.db" \
+      RETAILER_MANUFACTURER_URL="http://localhost:${BACKEND_PORT}" \
+      RETAILER_NAME="PrinterWorld" \
+      RETAILER_MANUFACTURER_NAME="Factory" \
+      "$ROOT_DIR/.venv/bin/python" -m uvicorn retailer.main:app \
+        --host 0.0.0.0 --port "$RETAILER_PORT"
+  ) &
+  retailer_pid=$!
+  retailer_started=true
+fi
+
+# ── Manufacturer frontend (port 3000) ─────────────────────────────────────────
 if is_port_listening "$FRONTEND_PORT"; then
   :
 else
@@ -114,6 +143,7 @@ else
   frontend_started=true
 fi
 
+# ── Wait for readiness ────────────────────────────────────────────────────────
 if ! wait_for_http "http://127.0.0.1:$PROVIDER_PORT/health" "$STARTUP_WAIT_SECONDS"; then
   echo "Provider on port $PROVIDER_PORT did not become ready within ${STARTUP_WAIT_SECONDS}s." >&2
   exit 1
@@ -124,23 +154,31 @@ if ! wait_for_http "http://127.0.0.1:$BACKEND_PORT/health" "$STARTUP_WAIT_SECOND
   exit 1
 fi
 
+if ! wait_for_http "http://127.0.0.1:$RETAILER_PORT/health" "$STARTUP_WAIT_SECONDS"; then
+  echo "Retailer on port $RETAILER_PORT did not become ready within ${STARTUP_WAIT_SECONDS}s." >&2
+  exit 1
+fi
+
 if ! wait_for_http "http://127.0.0.1:$FRONTEND_PORT" "$STARTUP_WAIT_SECONDS"; then
   echo "Frontend on port $FRONTEND_PORT did not become ready within ${STARTUP_WAIT_SECONDS}s." >&2
   exit 1
 fi
 
-echo "Frontend: http://localhost:$FRONTEND_PORT"
-echo "Manufacturer API docs: http://localhost:$BACKEND_PORT/docs"
-echo "Provider API docs: http://localhost:$PROVIDER_PORT/docs"
+echo "Frontend:            http://localhost:$FRONTEND_PORT"
+echo "Manufacturer API:    http://localhost:$BACKEND_PORT/docs"
+echo "Provider API:        http://localhost:$PROVIDER_PORT/docs"
+echo "Retailer API:        http://localhost:$RETAILER_PORT/docs"
+
 if [ "$provider_started" = false ]; then
   echo "Provider already running on $PROVIDER_PORT, reusing it."
-  echo "If provider code changed, restart the existing server so the running API matches the files on disk."
 fi
 if [ "$backend_started" = false ]; then
   echo "Backend already running on $BACKEND_PORT, reusing it."
-  echo "If backend code changed, restart the existing server so the running API matches the files on disk."
 elif [ "$BACKEND_PORT" != "$DEFAULT_BACKEND_PORT" ]; then
-  echo "Backend port $DEFAULT_BACKEND_PORT was busy, so the API started on $BACKEND_PORT."
+  echo "Backend port $DEFAULT_BACKEND_PORT was busy, started on $BACKEND_PORT instead."
+fi
+if [ "$retailer_started" = false ]; then
+  echo "Retailer already running on $RETAILER_PORT, reusing it."
 fi
 if [ "$frontend_started" = false ]; then
   echo "Frontend already running on $FRONTEND_PORT, reusing it."
@@ -153,6 +191,9 @@ if [ "$provider_started" = true ]; then
 fi
 if [ "$backend_started" = true ]; then
   pids+=("$backend_pid")
+fi
+if [ "$retailer_started" = true ]; then
+  pids+=("$retailer_pid")
 fi
 if [ "$frontend_started" = true ]; then
   pids+=("$frontend_pid")
