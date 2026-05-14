@@ -87,7 +87,10 @@ class SalesOrderService:
         return q.order_by(SalesOrder.placed_day.desc(), SalesOrder.id).all()
 
     def get_order(self, order_id: str) -> Optional[SalesOrder]:
-        return self.db.query(SalesOrder).filter_by(id=order_id).one_or_none()
+        order = self.db.query(SalesOrder).filter_by(id=order_id).one_or_none()
+        if order is None:
+            order = self.db.query(SalesOrder).filter_by(reference_code=order_id).one_or_none()
+        return order
 
     def create_from_retailer(
         self,
