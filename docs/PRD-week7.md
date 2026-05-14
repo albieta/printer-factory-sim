@@ -863,7 +863,32 @@ the commit that closes it):
      orders, and independent progression of two orders at different stages.
    - 26 tests in `test_sales_order_service.py`, 41 manufacturer tests
      total. mypy --strict clean (38 files); ruff clean.
-7. Customer demand generator + smoke scenario file + sim config.
+7. ✅ Customer demand generator + smoke scenario + engine infrastructure.
+   - `engine/demand.py`: `generate_customer_demand(day, signal,
+     retail_prices, base_prices)` — price-elastic, deterministic per day
+     via `random.seed(day)`; `get_day_signal(scenario, day)` resolves the
+     active market signal with last-match-wins overlap handling.
+   - `engine/agent_runner.py`: `run_agent(role, day, prompt, skill_file,
+     cwd, timeout_seconds)` — stub path (``skill_file=None``) prints a
+     marker and writes ``logs/day-NNN-role.log``; Phase 2 path spawns
+     ``claude --print`` subprocess with 180 s timeout; timed-out agents
+     produce a ``[timeout]`` marker log and do not freeze the engine.
+   - `engine/turn_engine.py`: `run_day(config, scenario, day)` implements
+     the full turn: inject demand at each retailer → run role agents →
+     advance retailer → advance manufacturer → advance providers.
+     Entry point: ``python -m engine.turn_engine <config> <scenario> <N>``.
+   - `scenarios/smoke-test.json`: single "normal" event, days 1–10,
+     ``demand_modifier=1.0``, ``base_demand={mean:4, variance:1}``.
+   - `config/sim.json`: enumerates PrinterWorld (retailer, port 8003),
+     Factory (manufacturer, port 8002, skill=``skills/manufacturer-
+     manager.md``), ChipSupply Co (provider, port 8001, skill=null).
+   - `bin/manufacturer-cli`, `bin/provider-cli`, `bin/retailer-cli`:
+     executable shell shims → ``.venv/bin/python -m <app>.cli "$@"``.
+   - `.gitignore`: added ``logs/`` entry.
+   - **Tests** (`engine/tests/`): 17 tests covering demand determinism,
+     price-factor elasticity, signal overlap resolution, stub-agent log
+     writing, and ``run_day`` structure via ``httpx.MockTransport``.
+   - mypy --strict clean (8 engine files); ruff clean.
 8. Turn engine Phase 1 (deterministic): one full 3-day run with all
    stubs and `logs/` capture.
 9. `skills/manufacturer-manager.md` v1 + Phase 2 invocation through

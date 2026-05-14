@@ -54,3 +54,6 @@ htmlcov/
 # AI-generated files
 .claude
 .qwen
+
+# Turn engine logs (committed as report artifacts only)
+logs/
