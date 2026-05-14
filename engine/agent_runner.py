@@ -4,26 +4,26 @@ Phase 1 (deterministic): ``run_agent`` is given ``skill_file=None`` and
 returns immediately with a stub log line.
 
 Phase 2 (one agent): a non-None ``skill_file`` triggers a real
-``claude --print`` subprocess.  The result is written to
+``claude --print`` subprocess with stream-json output.  The result is written to
 ``logs/day-{day:03d}-{role}.log`` with complete flow:
   - Full prompt sent to Claude
-  - Complete Claude output (includes reasoning + tool calls)
-  - All stderr/warnings
+  - Complete Claude output (text responses)
+  - All tool invocations with results
 
 Bash invocations are also logged separately to
 ``logs/day-{day:03d}-bash-calls.jsonl`` for visibility.
 
 Timeout behaviour: if ``claude --print`` exceeds ``timeout_seconds``, the
-runner logs a ``[timeout]`` marker and returns the partial stdout.  A stuck
+runner logs a ``[timeout]`` marker and returns the partial output.  A stuck
 agent never freezes the simulation.
 """
 
 from __future__ import annotations
 
-import re
+import json
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from engine.bash_logger import BashLogger
 
@@ -51,8 +51,8 @@ def run_agent(
 
     Log format: for skill_file agents, logs complete flow:
     1. Full prompt sent to Claude
-    2. Complete Claude output (reasoning + tool calls + results)
-    3. All stderr/warnings
+    2. Claude's tool invocations with results (from stream-json output)
+    3. Claude's final response text
     4. Bash commands also logged to separate JSONL file
     """
 
@@ -70,6 +70,9 @@ def run_agent(
             [
                 "claude",
                 "--print",
+                "--verbose",
+                "--output-format",
+                "stream-json",
                 "--permission-mode",
                 "bypassPermissions",
                 "--allowedTools",
@@ -84,74 +87,122 @@ def run_agent(
             cwd=cwd,
             timeout=timeout_seconds,
         )
-        stdout = result.stdout
+        raw_output = result.stdout
         stderr = result.stderr or ""
         exit_code = result.returncode
     except subprocess.TimeoutExpired as exc:
         partial = (exc.stdout or b"").decode("utf-8", errors="replace")
-        stdout = partial + f"\n[timeout] {role} agent exceeded {timeout_seconds}s on day {day}\n"
+        raw_output = partial + f"\n[timeout] {role} agent exceeded {timeout_seconds}s on day {day}\n"
         stderr = ""
         exit_code = 124
 
+    # Parse stream-json output to extract tool calls and final response
+    tool_invocations, final_text = _parse_stream_json(raw_output)
+
     # Extract and log bash commands if logger exists
     if bash_logger:
-        bash_calls = _extract_bash_calls(stdout)
-        for call in bash_calls:
-            bash_logger.log(
-                command=call["command"],
-                stdout=call["output"],
-                stderr="",
-                exit_code=0,
-            )
+        for invocation in tool_invocations:
+            if invocation["tool"] == "Bash":
+                bash_logger.log(
+                    command=invocation["command"],
+                    stdout=invocation.get("stdout", ""),
+                    stderr=invocation.get("stderr", ""),
+                    exit_code=invocation.get("exit_code", 0),
+                )
 
-    # Build complete log showing flow: prompt → reasoning → tool calls → response
+    # Build complete log showing flow: prompt → tool calls → response
     log_content = (
         "=== PROMPT SENT TO CLAUDE ===\n"
         f"{prompt}\n\n"
-        "=== CLAUDE COMPLETE OUTPUT ===\n"
-        f"{stdout}"
+        "=== TOOL INVOCATIONS ===\n"
     )
+
+    for inv in tool_invocations:
+        log_content += f"\n[CALL: {inv['command']}]\n"
+        if inv.get("stdout"):
+            log_content += f"stdout: {inv['stdout']}\n"
+        if inv.get("stderr"):
+            log_content += f"stderr: {inv['stderr']}\n"
+
+    log_content += f"\n=== CLAUDE FINAL RESPONSE ===\n{final_text}"
+
     if stderr:
         log_content += f"\n\n=== STDERR ===\n{stderr}"
     if exit_code != 0:
         log_content += f"\n\n=== EXIT CODE ===\n{exit_code}"
 
     log.write_text(log_content, encoding="utf-8")
-    return stdout
+    return final_text
 
 
-def _extract_bash_calls(output: str) -> list[dict[str, str]]:
-    """Extract bash tool calls from Claude's output text.
+def _parse_stream_json(raw_output: str) -> tuple[list[dict[str, Any]], str]:
+    """Parse stream-json output from claude --print to extract tool calls and final response.
 
-    Looks for bash command invocations in the output and returns list of calls.
-    Returns list of dicts with 'command' and 'output' keys.
+    Returns:
+        Tuple of (tool_invocations, final_response_text) where tool_invocations is a list
+        of dicts with keys: 'tool', 'command', 'stdout', 'stderr', 'exit_code'
     """
-    calls = []
-    # Simple regex to find bash commands in Claude's output
-    # Pattern: looks for command text followed by output
-    lines = output.split("\n")
-    current_cmd = None
-    current_output = []
+    tool_invocations: list[dict[str, Any]] = []
+    final_text = ""
+    tool_id_map: dict[str, int] = {}  # Map tool_use_id to index in tool_invocations
 
-    for line in lines:
-        if "$ " in line or line.startswith("bin/"):
-            if current_cmd:
-                calls.append({
-                    "command": current_cmd,
-                    "output": "\n".join(current_output),
-                })
-            current_cmd = line.strip()
-            current_output = []
-        elif current_cmd:
-            current_output.append(line)
+    for line in raw_output.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
 
-    if current_cmd:
-        calls.append({
-            "command": current_cmd,
-            "output": "\n".join(current_output),
-        })
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
 
-    return calls
+        # Extract tool_use objects (Bash invocations)
+        if obj.get("type") == "assistant" and obj.get("message"):
+            content = obj["message"].get("content", [])
+            for item in content:
+                if item.get("type") == "tool_use" and item.get("name") == "Bash":
+                    cmd = item.get("input", {}).get("command", "")
+                    tool_id = item.get("id", "")
+                    if cmd:
+                        idx = len(tool_invocations)
+                        tool_invocations.append({
+                            "tool": "Bash",
+                            "command": cmd,
+                            "stdout": "",
+                            "stderr": "",
+                            "exit_code": 0,
+                        })
+                        if tool_id:
+                            tool_id_map[tool_id] = idx
+                elif item.get("type") == "text":
+                    final_text += item.get("text", "")
+
+        # Extract tool results (stdout from bash commands)
+        elif obj.get("type") == "user" and obj.get("message"):
+            # Tool results can be in two places:
+            # 1. Inside message.content[].tool_use_result (legacy)
+            # 2. At the top level as tool_use_result
+            tool_result = obj.get("tool_use_result")
+            content = obj["message"].get("content", [])
+
+            # Check for tool results in content array first
+            for item in content:
+                if item.get("type") == "tool_result":
+                    tool_id = item.get("tool_use_id", "")
+                    if tool_id in tool_id_map:
+                        idx = tool_id_map[tool_id]
+                        tool_invocations[idx]["stdout"] = item.get("content", "")
+                        tool_invocations[idx]["stderr"] = ""
+
+            # Then check top-level tool_use_result
+            if tool_result:
+                stdout = tool_result.get("stdout", "")
+                stderr = tool_result.get("stderr", "")
+                if tool_invocations:
+                    tool_invocations[-1]["stdout"] = stdout
+                    tool_invocations[-1]["stderr"] = stderr
+
+    return tool_invocations, final_text
 
 
 def build_prompt(

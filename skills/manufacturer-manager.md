@@ -32,11 +32,35 @@ bin/manufacturer-cli price set MODEL_NAME NEW_PRICE
 - Do not choose a slower supplier when a faster valid one can meet the need.
 
 ## Decision Framework
-1. Assess: run day, capacity, inventory, production status, pending sales, purchases, and prices.
-2. Fulfil: release oldest PENDING sales orders that fit capacity.
-3. Order: for materials below 50 and not inbound, order enough to reach about 200 units.
-4. Adjust: if `demand_modifier > 1.5`, raise prices by at most 10 percent; if `< 0.5`, lower by at most 5 percent; otherwise no change.
-5. Log: state what changed and why.
+
+Follow these steps, running the appropriate CLI commands:
+
+1. **Assess**: Check current state by running (in order):
+   - `bin/manufacturer-cli day current`
+   - `bin/manufacturer-cli capacity`
+   - `bin/manufacturer-cli inventory`
+   - `bin/manufacturer-cli sales orders --status PENDING`
+   - `bin/manufacturer-cli production status`
+   - `bin/manufacturer-cli purchase list`
+   
+   Then interpret what you learned.
+
+2. **Fulfil**: For each PENDING order that fits within daily capacity:
+   - Run `bin/manufacturer-cli production release <ORDER_ID>`
+
+3. **Order**: For materials below 50 units not already inbound:
+   - Run `bin/manufacturer-cli suppliers catalog "SUPPLIER_NAME"` to find suppliers
+   - For each material, run `bin/manufacturer-cli purchase create --supplier "SUPPLIER_NAME" --product "PRODUCT_NAME" --qty <QUANTITY>`
+
+4. **Adjust**: Check current prices:
+   - Run `bin/manufacturer-cli price list`
+   
+   Then apply price changes based on demand_modifier:
+   - If demand_modifier > 1.5: run `bin/manufacturer-cli price set <MODEL_NAME> <NEW_PRICE>` (up 10% for each model)
+   - If demand_modifier < 0.5: run `bin/manufacturer-cli price set <MODEL_NAME> <NEW_PRICE>` (down 5% for each model)
+   - Otherwise: no changes
+
+5. **Log**: Summarize what changed in 3–5 bullets.
 
 ## Market Signals
 `demand_modifier`: 1.0 normal, high stronger demand, low weaker demand. `supply_modifier`: lead-time risk; Week 7 is normally 1.0. Treat 0.8 to 1.2 demand as steady.
