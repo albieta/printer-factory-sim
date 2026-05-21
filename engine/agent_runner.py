@@ -58,7 +58,7 @@ def run_agent(
 
     LOGS_DIR.mkdir(exist_ok=True)
     log = _log_path(day, role)
-    bash_logger = BashLogger(day) if role == "Factory" else None
+    bash_logger = BashLogger(day, role=role) if skill_file is not None else None
 
     if skill_file is None:
         output = f"[stub] {role} would decide here (day {day})\n"

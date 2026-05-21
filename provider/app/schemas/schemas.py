@@ -101,6 +101,16 @@ class DayAdvanceResult(BaseModel):
     orders_delivered: int
 
 
+class MarketSignalUpdate(BaseModel):
+    supply_modifier: float = 1.0
+    lead_time_modifier: float = 1.0
+
+
+class MarketSignalResponse(BaseModel):
+    supply_modifier: float
+    lead_time_modifier: float
+
+
 class Event(BaseModel):
     id: int
     event_type: EventType

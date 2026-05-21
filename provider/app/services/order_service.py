@@ -19,6 +19,7 @@ Two rules from the PRD are enforced here at placement time:
 
 from __future__ import annotations
 
+import math
 from decimal import Decimal
 from typing import Optional
 
@@ -77,7 +78,9 @@ class OrderService:
         total_price = (unit_price * Decimal(quantity)).quantize(Decimal("0.01"))
 
         placed_day = self.sim_state.get_current_day()
-        expected_delivery_day = placed_day + product.lead_time_days
+        lead_time_modifier = self.sim_state.get_lead_time_modifier()
+        effective_lead_time = max(1, math.ceil(product.lead_time_days * lead_time_modifier))
+        expected_delivery_day = placed_day + effective_lead_time
 
         stock = self.catalog.get_stock(product_id)
         stock_qty = stock.quantity if stock is not None else 0
@@ -110,6 +113,8 @@ class OrderService:
                     "quantity": quantity,
                     "unit_price": str(unit_price),
                     "total_price": str(total_price),
+                    "base_lead_time_days": product.lead_time_days,
+                    "lead_time_modifier": lead_time_modifier,
                     "expected_delivery_day": expected_delivery_day,
                 },
             )
@@ -155,6 +160,8 @@ class OrderService:
                 "quantity": quantity,
                 "unit_price": str(unit_price),
                 "total_price": str(total_price),
+                "base_lead_time_days": product.lead_time_days,
+                "lead_time_modifier": lead_time_modifier,
                 "expected_delivery_day": expected_delivery_day,
             },
         )

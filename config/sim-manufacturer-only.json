@@ -4,7 +4,7 @@
       "name": "PrinterWorld",
       "url": "http://localhost:8003",
       "path": ".",
-      "skill": "skills/retail-manager.md"
+      "skill": null
     }
   ],
   "manufacturer": {
@@ -18,7 +18,7 @@
       "name": "ChipSupply Co",
       "url": "http://localhost:8001",
       "path": ".",
-      "skill": "skills/provider-manager.md"
+      "skill": null
     }
   ]
 }

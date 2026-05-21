@@ -11,14 +11,14 @@
     "name": "Factory",
     "url": "http://localhost:8002",
     "path": ".",
-    "skill": "skills/manufacturer-manager.md"
+    "skill": null
   },
   "providers": [
     {
       "name": "ChipSupply Co",
       "url": "http://localhost:8001",
       "path": ".",
-      "skill": "skills/provider-manager.md"
+      "skill": null
     }
   ]
 }

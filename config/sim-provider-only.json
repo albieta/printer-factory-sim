@@ -4,14 +4,14 @@
       "name": "PrinterWorld",
       "url": "http://localhost:8003",
       "path": ".",
-      "skill": "skills/retail-manager.md"
+      "skill": null
     }
   ],
   "manufacturer": {
     "name": "Factory",
     "url": "http://localhost:8002",
     "path": ".",
-    "skill": "skills/manufacturer-manager.md"
+    "skill": null
   },
   "providers": [
     {

@@ -16,6 +16,8 @@ from app.services.starter_profile import INITIAL_DAY
 
 
 CURRENT_DAY_KEY = "current_day"
+LEAD_TIME_MODIFIER_KEY = "lead_time_modifier"
+SUPPLY_MODIFIER_KEY = "supply_modifier"
 
 
 class SimStateService:
@@ -49,3 +51,35 @@ class SimStateService:
             self.db.add(row)
         else:
             row.value = str(day)
+
+    def get_float(self, key: str, default: float) -> float:
+        """Return a float simulator setting from the key/value table."""
+
+        row = self.db.query(SimState).filter_by(key=key).one_or_none()
+        if row is None:
+            return default
+        try:
+            return float(row.value)
+        except ValueError:
+            return default
+
+    def set_value(self, key: str, value: str) -> None:
+        """Persist a scalar simulator setting."""
+
+        row = self.db.query(SimState).filter_by(key=key).one_or_none()
+        if row is None:
+            row = SimState(key=key, value=value)
+            self.db.add(row)
+        else:
+            row.value = value
+
+    def get_lead_time_modifier(self) -> float:
+        """Return the active market lead-time multiplier."""
+
+        return max(1.0, self.get_float(LEAD_TIME_MODIFIER_KEY, 1.0))
+
+    def set_market_signal(self, *, supply_modifier: float, lead_time_modifier: float) -> None:
+        """Store current market modifiers used by provider order intake."""
+
+        self.set_value(SUPPLY_MODIFIER_KEY, str(supply_modifier))
+        self.set_value(LEAD_TIME_MODIFIER_KEY, str(max(1.0, lead_time_modifier)))

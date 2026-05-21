@@ -9,13 +9,12 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 
 class BashLogger:
     """Log all Bash commands executed by Claude agents to JSONL."""
 
-    def __init__(self, day: int, logs_dir: Path = Path("logs")) -> None:
+    def __init__(self, day: int, logs_dir: Path = Path("logs"), role: str | None = None) -> None:
         """Initialize logger for a specific day.
 
         Parameters
@@ -28,6 +27,7 @@ class BashLogger:
         logs_dir.mkdir(exist_ok=True)
         self._path = logs_dir / f"day-{day:03d}-bash-calls.jsonl"
         self._day = day
+        self._role = role
 
     def log(
         self,
@@ -52,6 +52,7 @@ class BashLogger:
         entry = {
             "ts": datetime.utcnow().isoformat(),
             "day": self._day,
+            "role": self._role,
             "command": command,
             "exit_code": exit_code,
             "stdout": stdout[:500].strip() if stdout else "",

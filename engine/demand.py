@@ -58,25 +58,55 @@ def generate_customer_demand(
     return orders
 
 
+def _as_float(value: Any, default: float) -> float:
+    """Best-effort float coercion for scenario modifier values."""
+
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def get_day_signal(scenario: dict[str, Any], day: int) -> dict[str, Any]:
     """Return the market signal that applies to *day*.
 
-    Looks for the last ``events`` entry whose ``start_day <= day <= end_day``.
-    Falls back to scenario-level ``base_demand`` with ``demand_modifier = 1.0``.
+    Week 8 scenarios can have overlapping events. Numeric modifiers compound by
+    multiplication, so a chip shortage and holiday rush can both pressure the
+    same day. Non-numeric hints, such as ``price_sensitivity``, use the last
+    active event that sets them.
     """
 
     base_demand = scenario.get("base_demand", {"mean": 5, "variance": 2})
 
-    active: dict[str, Any] | None = None
+    active_events: list[dict[str, Any]] = []
     for event in scenario.get("events", []):
         if event.get("start_day", 0) <= day <= event.get("end_day", 9999):
-            active = event
-            # Keep the last matching event (events are ordered chronologically).
+            active_events.append(event)
 
-    if active is None:
-        return {"base_demand": base_demand, "demand_modifier": 1.0}
-
-    return {
-        "base_demand": active.get("base_demand", base_demand),
-        "demand_modifier": float(active.get("demand_modifier", 1.0)),
+    signal: dict[str, Any] = {
+        "base_demand": base_demand,
+        "demand_modifier": 1.0,
+        "supply_modifier": 1.0,
+        "lead_time_modifier": 1.0,
+        "active_events": [],
+        "compounding": "multiply",
     }
+
+    if not active_events:
+        return signal
+
+    for event in active_events:
+        if "base_demand" in event:
+            signal["base_demand"] = event["base_demand"]
+        for key in ("demand_modifier", "supply_modifier", "lead_time_modifier"):
+            signal[key] = float(signal[key]) * _as_float(event.get(key), 1.0)
+        if "price_sensitivity" in event:
+            signal["price_sensitivity"] = event["price_sensitivity"]
+
+    signal["active_events"] = [str(event.get("name", "unnamed")) for event in active_events]
+    signal["event_descriptions"] = {
+        str(event.get("name", "unnamed")): str(event.get("description", ""))
+        for event in active_events
+        if event.get("description")
+    }
+    return signal

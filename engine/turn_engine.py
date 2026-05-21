@@ -30,6 +30,7 @@ import httpx
 from engine.api_logger import ApiLogger
 from engine.demand import generate_customer_demand, get_day_signal
 from engine.agent_runner import build_prompt, run_agent
+from engine.metrics import append_metrics, snapshot_metrics, summarize_metrics
 
 
 DEFAULT_TIMEOUT = 10.0  # seconds for routine API calls
@@ -155,6 +156,26 @@ def forward_demand_to_manufacturer(
     return results
 
 
+def apply_provider_market_signal(
+    provider_cfg: dict[str, Any],
+    signal: dict[str, Any],
+    logger: ApiLogger | None = None,
+) -> dict[str, Any]:
+    """Best-effort push of market signal into provider order intake."""
+
+    try:
+        return _post(
+            f"{provider_cfg['url']}/api/day/signal",
+            {
+                "supply_modifier": float(signal.get("supply_modifier", 1.0)),
+                "lead_time_modifier": float(signal.get("lead_time_modifier", 1.0)),
+            },
+            logger=logger,
+        )
+    except (httpx.HTTPError, ValueError) as exc:
+        return {"error": str(exc)}
+
+
 def run_role_agent(
     role: str,
     role_cfg: dict[str, Any],
@@ -222,6 +243,14 @@ def run_day(
     # Initialize API logger for this day
     api_logger = ApiLogger(day)
 
+    # ── 0. Apply scenario signal to providers before agents place orders ──────
+    provider_signal_results = []
+    for p_cfg in providers:
+        provider_signal_results.append(
+            apply_provider_market_signal(p_cfg, signal, logger=api_logger)
+        )
+    summary["provider_signal_results"] = provider_signal_results
+
     # ── 1. Inject demand at each retailer ────────────────────────────────────
     demand_results = []
     base_prices_cache: dict[str, dict[str, float]] = {}
@@ -281,6 +310,11 @@ def run_day(
         )
 
     summary["advance_results"] = advance_results
+
+    metrics = snapshot_metrics(config, scenario, day, signal, logger=api_logger)
+    append_metrics(metrics)
+    summary["metrics"] = metrics
+    print(f"  [summary] {summarize_metrics(metrics)}")
     return summary
 
 

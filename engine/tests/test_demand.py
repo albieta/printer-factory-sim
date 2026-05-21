@@ -103,9 +103,41 @@ def test_get_day_signal_returns_matching_event() -> None:
     assert sig["demand_modifier"] == 1.0
 
 
-def test_get_day_signal_returns_last_matching_event_on_overlap() -> None:
+def test_get_day_signal_compounds_matching_events_on_overlap() -> None:
     sig = get_day_signal(SCENARIO, 6)
     assert sig["demand_modifier"] == 2.5
+    assert sig["active_events"] == ["normal", "surge"]
+
+
+def test_get_day_signal_compounds_supply_and_lead_time_modifiers() -> None:
+    scenario: dict[str, object] = {
+        "base_demand": {"mean": 4, "variance": 1},
+        "events": [
+            {
+                "name": "shortage",
+                "start_day": 2,
+                "end_day": 4,
+                "supply_modifier": 0.5,
+                "lead_time_modifier": 2.0,
+            },
+            {
+                "name": "rush",
+                "start_day": 3,
+                "end_day": 5,
+                "demand_modifier": 3.0,
+                "supply_modifier": 0.8,
+                "lead_time_modifier": 1.5,
+                "price_sensitivity": "high",
+            },
+        ],
+    }
+
+    sig = get_day_signal(scenario, 3)
+
+    assert sig["demand_modifier"] == 3.0
+    assert sig["supply_modifier"] == 0.4
+    assert sig["lead_time_modifier"] == 3.0
+    assert sig["price_sensitivity"] == "high"
 
 
 def test_get_day_signal_falls_back_before_any_event() -> None:

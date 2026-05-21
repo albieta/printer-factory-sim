@@ -1,0 +1,47 @@
+{
+  "scenario_name": "Q4-2026-holiday-rush-with-chip-shortage",
+  "base_demand": {
+    "mean": 5,
+    "variance": 2
+  },
+  "base_price": 400,
+  "events": [
+    {
+      "name": "normal",
+      "start_day": 1,
+      "end_day": 10,
+      "demand_modifier": 1.0,
+      "supply_modifier": 1.0,
+      "lead_time_modifier": 1.0,
+      "description": "Business as usual before the holiday season."
+    },
+    {
+      "name": "black_friday",
+      "start_day": 11,
+      "end_day": 13,
+      "demand_modifier": 3.0,
+      "supply_modifier": 1.0,
+      "lead_time_modifier": 1.0,
+      "price_sensitivity": "high",
+      "description": "Black Friday weekend: demand triples and customers are price-sensitive."
+    },
+    {
+      "name": "chip_shortage",
+      "start_day": 14,
+      "end_day": 20,
+      "demand_modifier": 1.5,
+      "supply_modifier": 0.4,
+      "lead_time_modifier": 2.0,
+      "description": "Chip shortage: provider supply is constrained and delivery lead times stretch."
+    },
+    {
+      "name": "christmas_season",
+      "start_day": 18,
+      "end_day": 25,
+      "demand_modifier": 2.5,
+      "supply_modifier": 0.6,
+      "lead_time_modifier": 1.2,
+      "description": "Christmas rush overlaps with constrained supply."
+    }
+  ]
+}

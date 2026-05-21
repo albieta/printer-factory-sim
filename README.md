@@ -127,14 +127,37 @@ Phase 1 — deterministic stubs (no LLM required):
 
 This runs 3 simulated days. Each role prints a `[stub] … would decide here` marker and a log file is written to `logs/day-001-*.log` etc.
 
-Phase 2 — manufacturer driven by Claude Code:
+Phase 2 — all three roles driven by Claude Code:
 
 ```bash
 # Requires 'claude' CLI to be installed and authenticated
 .venv/bin/python -m engine.turn_engine config/sim.json scenarios/smoke-test.json 1
 ```
 
-`config/sim.json` sets `"skill": "skills/manufacturer-manager.md"` for the manufacturer. The agent reads state via the CLI, releases production orders, places purchase orders, and adjusts prices. Output is written to `logs/day-001-Factory.log`.
+`config/sim.json` enables `skills/retail-manager.md`, `skills/manufacturer-manager.md`, and `skills/provider-manager.md`. Each agent reads state through its CLI, takes role-specific actions, prints short `LOG:` lines, and writes a per-day file under `logs/`.
+
+Week 8 scenario runs:
+
+```bash
+# Skill isolation checks
+.venv/bin/python -m engine.turn_engine config/sim-retailer-only.json scenarios/smoke-test.json 1
+.venv/bin/python -m engine.turn_engine config/sim-manufacturer-only.json scenarios/smoke-test.json 1
+.venv/bin/python -m engine.turn_engine config/sim-provider-only.json scenarios/smoke-test.json 1
+
+# Control group
+.venv/bin/python -m engine.turn_engine config/sim.json scenarios/calm-market.json 20
+
+# Volatile market with overlapping events
+.venv/bin/python -m engine.turn_engine config/sim.json scenarios/holiday-rush.json 25
+```
+
+Each run appends daily snapshots to `logs/metrics.jsonl`. Generate charts and an interpretation with:
+
+```bash
+.venv/bin/python -m engine.analyze_run logs/metrics.jsonl \
+  --scenario scenarios/holiday-rush.json \
+  --out analysis/holiday-rush
+```
 
 ### Option B — Manual day-by-day (CLI)
 
