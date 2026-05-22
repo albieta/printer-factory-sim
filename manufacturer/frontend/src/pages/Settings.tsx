@@ -395,14 +395,15 @@ const Settings: React.FC = () => {
                 <div className="flex-grow-1">
                   <h6 className="mb-2">Reset to starter profile</h6>
                   <p className="text-muted small mb-2">
-                    <strong>Clears transactional data only:</strong>
+                    <strong>Clears transactional data, restores missing defaults:</strong>
                   </p>
                   <ul className="text-muted small mb-0">
-                    <li>Keeps all custom products, suppliers, and materials you added</li>
-                    <li>Clears orders, purchase orders, and events</li>
+                    <li>Keeps all custom products, suppliers you added</li>
+                    <li>Recreates any deleted default materials</li>
+                    <li>Clears all orders, purchase orders, and events</li>
                     <li>Resets inventory to initial quantities</li>
                     <li>Resets configuration (costs, capacity, etc.) to defaults</li>
-                    <li>Use this if you've customized your product catalog</li>
+                    <li>Use this for a clean slate while keeping your custom additions</li>
                   </ul>
                 </div>
                 <Button variant="outline-danger" onClick={resetSimulation} className="ms-3 flex-shrink-0">

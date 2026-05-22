@@ -167,7 +167,10 @@ class SimulationService:
         for material_name, quantity in STARTER_INVENTORY.items():
             product_id = material_lookup.get(material_name)
             if not product_id:
-                continue
+                material = Product(name=material_name, type=ProductType.MATERIAL)
+                self.db.add(material)
+                self.db.flush()
+                product_id = material.id
             inventory = self.inventory_service.get_inventory_by_product(product_id)
             inventory.quantity = Decimal(quantity)
 
