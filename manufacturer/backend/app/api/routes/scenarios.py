@@ -19,6 +19,9 @@ class ScenarioStartRequest(BaseModel):
     days: int = Field(..., ge=1, le=60, description="Number of simulated days to run")
     model: str = Field(default="claude-haiku-4-5-20251001", description="Claude model to use for agents")
     thinking_enabled: bool = Field(default=False, description="Whether to enable extended thinking")
+    assembly_lines: int = Field(default=1, ge=1, le=20, description="Number of parallel assembly lines")
+    workers_per_line: int = Field(default=1, ge=1, le=20, description="Workers per assembly line")
+    shift_hours: float = Field(default=8.0, ge=1.0, le=24.0, description="Hours worked per shift")
 
 
 @router.get("/")
@@ -44,6 +47,9 @@ def start_scenario(payload: ScenarioStartRequest) -> dict[str, Any]:
             payload.days,
             model=payload.model,
             thinking_enabled=payload.thinking_enabled,
+            assembly_lines=payload.assembly_lines,
+            workers_per_line=payload.workers_per_line,
+            shift_hours=payload.shift_hours,
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))

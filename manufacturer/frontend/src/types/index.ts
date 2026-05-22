@@ -264,6 +264,9 @@ export interface ScenarioStartRequest {
   days: number;
   model?: string;
   thinking_enabled?: boolean;
+  assembly_lines?: number;
+  workers_per_line?: number;
+  shift_hours?: number;
 }
 
 export interface LogFile {

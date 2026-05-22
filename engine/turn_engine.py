@@ -21,6 +21,7 @@ each app's REST surface.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -321,6 +322,47 @@ def run_day(
     return summary
 
 
+def apply_assembly_config(mfr_url: str, logger: ApiLogger | None = None) -> dict[str, Any]:
+    """Apply assembly configuration from environment variables to the manufacturer.
+
+    Environment variables:
+    - ASSEMBLY_LINES: number of parallel assembly lines
+    - WORKERS_PER_LINE: workers per line
+    - SHIFT_HOURS: hours per shift
+    """
+
+    assembly_lines = os.environ.get("ASSEMBLY_LINES")
+    workers_per_line = os.environ.get("WORKERS_PER_LINE")
+    shift_hours = os.environ.get("SHIFT_HOURS")
+
+    if not (assembly_lines or workers_per_line or shift_hours):
+        return {}
+
+    try:
+        payload = {}
+        if assembly_lines:
+            payload["assembly_lines"] = int(assembly_lines)
+        if workers_per_line:
+            payload["workers_per_line"] = int(workers_per_line)
+        if shift_hours:
+            payload["shift_hours"] = float(shift_hours)
+
+        result = _put(f"{mfr_url}/api/config/", payload, logger=logger)
+        return result
+    except (ValueError, httpx.HTTPError) as exc:
+        return {"error": str(exc)}
+
+
+def _put(url: str, payload: dict[str, Any], logger: ApiLogger | None = None) -> dict[str, Any]:
+    """PUT request to update resource."""
+    with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
+        r = client.put(url, json=payload)
+        if logger:
+            logger.log("PUT", url, payload, r.status_code, r.json())
+        r.raise_for_status()
+    return dict(r.json())
+
+
 # ── entry point ───────────────────────────────────────────────────────────────
 
 
@@ -349,6 +391,11 @@ def main(argv: list[str]) -> int:
 
     print(f"Turn engine — scenario: {scenario.get('scenario_name', 'unnamed')}")
     print(f"Running {num_days} day(s).")
+
+    # Apply assembly configuration from environment variables before simulation starts
+    mfr = config.get("manufacturer", {})
+    if mfr and "url" in mfr:
+        apply_assembly_config(mfr["url"])
 
     for day in range(1, num_days + 1):
         run_day(config, scenario, day)

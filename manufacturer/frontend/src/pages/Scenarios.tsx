@@ -62,6 +62,9 @@ const Scenarios: React.FC = () => {
   const [autoFollow, setAutoFollow] = useState(true);
   const [selectedModel, setSelectedModel] = useState<string>('claude-haiku-4-5-20251001');
   const [thinkingEnabled, setThinkingEnabled] = useState<boolean>(false);
+  const [assemblyLines, setAssemblyLines] = useState<number>(1);
+  const [workersPerLine, setWorkersPerLine] = useState<number>(1);
+  const [shiftHours, setShiftHours] = useState<number>(8.0);
   const logBoxRef = useRef<HTMLPreElement | null>(null);
 
   // ── Loaders ─────────────────────────────────────────────────────────────
@@ -183,6 +186,9 @@ const Scenarios: React.FC = () => {
         days,
         model: selectedModel,
         thinking_enabled: thinkingEnabled,
+        assembly_lines: assemblyLines,
+        workers_per_line: workersPerLine,
+        shift_hours: shiftHours,
       });
       setRun(response.data);
       setNotice(`Started ${response.data.run_id} (${response.data.scenario} / ${response.data.config}).`);
@@ -414,6 +420,47 @@ const Scenarios: React.FC = () => {
                 <strong>{thinkingEnabled ? 'Enabled' : 'Disabled'}</strong>
               </div>
             </div>
+          </div>
+
+          <div className="surface-panel card-body">
+            <div className="section-title"><h4>Assembly capacity</h4></div>
+            <p className="text-muted small mb-3">
+              Configure assembly capacity to prevent queue saturation. With current settings:
+              <strong className="d-block mt-1">
+                {assemblyLines} line{assemblyLines !== 1 ? 's' : ''} × {workersPerLine} worker{workersPerLine !== 1 ? 's' : ''} × {shiftHours}h = {(assemblyLines * workersPerLine * shiftHours).toFixed(1)} hours/day
+              </strong>
+            </p>
+            <Form.Group className="mb-3">
+              <Form.Label>Assembly lines</Form.Label>
+              <Form.Control
+                type="number"
+                min={1}
+                max={20}
+                value={assemblyLines}
+                onChange={(e) => setAssemblyLines(Number(e.target.value) || 1)}
+              />
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label>Workers per line</Form.Label>
+              <Form.Control
+                type="number"
+                min={1}
+                max={20}
+                value={workersPerLine}
+                onChange={(e) => setWorkersPerLine(Number(e.target.value) || 1)}
+              />
+            </Form.Group>
+            <Form.Group>
+              <Form.Label>Shift hours</Form.Label>
+              <Form.Control
+                type="number"
+                min={1}
+                max={24}
+                step={0.5}
+                value={shiftHours}
+                onChange={(e) => setShiftHours(Number(e.target.value) || 8.0)}
+              />
+            </Form.Group>
           </div>
         </div>
       )}

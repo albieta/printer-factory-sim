@@ -91,6 +91,9 @@ class ScenarioRunner:
         days: int,
         model: str = "claude-haiku-4-5-20251001",
         thinking_enabled: bool = False,
+        assembly_lines: int = 1,
+        workers_per_line: int = 1,
+        shift_hours: float = 8.0,
     ) -> dict[str, Any]:
         """Launch a scenario run in the background.
 
@@ -144,6 +147,9 @@ class ScenarioRunner:
             env.setdefault("PYTHONUNBUFFERED", "1")
             env["CLAUDE_MODEL"] = model
             env["CLAUDE_THINKING_ENABLED"] = "true" if thinking_enabled else "false"
+            env["ASSEMBLY_LINES"] = str(assembly_lines)
+            env["WORKERS_PER_LINE"] = str(workers_per_line)
+            env["SHIFT_HOURS"] = str(shift_hours)
 
             self._process = subprocess.Popen(
                 cmd,
