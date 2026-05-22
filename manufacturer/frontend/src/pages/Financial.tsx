@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, Form, Row, Col, Table } from 'react-bootstrap';
 import { FaDollarSign, FaSave, FaUndo, FaChartLine } from 'react-icons/fa';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import PageGuide from '../components/PageGuide';
 import LoadingSpinner from '../components/LoadingSpinner';
+import ResponsivePlot from '../components/ResponsivePlot';
 import { financialAPI, getErrorMessage } from '../services/api';
 import type { FinancialSummary, FinancialTransaction } from '../services/api';
 import type { SimulationConfig } from '../types';
@@ -108,7 +108,10 @@ const Financial: React.FC = () => {
 
   const chartData = useMemo(() => {
     const days = Array.from(transactionsByDay.keys()).sort((a, b) => a - b);
-    const data: Array<{ day: number; costs: number; revenue: number; profit: number }> = [];
+    const chartDays: string[] = [];
+    const costData: number[] = [];
+    const revenueData: number[] = [];
+    const profitData: number[] = [];
 
     let cumulativeCosts = 0;
     let cumulativeRevenue = 0;
@@ -125,15 +128,13 @@ const Financial: React.FC = () => {
       cumulativeCosts += dayCosts;
       cumulativeRevenue += dayRevenue;
 
-      data.push({
-        day,
-        costs: cumulativeCosts,
-        revenue: cumulativeRevenue,
-        profit: cumulativeRevenue - cumulativeCosts,
-      });
+      chartDays.push(`D${day}`);
+      costData.push(cumulativeCosts);
+      revenueData.push(cumulativeRevenue);
+      profitData.push(cumulativeRevenue - cumulativeCosts);
     });
 
-    return data;
+    return { chartDays, costData, revenueData, profitData };
   }, [transactionsByDay]);
 
   if (loading) return <LoadingSpinner />;
@@ -262,7 +263,7 @@ const Financial: React.FC = () => {
           </Card>
 
           {/* Chart Section */}
-          {chartData.length > 0 && (
+          {chartData.chartDays.length > 0 && (
             <Card className="shadow-sm mb-4">
               <Card.Header className="bg-light">
                 <Card.Title className="mb-0">
@@ -271,36 +272,42 @@ const Financial: React.FC = () => {
                 </Card.Title>
               </Card.Header>
               <Card.Body>
-                <ResponsiveContainer width="100%" height={350}>
-                  <LineChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="day" label={{ value: 'Simulation Day', position: 'insideBottomRight', offset: -5 }} />
-                    <YAxis label={{ value: 'Amount ($)', angle: -90, position: 'insideLeft' }} />
-                    <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                    <Legend />
-                    <Line
-                      type="monotone"
-                      dataKey="costs"
-                      stroke="#dc3545"
-                      name="Cumulative Costs"
-                      connectNulls
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="revenue"
-                      stroke="#28a745"
-                      name="Cumulative Revenue"
-                      connectNulls
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="profit"
-                      stroke="#0dcaf0"
-                      name="Net Profit"
-                      connectNulls
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
+                <div className="mb-3">
+                  <ResponsivePlot
+                    data={[
+                      {
+                        x: chartData.chartDays,
+                        y: chartData.costData,
+                        type: 'scatter',
+                        mode: 'lines+markers',
+                        name: 'Cumulative Costs',
+                        marker: { color: '#dc3545' },
+                      },
+                      {
+                        x: chartData.chartDays,
+                        y: chartData.revenueData,
+                        type: 'scatter',
+                        mode: 'lines+markers',
+                        name: 'Cumulative Revenue',
+                        marker: { color: '#28a745' },
+                      },
+                      {
+                        x: chartData.chartDays,
+                        y: chartData.profitData,
+                        type: 'scatter',
+                        mode: 'lines+markers',
+                        name: 'Net Profit',
+                        marker: { color: '#0dcaf0' },
+                      },
+                    ]}
+                    layout={{
+                      title: { text: 'Cumulative Financial Performance' },
+                      xaxis: { title: { text: 'Simulated day' } },
+                      yaxis: { title: { text: 'Amount ($)' } },
+                    }}
+                    minHeight={300}
+                  />
+                </div>
               </Card.Body>
             </Card>
           )}
