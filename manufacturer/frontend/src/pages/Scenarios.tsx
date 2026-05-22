@@ -460,22 +460,33 @@ const Scenarios: React.FC = () => {
                         </div>
                       )}
                     </div>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={async () => {
-                        try {
-                          const result = await configAPI.applyScenarioAssembly(scenarioDetail.recommended_assembly);
-                          setCurrentConfig(result.data);
-                          setNotice('Applied recommended assembly configuration');
-                          setTimeout(() => setNotice(null), 3000);
-                        } catch (err) {
-                          setError(getErrorMessage(err, 'Failed to apply assembly configuration'));
-                        }
-                      }}
-                    >
-                      Apply assembly
-                    </Button>
+                    {(() => {
+                      const isSame = !!(currentConfig &&
+                        currentConfig.assembly_lines === scenarioDetail.recommended_assembly.assembly_lines &&
+                        currentConfig.workers_per_line === scenarioDetail.recommended_assembly.workers_per_line &&
+                        currentConfig.shift_hours === scenarioDetail.recommended_assembly.shift_hours);
+                      return (
+                        <Button
+                          variant={isSame ? 'light' : 'primary'}
+                          size="sm"
+                          disabled={isSame}
+                          title={isSame ? 'Current assembly configuration matches recommendation' : ''}
+                          onClick={async () => {
+                            try {
+                              const result = await configAPI.applyScenarioAssembly(scenarioDetail.recommended_assembly);
+                              setCurrentConfig(result.data);
+                              setNotice('Applied recommended assembly configuration');
+                              setTimeout(() => setNotice(null), 3000);
+                            } catch (err) {
+                              setError(getErrorMessage(err, 'Failed to apply assembly configuration'));
+                            }
+                          }}
+                          style={isSame ? { color: '#999', borderColor: '#ddd' } : {}}
+                        >
+                          Apply assembly
+                        </Button>
+                      );
+                    })()}
                   </div>
                 </div>
               )}
@@ -487,27 +498,38 @@ const Scenarios: React.FC = () => {
                       <h6 className="mb-2">Costs</h6>
                       {currentConfig && (
                         <div className="text-muted small">
-                          <div>Current: ${currentConfig.cost_per_assembly_line}/line, ${currentConfig.cost_per_worker_per_hour}/hr</div>
-                          <div>Recommended: ${scenarioDetail.recommended_costs.cost_per_assembly_line}/line, ${scenarioDetail.recommended_costs.cost_per_worker_per_hour}/hr</div>
+                          <div>Current: ${currentConfig.cost_per_assembly_line}/line, ${currentConfig.cost_per_worker_per_hour}/hr, max {currentConfig.max_workers_per_line}/line</div>
+                          <div>Recommended: ${scenarioDetail.recommended_costs.cost_per_assembly_line}/line, ${scenarioDetail.recommended_costs.cost_per_worker_per_hour}/hr, max {scenarioDetail.recommended_costs.max_workers_per_line}/line</div>
                         </div>
                       )}
                     </div>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={async () => {
-                        try {
-                          const result = await configAPI.applyScenarioCosts(scenarioDetail.recommended_costs);
-                          setCurrentConfig(result.data);
-                          setNotice('Applied recommended cost configuration');
-                          setTimeout(() => setNotice(null), 3000);
-                        } catch (err) {
-                          setError(getErrorMessage(err, 'Failed to apply cost configuration'));
-                        }
-                      }}
-                    >
-                      Apply costs
-                    </Button>
+                    {(() => {
+                      const isSame = !!(currentConfig &&
+                        currentConfig.cost_per_assembly_line === scenarioDetail.recommended_costs.cost_per_assembly_line &&
+                        currentConfig.cost_per_worker_per_hour === scenarioDetail.recommended_costs.cost_per_worker_per_hour &&
+                        currentConfig.max_workers_per_line === scenarioDetail.recommended_costs.max_workers_per_line);
+                      return (
+                        <Button
+                          variant={isSame ? 'light' : 'primary'}
+                          size="sm"
+                          disabled={isSame}
+                          title={isSame ? 'Current cost configuration matches recommendation' : ''}
+                          onClick={async () => {
+                            try {
+                              const result = await configAPI.applyScenarioCosts(scenarioDetail.recommended_costs);
+                              setCurrentConfig(result.data);
+                              setNotice('Applied recommended cost configuration');
+                              setTimeout(() => setNotice(null), 3000);
+                            } catch (err) {
+                              setError(getErrorMessage(err, 'Failed to apply cost configuration'));
+                            }
+                          }}
+                          style={isSame ? { color: '#999', borderColor: '#ddd' } : {}}
+                        >
+                          Apply costs
+                        </Button>
+                      );
+                    })()}
                   </div>
                 </div>
               )}
