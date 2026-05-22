@@ -367,11 +367,69 @@ const Settings: React.FC = () => {
           </div>
 
           <div className="mt-4 pt-3 border-top">
-            <p className="text-muted mb-3">Reset options:</p>
-            <div className="action-buttons">
-              <Button variant="warning" onClick={resetToDefaultConfig}><FaUndo className="me-2" />Reset to default config</Button>
-              <Button variant="outline-danger" onClick={resetSimulation}><FaUndo className="me-2" />Reset to starter profile</Button>
-              <Button variant="danger" onClick={resetToEmpty}><FaUndo className="me-2" />Reset to empty</Button>
+            <p className="text-muted mb-3"><strong>Reset options:</strong></p>
+
+            <div className="mb-3 p-3 bg-light rounded">
+              <div className="d-flex justify-content-between align-items-start">
+                <div className="flex-grow-1">
+                  <h6 className="mb-2">Reset to default config</h6>
+                  <p className="text-muted small mb-2">
+                    <strong>Restores the standard demo scenario:</strong>
+                  </p>
+                  <ul className="text-muted small mb-0">
+                    <li>Recreates 3 standard printers (Basic300, Pro450, Elite700)</li>
+                    <li>Recreates 6 materials and 6 suppliers</li>
+                    <li>Recreates complete bill of materials</li>
+                    <li>Resets all configuration to defaults</li>
+                    <li>Clears all orders and events</li>
+                  </ul>
+                </div>
+                <Button variant="warning" onClick={resetToDefaultConfig} className="ms-3 flex-shrink-0">
+                  <FaUndo className="me-2" />Reset
+                </Button>
+              </div>
+            </div>
+
+            <div className="mb-3 p-3 bg-light rounded">
+              <div className="d-flex justify-content-between align-items-start">
+                <div className="flex-grow-1">
+                  <h6 className="mb-2">Reset to starter profile</h6>
+                  <p className="text-muted small mb-2">
+                    <strong>Clears transactional data only:</strong>
+                  </p>
+                  <ul className="text-muted small mb-0">
+                    <li>Keeps all custom products, suppliers, and materials you added</li>
+                    <li>Clears orders, purchase orders, and events</li>
+                    <li>Resets inventory to initial quantities</li>
+                    <li>Resets configuration (costs, capacity, etc.) to defaults</li>
+                    <li>Use this if you've customized your product catalog</li>
+                  </ul>
+                </div>
+                <Button variant="outline-danger" onClick={resetSimulation} className="ms-3 flex-shrink-0">
+                  <FaUndo className="me-2" />Reset
+                </Button>
+              </div>
+            </div>
+
+            <div className="mb-3 p-3 bg-light rounded">
+              <div className="d-flex justify-content-between align-items-start">
+                <div className="flex-grow-1">
+                  <h6 className="mb-2">Reset to empty</h6>
+                  <p className="text-muted small mb-2">
+                    <strong>Complete wipe:</strong>
+                  </p>
+                  <ul className="text-muted small mb-0">
+                    <li>Deletes all products, suppliers, materials, bill of materials</li>
+                    <li>Deletes all orders, purchase orders, and events</li>
+                    <li>Resets all configuration to defaults</li>
+                    <li>Leaves you with a completely empty simulation</li>
+                    <li>Use this to start building from scratch</li>
+                  </ul>
+                </div>
+                <Button variant="danger" onClick={resetToEmpty} className="ms-3 flex-shrink-0">
+                  <FaUndo className="me-2" />Reset
+                </Button>
+              </div>
             </div>
           </div>
         </Card.Body>
