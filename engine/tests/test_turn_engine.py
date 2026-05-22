@@ -126,3 +126,111 @@ def test_run_day_returns_summary_with_expected_keys(tmp_path: Any, monkeypatch: 
     retailer_orders = result["demand_injected"][0]
     assert retailer_orders
     assert all("result" in order for order in retailer_orders)
+
+
+# ── scenario configuration tests ──────────────────────────────────────
+
+def test_apply_scenario_config_with_assembly_and_costs() -> None:
+    """Verify that apply_scenario_config correctly extracts and prepares payload."""
+    from engine.turn_engine import apply_scenario_config
+    
+    scenario = {
+        "scenario_name": "test-scenario",
+        "recommended_assembly": {
+            "assembly_lines": 3,
+            "workers_per_line": 2,
+            "shift_hours": 10.0,
+        },
+        "recommended_costs": {
+            "cost_per_assembly_line": 75000,
+            "cost_per_worker_per_hour": 60,
+            "max_workers_per_line": 15,
+        }
+    }
+    
+    # Mock transport to capture the PUT request
+    captured_request = {}
+    
+    def mock_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/config/" and request.method == "PUT":
+            captured_request["payload"] = json.loads(request.content.decode())
+            return httpx.Response(200, json={
+                "assembly_lines": 3,
+                "workers_per_line": 2,
+                "shift_hours": 10.0,
+                "cost_per_assembly_line": 75000,
+                "cost_per_worker_per_hour": 60,
+                "max_workers_per_line": 15,
+            })
+        return httpx.Response(404, json={"detail": "not found"})
+    
+    transport = httpx.MockTransport(mock_handler)
+    
+    with httpx.Client(transport=transport) as client:
+        # Temporarily patch the client for this test
+        import engine.turn_engine as engine_module
+        original_client = engine_module.httpx.Client
+        
+        try:
+            def mock_client_context(*args, **kwargs):
+                return client
+            
+            # Monkey-patch the _put function's client creation
+            real_put = engine_module._put
+            
+            def mock_put(url: str, payload: dict[str, Any], logger = None) -> dict[str, Any]:
+                if "/api/config/" in url:
+                    response = client.put(url, json=payload)
+                    return dict(response.json())
+                return {}
+            
+            engine_module._put = mock_put
+            
+            result = apply_scenario_config("http://manufacturer", scenario)
+            
+            # Verify the result
+            assert result.get("assembly_lines") == 3
+            assert result.get("workers_per_line") == 2
+            assert result.get("shift_hours") == 10.0
+            assert result.get("cost_per_assembly_line") == 75000
+            assert result.get("cost_per_worker_per_hour") == 60
+            assert result.get("max_workers_per_line") == 15
+        finally:
+            engine_module._put = real_put
+
+
+def test_scenario_config_with_defaults() -> None:
+    """Verify that apply_scenario_config handles scenarios with only assembly."""
+    from engine.turn_engine import apply_scenario_config
+    
+    scenario = {
+        "scenario_name": "test-assembly-only",
+        "recommended_assembly": {
+            "assembly_lines": 2,
+        }
+    }
+    
+    def mock_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/config/" and request.method == "PUT":
+            return httpx.Response(200, json={"assembly_lines": 2})
+        return httpx.Response(404, json={"detail": "not found"})
+    
+    transport = httpx.MockTransport(mock_handler)
+    
+    with httpx.Client(transport=transport) as client:
+        import engine.turn_engine as engine_module
+        real_put = engine_module._put
+        
+        def mock_put(url: str, payload: dict[str, Any], logger = None) -> dict[str, Any]:
+            if "/api/config/" in url:
+                response = client.put(url, json=payload)
+                return dict(response.json())
+            return {}
+        
+        engine_module._put = mock_put
+        
+        try:
+            result = apply_scenario_config("http://manufacturer", scenario)
+            assert result.get("assembly_lines") == 2
+        finally:
+            engine_module._put = real_put

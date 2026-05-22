@@ -1,10 +1,16 @@
 {
   "scenario_name": "smoke-test",
   "base_demand": {"mean": 4, "variance": 1},
+  "base_price": 350,
   "recommended_assembly": {
     "assembly_lines": 1,
     "workers_per_line": 1,
     "shift_hours": 8.0
+  },
+  "recommended_costs": {
+    "cost_per_assembly_line": 50000,
+    "cost_per_worker_per_hour": 50,
+    "max_workers_per_line": 10
   },
   "events": [
     {

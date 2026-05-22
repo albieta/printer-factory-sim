@@ -353,6 +353,42 @@ def apply_assembly_config(mfr_url: str, logger: ApiLogger | None = None) -> dict
         return {"error": str(exc)}
 
 
+def apply_scenario_config(mfr_url: str, scenario: dict[str, Any], logger: ApiLogger | None = None) -> dict[str, Any]:
+    """Apply scenario configuration (assembly and costs) to the manufacturer.
+
+    Applies recommended_assembly and recommended_costs from the scenario JSON.
+    Environment variables take precedence over scenario values.
+    """
+    payload = {}
+
+    recommended_assembly = scenario.get("recommended_assembly", {})
+    if recommended_assembly:
+        if "assembly_lines" in recommended_assembly:
+            payload["assembly_lines"] = recommended_assembly["assembly_lines"]
+        if "workers_per_line" in recommended_assembly:
+            payload["workers_per_line"] = recommended_assembly["workers_per_line"]
+        if "shift_hours" in recommended_assembly:
+            payload["shift_hours"] = recommended_assembly["shift_hours"]
+
+    recommended_costs = scenario.get("recommended_costs", {})
+    if recommended_costs:
+        if "cost_per_assembly_line" in recommended_costs:
+            payload["cost_per_assembly_line"] = recommended_costs["cost_per_assembly_line"]
+        if "cost_per_worker_per_hour" in recommended_costs:
+            payload["cost_per_worker_per_hour"] = recommended_costs["cost_per_worker_per_hour"]
+        if "max_workers_per_line" in recommended_costs:
+            payload["max_workers_per_line"] = recommended_costs["max_workers_per_line"]
+
+    if not payload:
+        return {}
+
+    try:
+        result = _put(f"{mfr_url}/api/config/", payload, logger=logger)
+        return result
+    except httpx.HTTPError as exc:
+        return {"error": str(exc)}
+
+
 def _put(url: str, payload: dict[str, Any], logger: ApiLogger | None = None) -> dict[str, Any]:
     """PUT request to update resource."""
     with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
@@ -392,9 +428,11 @@ def main(argv: list[str]) -> int:
     print(f"Turn engine — scenario: {scenario.get('scenario_name', 'unnamed')}")
     print(f"Running {num_days} day(s).")
 
-    # Apply assembly configuration from environment variables before simulation starts
+    # Apply scenario configuration (assembly and costs) before simulation starts
     mfr = config.get("manufacturer", {})
     if mfr and "url" in mfr:
+        apply_scenario_config(mfr["url"], scenario)
+        # Environment variables take precedence and override scenario values
         apply_assembly_config(mfr["url"])
 
     for day in range(1, num_days + 1):
