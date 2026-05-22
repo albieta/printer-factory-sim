@@ -142,7 +142,7 @@ class PurchaseOrder(Base):
         Enum(PurchaseOrderStatus), nullable=False, default=PurchaseOrderStatus.PENDING
     )
     status_reason: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, default=None)
-    external_order_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=None)
+    external_order_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, default=None)
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, default=datetime.utcnow)
 
 

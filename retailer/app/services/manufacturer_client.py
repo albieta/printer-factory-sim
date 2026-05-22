@@ -79,7 +79,7 @@ class ManufacturerClient:
             raise ManufacturerError("Manufacturer response did not include an order object")
         return order
 
-    def get_sales_order(self, order_id: int) -> dict[str, Any]:
+    def get_sales_order(self, order_id: str) -> dict[str, Any]:
         """GET /api/sales/orders/{id}; return the order dict from the response."""
 
         try:

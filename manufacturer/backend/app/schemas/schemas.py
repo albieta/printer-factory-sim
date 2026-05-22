@@ -244,6 +244,7 @@ class SimulationConfigBase(BaseModel):
     demand_distribution_mean: float = 5.0
     demand_distribution_variance: float = 2.0
     cost_per_assembly_line: float = 50000.0
+    cost_per_assembly_line_per_day: float = 100.0
     cost_per_worker_per_hour: float = 50.0
     max_workers_per_line: int = 10
 
@@ -338,6 +339,7 @@ class FinancialSummary(BaseModel):
     total_revenue: float
     net_profit: float
     cost_per_assembly_line: float
+    cost_per_assembly_line_per_day: float
     cost_per_worker_per_hour: float
     max_workers_per_line: int
 

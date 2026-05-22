@@ -44,6 +44,7 @@ MIGRATIONS: dict[str, list[tuple[str, str]]] = {
         ("shift_hours", "ALTER TABLE simulation_config ADD COLUMN shift_hours FLOAT NOT NULL DEFAULT 8.0"),
         ("sim_day", "ALTER TABLE simulation_config ADD COLUMN sim_day INTEGER NOT NULL DEFAULT 0"),
         ("provider_urls", "ALTER TABLE simulation_config ADD COLUMN provider_urls JSON"),
+        ("cost_per_assembly_line_per_day", "ALTER TABLE simulation_config ADD COLUMN cost_per_assembly_line_per_day FLOAT NOT NULL DEFAULT 100.0"),
     ],
     "sales_orders": [
         ("in_progress_day", "ALTER TABLE sales_orders ADD COLUMN in_progress_day INTEGER"),

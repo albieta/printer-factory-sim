@@ -130,6 +130,7 @@ class FinancialService:
             "total_revenue": float(config.total_revenue),
             "net_profit": float(config.total_revenue) - float(config.total_costs),
             "cost_per_assembly_line": float(config.cost_per_assembly_line),
+            "cost_per_assembly_line_per_day": float(config.cost_per_assembly_line_per_day),
             "cost_per_worker_per_hour": float(config.cost_per_worker_per_hour),
             "max_workers_per_line": config.max_workers_per_line,
         }

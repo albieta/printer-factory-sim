@@ -104,7 +104,7 @@ class PurchaseOrderService:
             expected_delivery_day=int(expected_delivery) if expected_delivery is not None else None,
             status=local_status,
             status_reason=order_payload.get("status_reason"),
-            external_order_id=int(order_payload["id"]) if "id" in order_payload else None,
+            external_order_id=order_payload.get("id"),
         )
         self.db.add(order)
         self.db.flush()

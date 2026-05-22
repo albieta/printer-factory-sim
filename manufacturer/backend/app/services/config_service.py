@@ -79,6 +79,7 @@ class ConfigService:
             "demand_distribution_mean": config.demand_distribution_mean,
             "demand_distribution_variance": config.demand_distribution_variance,
             "cost_per_assembly_line": config.cost_per_assembly_line,
+            "cost_per_assembly_line_per_day": config.cost_per_assembly_line_per_day,
             "cost_per_worker_per_hour": config.cost_per_worker_per_hour,
             "max_workers_per_line": config.max_workers_per_line,
             "total_costs": config.total_costs,
