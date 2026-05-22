@@ -201,7 +201,7 @@ class SimulationService:
 
     def reset_to_default_config(self) -> bool:
         """Reset to starter profile with all default data."""
-        self.reset_simulation()
+        self.reset_to_empty()
 
         product_lookup: dict[str, Product] = {}
 
@@ -247,5 +247,6 @@ class SimulationService:
         for material_name, quantity in STARTER_INVENTORY.items():
             self.db.add(Inventory(product_id=product_lookup[material_name].id, quantity=quantity))
         self.db.commit()
+        return True
 
         return True
