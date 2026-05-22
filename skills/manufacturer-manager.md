@@ -32,10 +32,10 @@ bin/manufacturer-cli price set MODEL_NAME NEW_PRICE
 bin/manufacturer-cli open-assembly-line
 bin/manufacturer-cli hire-worker
 ```
-Financial Costs:
-- Assembly line: customizable cost per new line
-- Worker per hour: customizable hourly wage
-- Max workers per line: configurable limit per assembly line
+Financial Costs (operator-configured, you cannot change):
+- Assembly line: cost per new line
+- Worker per hour: hourly wage
+- Max workers per line: limit per assembly line
 - Materials: varies by supplier and quantity
 - Check actual costs with `bin/manufacturer-cli financial summary`
 
