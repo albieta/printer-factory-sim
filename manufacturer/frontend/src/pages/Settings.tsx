@@ -27,6 +27,9 @@ const Settings: React.FC = () => {
     shift_hours: '8',
     demand_distribution_mean: '5',
     demand_distribution_variance: '2',
+    cost_per_assembly_line: '50000',
+    cost_per_worker_per_hour: '50',
+    max_workers_per_line: '10',
   });
   const [printerForm, setPrinterForm] = useState({ name: '', assembly_hours: '1' });
   const [materialForm, setMaterialForm] = useState({ name: '' });
@@ -52,6 +55,9 @@ const Settings: React.FC = () => {
         shift_hours: String(configRes.data.shift_hours),
         demand_distribution_mean: String(configRes.data.demand_distribution_mean),
         demand_distribution_variance: String(configRes.data.demand_distribution_variance),
+        cost_per_assembly_line: String(configRes.data.cost_per_assembly_line),
+        cost_per_worker_per_hour: String(configRes.data.cost_per_worker_per_hour),
+        max_workers_per_line: String(configRes.data.max_workers_per_line),
       });
       setError(null);
     } catch (err) {
@@ -91,6 +97,9 @@ const Settings: React.FC = () => {
       shift_hours: String(config.shift_hours),
       demand_distribution_mean: String(config.demand_distribution_mean),
       demand_distribution_variance: String(config.demand_distribution_variance),
+      cost_per_assembly_line: String(config.cost_per_assembly_line),
+      cost_per_worker_per_hour: String(config.cost_per_worker_per_hour),
+      max_workers_per_line: String(config.max_workers_per_line),
     });
   };
 
@@ -104,8 +113,11 @@ const Settings: React.FC = () => {
         shift_hours: Number(formData.shift_hours),
         demand_distribution_mean: Number(formData.demand_distribution_mean),
         demand_distribution_variance: Number(formData.demand_distribution_variance),
+        cost_per_assembly_line: Number(formData.cost_per_assembly_line),
+        cost_per_worker_per_hour: Number(formData.cost_per_worker_per_hour),
+        max_workers_per_line: Number(formData.max_workers_per_line),
       });
-      setMessage('Configuration saved. Capacity and warehouse limits are updated.');
+      setMessage('Configuration saved. Capacity, warehouse limits, and costs are updated.');
       announceSimulationUpdate();
       await loadSetup();
     } catch (err) {
@@ -272,6 +284,21 @@ const Settings: React.FC = () => {
               <Form.Label>Demand variance</Form.Label>
               <Form.Control type="number" step="0.5" value={formData.demand_distribution_variance} onChange={(event) => setFormData({ ...formData, demand_distribution_variance: event.target.value })} />
               <Form.Text>How much daily demand fluctuates around the mean.</Form.Text>
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label>Cost per assembly line ($)</Form.Label>
+              <Form.Control type="number" min="0" step="1000" value={formData.cost_per_assembly_line} onChange={(event) => setFormData({ ...formData, cost_per_assembly_line: event.target.value })} />
+              <Form.Text>Fixed cost incurred when opening a new assembly line.</Form.Text>
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label>Cost per worker per hour ($)</Form.Label>
+              <Form.Control type="number" min="0" step="10" value={formData.cost_per_worker_per_hour} onChange={(event) => setFormData({ ...formData, cost_per_worker_per_hour: event.target.value })} />
+              <Form.Text>Hourly wage cost when hiring a worker.</Form.Text>
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label>Max workers per line</Form.Label>
+              <Form.Control type="number" min="1" step="1" value={formData.max_workers_per_line} onChange={(event) => setFormData({ ...formData, max_workers_per_line: event.target.value })} />
+              <Form.Text>Maximum workers allowed per assembly line.</Form.Text>
             </Form.Group>
           </div>
 

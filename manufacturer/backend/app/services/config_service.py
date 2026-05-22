@@ -78,6 +78,11 @@ class ConfigService:
             "effective_daily_assembly_hours": self.get_effective_daily_assembly_hours(config),
             "demand_distribution_mean": config.demand_distribution_mean,
             "demand_distribution_variance": config.demand_distribution_variance,
+            "cost_per_assembly_line": config.cost_per_assembly_line,
+            "cost_per_worker_per_hour": config.cost_per_worker_per_hour,
+            "max_workers_per_line": config.max_workers_per_line,
+            "total_costs": config.total_costs,
+            "total_revenue": config.total_revenue,
             "sim_date": config.sim_date,
         }
 
