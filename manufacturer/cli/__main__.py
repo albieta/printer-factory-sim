@@ -376,6 +376,46 @@ def hire_worker() -> None:
         )
 
 
+@app.command()
+def fire_worker() -> None:
+    """Fire a worker (reduce pool across all lines, minimum 1 per line)."""
+    from app.schemas.schemas import SimulationConfigUpdate
+
+    with _session() as db:
+        cfg = ConfigService(db).get_config()
+        if cfg.workers_per_line <= 1:
+            typer.echo("Cannot fire workers. Minimum of 1 worker per line required.", err=True)
+            raise typer.Exit(1)
+
+        new_workers = cfg.workers_per_line - 1
+        updated = ConfigService(db).update_config(SimulationConfigUpdate(workers_per_line=new_workers))
+        typer.echo(
+            f"Worker fired. "
+            f"Workers per line: {updated.workers_per_line}, "
+            f"Daily capacity: {updated.daily_assembly_hours:.1f} hours"
+        )
+
+
+@app.command()
+def close_assembly_line() -> None:
+    """Close an assembly line (reduce capacity, minimum 1 line)."""
+    from app.schemas.schemas import SimulationConfigUpdate
+
+    with _session() as db:
+        cfg = ConfigService(db).get_config()
+        if cfg.assembly_lines <= 1:
+            typer.echo("Cannot close assembly lines. Minimum of 1 line required.", err=True)
+            raise typer.Exit(1)
+
+        new_lines = cfg.assembly_lines - 1
+        updated = ConfigService(db).update_config(SimulationConfigUpdate(assembly_lines=new_lines))
+        typer.echo(
+            f"Assembly line closed. "
+            f"Total lines: {updated.assembly_lines}, "
+            f"Daily capacity: {updated.daily_assembly_hours:.1f} hours"
+        )
+
+
 # ── wholesale prices ──────────────────────────────────────────────────────────
 
 @price_app.command("list")

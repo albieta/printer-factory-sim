@@ -31,12 +31,15 @@ bin/manufacturer-cli purchase create --supplier "SUPPLIER_NAME" --product "PRODU
 bin/manufacturer-cli price set MODEL_NAME NEW_PRICE
 bin/manufacturer-cli open-assembly-line
 bin/manufacturer-cli hire-worker
+bin/manufacturer-cli fire-worker
+bin/manufacturer-cli close-assembly-line
 ```
 Financial Costs (operator-configured, you cannot change):
-- Assembly line: cost per new line
-- Worker per hour: hourly wage
+- Assembly line: cost per new line (setup) + daily maintenance cost
+- Worker per hour: hourly wage (applied daily, calculated per worker per shift-hours)
 - Max workers per line: limit per assembly line
 - Materials: varies by supplier and quantity
+- Daily costs are automatically deducted each day advance
 - Check actual costs with `bin/manufacturer-cli financial summary`
 
 ## DO NOT
@@ -70,10 +73,17 @@ Follow these steps, running the appropriate CLI commands:
    - Run `bin/manufacturer-cli suppliers catalog "SUPPLIER_NAME"` to find suppliers
    - For each material, run `bin/manufacturer-cli purchase create --supplier "SUPPLIER_NAME" --product "PRODUCT_NAME" --qty <QUANTITY>`
 
-4. **Scale** (optional): If demand is consistently high and warehouse capacity is adequate, consider capacity expansion:
+4. **Scale** (optional): Adapt capacity based on demand signals:
+   
+   **Expand capacity** if demand is consistently high and warehouse capacity is adequate:
    - Run `bin/manufacturer-cli open-assembly-line` (check cost with `financial summary`, increases production capacity)
    - Run `bin/manufacturer-cli hire-worker` (check hourly cost with `financial summary`, up to the configured limit per line)
    - Only expand if profitable (revenue growth > cost of expansion)
+   
+   **Reduce capacity** if demand is consistently low and costs are unsustainable:
+   - Run `bin/manufacturer-cli fire-worker` (reduces daily wages, minimum 1 worker per line)
+   - Run `bin/manufacturer-cli close-assembly-line` (reduces daily maintenance costs, minimum 1 line)
+   - Track profit improvement with `financial summary` after reduction
 
 5. **Adjust**: Check current prices:
    - Run `bin/manufacturer-cli price list`

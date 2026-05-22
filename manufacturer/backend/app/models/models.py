@@ -243,6 +243,7 @@ class SimulationConfig(Base):
     sim_date: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
     sim_day: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     cost_per_assembly_line: Mapped[float] = mapped_column(Float, nullable=False, default=50000.0)
+    cost_per_assembly_line_per_day: Mapped[float] = mapped_column(Float, nullable=False, default=100.0)
     cost_per_worker_per_hour: Mapped[float] = mapped_column(Float, nullable=False, default=50.0)
     max_workers_per_line: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
     total_costs: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
@@ -319,6 +320,10 @@ class FinancialTransactionType(PyEnum):
     WORKER_HIRED = "WORKER_HIRED"
     MATERIALS_PURCHASED = "MATERIALS_PURCHASED"
     PRODUCT_SOLD = "PRODUCT_SOLD"
+    WORKER_FIRED = "WORKER_FIRED"
+    ASSEMBLY_LINE_CLOSED = "ASSEMBLY_LINE_CLOSED"
+    ASSEMBLY_LINE_DAILY_COST = "ASSEMBLY_LINE_DAILY_COST"
+    WORKER_DAILY_COST = "WORKER_DAILY_COST"
 
 
 class FinancialTransaction(Base):

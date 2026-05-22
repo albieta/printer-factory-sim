@@ -50,6 +50,42 @@ def hire_worker(db: Session = Depends(get_db)):
     return config_service.serialize_config()
 
 
+@router.post("/assembly/fire-worker", response_model=SimulationConfig)
+def fire_worker(db: Session = Depends(get_db)):
+    config_service = ConfigService(db)
+    financial_service = FinancialService(db)
+    config = config_service.get_config()
+
+    if config.workers_per_line <= 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot fire workers. Minimum of 1 worker per line required."
+        )
+
+    new_workers = config.workers_per_line - 1
+    config_service.update_config(SimulationConfigUpdate(workers_per_line=new_workers))
+    financial_service.record_worker_fired(config.sim_day)
+    return config_service.serialize_config()
+
+
+@router.post("/assembly/close-line", response_model=SimulationConfig)
+def close_assembly_line(db: Session = Depends(get_db)):
+    config_service = ConfigService(db)
+    financial_service = FinancialService(db)
+    config = config_service.get_config()
+
+    if config.assembly_lines <= 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot close assembly lines. Minimum of 1 line required."
+        )
+
+    new_lines = config.assembly_lines - 1
+    config_service.update_config(SimulationConfigUpdate(assembly_lines=new_lines))
+    financial_service.record_assembly_line_closed(config.sim_day)
+    return config_service.serialize_config()
+
+
 @router.get("/printer-models", response_model=List[PrinterModel])
 def get_printer_models(db: Session = Depends(get_db)):
     return db.query(Product).filter(Product.type == ProductType.PRINTER).all()

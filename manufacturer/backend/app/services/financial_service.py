@@ -49,6 +49,56 @@ class FinancialService:
         config.total_costs = float(config.total_costs) + float(cost)
         self.db.commit()
 
+    def record_worker_fired(self, sim_day: int) -> None:
+        """Record cost (if any) of firing a worker. Currently zero, but reserved for severance/other costs."""
+        transaction = FinancialTransaction(
+            transaction_type=FinancialTransactionType.WORKER_FIRED,
+            amount=Decimal("0"),
+            description=f"Worker fired on day {sim_day}",
+            sim_day=sim_day,
+        )
+        self.db.add(transaction)
+        self.db.commit()
+
+    def record_assembly_line_closed(self, sim_day: int) -> None:
+        """Record closure of an assembly line. No refund of opening cost."""
+        transaction = FinancialTransaction(
+            transaction_type=FinancialTransactionType.ASSEMBLY_LINE_CLOSED,
+            amount=Decimal("0"),
+            description=f"Assembly line closed on day {sim_day}",
+            sim_day=sim_day,
+        )
+        self.db.add(transaction)
+        self.db.commit()
+
+    def record_assembly_line_daily_costs(self, sim_day: int, num_lines: int) -> None:
+        """Record daily maintenance/operating cost for all assembly lines."""
+        config = self.get_config()
+        cost = Decimal(str(config.cost_per_assembly_line_per_day * num_lines))
+        transaction = FinancialTransaction(
+            transaction_type=FinancialTransactionType.ASSEMBLY_LINE_DAILY_COST,
+            amount=-cost,
+            description=f"Daily cost for {num_lines} assembly lines on day {sim_day}",
+            sim_day=sim_day,
+        )
+        self.db.add(transaction)
+        config.total_costs = float(config.total_costs) + float(cost)
+        self.db.commit()
+
+    def record_worker_daily_costs(self, sim_day: int, num_workers: int) -> None:
+        """Record daily wages for all workers."""
+        config = self.get_config()
+        cost = Decimal(str(config.cost_per_worker_per_hour * config.shift_hours * num_workers))
+        transaction = FinancialTransaction(
+            transaction_type=FinancialTransactionType.WORKER_DAILY_COST,
+            amount=-cost,
+            description=f"Daily wages for {num_workers} workers on day {sim_day}",
+            sim_day=sim_day,
+        )
+        self.db.add(transaction)
+        config.total_costs = float(config.total_costs) + float(cost)
+        self.db.commit()
+
     def record_materials_purchased(self, sim_day: int, cost: float, description: str) -> None:
         config = self.get_config()
         transaction = FinancialTransaction(

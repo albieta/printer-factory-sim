@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models.models import Event, EventType, ManufacturingOrder, OrderStatus, Product, ProductType, PurchaseOrder, PurchaseOrderStatus, BillOfMaterials, Supplier, Inventory
 from app.services.config_service import ConfigService
+from app.services.financial_service import FinancialService
 from app.services.inventory_service import InventoryService
 from app.services.order_service import OrderService
 from app.services.production_service import ProductionService
@@ -21,6 +22,7 @@ class SimulationService:
     def __init__(self, db: Session):
         self.db = db
         self.config_service = ConfigService(db)
+        self.financial_service = FinancialService(db)
         self.order_service = OrderService(db)
         self.po_service = PurchaseOrderService(db)
         self.production_service = ProductionService(db)
@@ -28,6 +30,11 @@ class SimulationService:
 
     def advance_day(self) -> dict[str, Any]:
         sim_date = self.config_service.advance_sim_date()
+        config = self.config_service.get_config()
+
+        # Record daily operating costs for all lines and workers
+        self.financial_service.record_assembly_line_daily_costs(config.sim_day, config.assembly_lines)
+        self.financial_service.record_worker_daily_costs(config.sim_day, config.workers_per_line * config.assembly_lines)
 
         po_results = self.po_service.process_deliveries(sim_date)
         pos_delivered = sum(1 for result in po_results if result["status"] == "delivered")
