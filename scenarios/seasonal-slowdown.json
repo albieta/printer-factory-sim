@@ -1,0 +1,46 @@
+{
+  "scenario_name": "q1-seasonal-slowdown",
+  "base_demand": {
+    "mean": 5,
+    "variance": 2
+  },
+  "base_price": 400,
+  "events": [
+    {
+      "name": "post_new_year",
+      "start_day": 1,
+      "end_day": 10,
+      "demand_modifier": 0.6,
+      "supply_modifier": 1.0,
+      "lead_time_modifier": 1.0,
+      "description": "January slump after holiday spending. Demand is well below average."
+    },
+    {
+      "name": "tax_return_bump",
+      "start_day": 11,
+      "end_day": 14,
+      "demand_modifier": 1.3,
+      "supply_modifier": 1.0,
+      "lead_time_modifier": 1.0,
+      "description": "Small mid-quarter boost as early tax refunds arrive."
+    },
+    {
+      "name": "continued_slowdown",
+      "start_day": 15,
+      "end_day": 22,
+      "demand_modifier": 0.7,
+      "supply_modifier": 1.0,
+      "lead_time_modifier": 1.0,
+      "description": "Demand remains soft. Agents should cut prices and reduce reorder frequency."
+    },
+    {
+      "name": "spring_recovery",
+      "start_day": 23,
+      "end_day": 30,
+      "demand_modifier": 1.1,
+      "supply_modifier": 1.0,
+      "lead_time_modifier": 1.0,
+      "description": "Gradual return to normal as spring buying picks up."
+    }
+  ]
+}

@@ -206,3 +206,111 @@ export interface ImportResult {
   message: string;
   errors?: string[];
 }
+
+// ── Scenario runner (Week 8) ────────────────────────────────────────────────
+export interface ScenarioEvent {
+  name: string | null;
+  start_day: number | null;
+  end_day: number | null;
+  description: string | null;
+}
+
+export interface ScenarioSummary {
+  name: string;
+  relative_path: string;
+  kind: 'scenario';
+  scenario_name?: string | null;
+  event_count?: number;
+  events?: ScenarioEvent[];
+}
+
+export interface ConfigSummary {
+  name: string;
+  relative_path: string;
+  kind: 'config';
+  retailers?: Array<string | null>;
+  manufacturer?: string | null;
+  providers?: Array<string | null>;
+  uses_skills?: boolean;
+}
+
+export interface ScenarioListResponse {
+  scenarios: ScenarioSummary[];
+  configs: ConfigSummary[];
+}
+
+export interface ScenarioRunRecord {
+  run_id: string;
+  config: string;
+  scenario: string;
+  days: number;
+  started_at: string;
+  status: 'running' | 'stopping' | 'completed' | 'failed';
+  finished_at: string | null;
+  exit_code: number | null;
+  stdout_lines: string[];
+  log_file: string | null;
+  current_day: number;
+}
+
+export interface ScenarioStatusResponse {
+  active: boolean;
+  run: ScenarioRunRecord | null;
+}
+
+export interface ScenarioStartRequest {
+  config: string;
+  scenario: string;
+  days: number;
+}
+
+export interface LogFile {
+  name: string;
+  size: number;
+  modified: string;
+}
+
+export interface LogContents {
+  name: string;
+  exists: boolean;
+  size?: number;
+  truncated?: boolean;
+  content: string;
+}
+
+export interface MetricsSnapshot {
+  ts: string;
+  scenario: string;
+  day: number;
+  signal: Record<string, unknown>;
+  retailers: Array<{
+    name: string;
+    stock: Record<string, number>;
+    prices: Record<string, number>;
+    customer_orders: {
+      status_counts: Record<string, number>;
+      placed_today: number;
+      fulfilled_today: number;
+      backordered_today: number;
+      cancelled_today: number;
+    };
+    purchases: Record<string, number>;
+    errors: string[];
+  }>;
+  manufacturer: {
+    name: string;
+    inventory: Record<string, number>;
+    prices: Record<string, number>;
+    sales_orders: Record<string, number>;
+    active_production_orders: number;
+    capacity: Record<string, unknown>;
+    errors: string[];
+  };
+  providers: Array<{
+    name: string;
+    stock: Record<string, number>;
+    prices: Record<string, Record<string, number>>;
+    orders: Record<string, number>;
+    errors: string[];
+  }>;
+}

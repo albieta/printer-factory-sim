@@ -205,11 +205,43 @@ Manufacturer CLI (once implemented in Week 6):
 .venv/bin/python -m manufacturer.cli day advance
 ```
 
+Turn engine (Week 7/8) — orchestrates all three apps for one full day:
+
+```bash
+# Stub agents (no LLM, no Claude key required) — good for plumbing checks
+.venv/bin/python -m engine.turn_engine config/sim-stub.json scenarios/smoke-test.json 3
+
+# Real agents — needs an authenticated `claude` CLI on PATH
+.venv/bin/python -m engine.turn_engine config/sim.json scenarios/holiday-rush.json 25
+```
+
+Each run writes structured logs to `logs/`:
+
+| File | Purpose |
+|---|---|
+| `logs/day-NNN-Factory.log` | Manufacturer agent's prompt, tool calls, summary |
+| `logs/day-NNN-PrinterWorld.log` | Retailer agent's prompt, tool calls, summary |
+| `logs/day-NNN-ChipSupply Co.log` | Provider agent's prompt, tool calls, summary |
+| `logs/day-NNN-api-calls.jsonl` | Every HTTP call the engine itself made |
+| `logs/day-NNN-bash-calls.jsonl` | Every bash command run by an agent |
+| `logs/metrics.jsonl` | One JSON snapshot per simulated day |
+| `logs/run-YYYYMMDD-HHMMSS.log` | Consolidated stdout when launched from the UI |
+
+Web UI launcher (Week 8) — open the **Scenarios** tab at
+`http://localhost:3000/scenarios`. It exposes the same engine through
+REST: list configs/scenarios, start/stop a run, tail any of the files
+above, and watch inventory/demand charts update each polling cycle. The
+backing module is
+`manufacturer/backend/app/services/scenario_runner.py`; the routes live
+at `/api/scenarios/*`.
+
 Tests:
 
 ```bash
 .venv/bin/pytest manufacturer/backend/tests
 .venv/bin/pytest provider/tests
+.venv/bin/pytest retailer/tests
+.venv/bin/pytest engine
 ```
 
 ## Current state

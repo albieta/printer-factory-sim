@@ -43,6 +43,7 @@ def run_agent(
     skill_file: Optional[str],
     cwd: str = ".",
     timeout_seconds: int = DEFAULT_TIMEOUT,
+    model: str = "claude-haiku-4-5-20251001",
 ) -> str:
     """Run the agent for *role* on *day* and return its output.
 
@@ -77,6 +78,8 @@ def run_agent(
                 "bypassPermissions",
                 "--allowedTools",
                 "Bash",
+                "--model",
+                model,
                 "--add-dir",
                 str(Path(cwd).resolve()),
                 "--",

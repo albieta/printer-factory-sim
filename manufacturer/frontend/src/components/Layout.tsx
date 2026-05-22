@@ -3,6 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { Alert, Button } from 'react-bootstrap';
 import {
   FaBars,
+  FaBolt,
   FaBoxes,
   FaChartLine,
   FaChevronDown,
@@ -29,6 +30,7 @@ const navItems = [
   { path: '/suppliers', icon: <FaTruck />, label: 'Procurement' },
   { path: '/production', icon: <FaIndustry />, label: 'Assembly' },
   { path: '/reports', icon: <FaFileAlt />, label: 'Analytics' },
+  { path: '/scenarios', icon: <FaBolt />, label: 'Scenarios' },
   { path: '/settings', icon: <FaCog />, label: 'Configuration' },
 ];
 

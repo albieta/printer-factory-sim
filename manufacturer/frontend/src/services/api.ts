@@ -17,6 +17,13 @@ import type {
   ManualAdjust,
   BOMRequirements,
   ImportResult,
+  ScenarioListResponse,
+  ScenarioStatusResponse,
+  ScenarioRunRecord,
+  ScenarioStartRequest,
+  LogFile,
+  LogContents,
+  MetricsSnapshot,
 } from '../types';
 
 const API_BASE_URL = '/api';
@@ -101,6 +108,18 @@ export const exportAPI = {
   exportInventory: () => api.get('/export/inventory-only/'),
   exportEvents: () => api.get('/export/events-only/'),
   importFullState: (payload: unknown) => api.post<ImportResult>('/import/full-state/', payload),
+};
+
+export const scenariosAPI = {
+  list: () => api.get<ScenarioListResponse>('/scenarios/'),
+  status: () => api.get<ScenarioStatusResponse>('/scenarios/status'),
+  start: (payload: ScenarioStartRequest) => api.post<ScenarioRunRecord>('/scenarios/start', payload),
+  stop: () => api.post<{ stopped: boolean; reason?: string }>('/scenarios/stop'),
+  listLogs: () => api.get<{ files: LogFile[] }>('/scenarios/logs'),
+  readLog: (name: string, maxBytes = 64 * 1024) =>
+    api.get<LogContents>(`/scenarios/logs/${encodeURIComponent(name)}`, { params: { max_bytes: maxBytes } }),
+  metrics: (limit = 100) => api.get<{ snapshots: MetricsSnapshot[] }>('/scenarios/metrics', { params: { limit } }),
+  clearLogs: () => api.post<{ deleted: number }>('/scenarios/logs/clear'),
 };
 
 export default api;

@@ -159,6 +159,31 @@ Each run appends daily snapshots to `logs/metrics.jsonl`. Generate charts and an
   --out analysis/holiday-rush
 ```
 
+### Option A.bis — Launch from the web UI (recommended for demos)
+
+The manufacturer web UI exposes a **Scenarios** tab (`http://localhost:3000/scenarios`) that wraps the same engine. From there you can:
+
+- Pick any file in `config/` and any file in `scenarios/`, set the number of days (1–60), and press **Start scenario**.
+- Watch the engine's stdout stream into the browser, with a status badge, current day, and a progress bar.
+- Open any file the engine writes under `logs/` (per-agent decision logs, `day-NNN-api-calls.jsonl`, `day-NNN-bash-calls.jsonl`, the `metrics.jsonl` snapshot file, and the consolidated `run-<id>.log`) without leaving the browser.
+- See an inventory chart (provider / manufacturer / retailer stock by day) and a customer-demand chart (placed / fulfilled / backordered) that refresh automatically while a run is in progress.
+- Press **Stop** to send `SIGTERM` to the running engine, or **Clear logs/** to wipe the log directory between runs.
+
+Only one run is active at a time (the engine drives the live apps). The runner records the run in-memory; restarting the manufacturer backend forgets the handle but the files on disk remain.
+
+The REST API is the same one the CLI hits, so you can drive it from `curl` if you want:
+
+```bash
+curl -X POST http://localhost:8002/api/scenarios/start \
+  -H 'Content-Type: application/json' \
+  -d '{"config":"sim-stub.json","scenario":"holiday-rush.json","days":15}'
+
+curl http://localhost:8002/api/scenarios/status
+curl http://localhost:8002/api/scenarios/logs                       # list files
+curl "http://localhost:8002/api/scenarios/logs/day-001-Factory.log" # tail one file
+curl "http://localhost:8002/api/scenarios/metrics?limit=25"         # metrics.jsonl as JSON
+```
+
 ### Option B — Manual day-by-day (CLI)
 
 Advance apps in **downstream-first** order: retailer → manufacturer → provider.
@@ -221,8 +246,11 @@ printer-factory-sim/
 │   ├── provider-cli           # → .venv/bin/python -m provider.cli
 │   └── retailer-cli           # → .venv/bin/python -m retailer.cli
 ├── config/
-│   ├── sim.json               # Full config: manufacturer skill enabled
-│   └── sim-stub.json          # Phase 1 config: all roles stubbed (no LLM)
+│   ├── sim.json                       # All three roles driven by Claude skills
+│   ├── sim-stub.json                  # Stub agents (no LLM, no API key needed)
+│   ├── sim-manufacturer-only.json     # Skill only on the manufacturer
+│   ├── sim-provider-only.json         # Skill only on the provider
+│   └── sim-retailer-only.json         # Skill only on the retailer
 ├── docs/
 │   ├── PRD.md                 # Week 5 original PRD
 │   ├── PRD2.md                # Week 5 retrospective PRD
@@ -239,12 +267,21 @@ printer-factory-sim/
 ├── provider/                  # Headless supplier FastAPI app + CLI
 ├── retailer/                  # Headless retailer FastAPI app + CLI
 ├── scenarios/
-│   └── smoke-test.json        # 10-day steady-state scenario
+│   ├── smoke-test.json        # 10-day steady-state scenario
+│   ├── calm-market.json       # Control group — stable demand for 20 days
+│   └── holiday-rush.json      # Black Friday + chip shortage + Christmas (25 days)
 ├── scripts/
 │   └── dev-start.sh           # Starts all four services
 ├── skills/
-│   └── manufacturer-manager.md  # Claude Code skill: factory manager role
-├── logs/                      # Per-day agent logs (gitignored)
+│   ├── manufacturer-manager.md  # Claude Code skill: factory manager role
+│   ├── provider-manager.md      # Claude Code skill: parts supplier role
+│   └── retail-manager.md        # Claude Code skill: retail store role
+├── logs/                      # Engine output (gitignored; surfaced via /scenarios)
+│   ├── day-NNN-{Factory,PrinterWorld,ChipSupply Co}.log  # per-agent decisions
+│   ├── day-NNN-api-calls.jsonl                            # every HTTP call made by the engine
+│   ├── day-NNN-bash-calls.jsonl                           # every bash command an agent ran
+│   ├── metrics.jsonl                                      # daily metric snapshot (one JSON per line)
+│   └── run-YYYYMMDD-HHMMSS.log                            # consolidated stdout of one engine run
 └── requirements.txt           # Shared Python dependencies
 ```
 
@@ -258,6 +295,7 @@ printer-factory-sim/
 | `/suppliers` | Procurement sources |
 | `/production` | Production flow and inbound sales orders |
 | `/reports` | Charts and event history |
+| `/scenarios` | Launch scenarios, watch live agent logs, browse `logs/` |
 | `/settings` | Simulation configuration |
 
 ## API Reference
@@ -286,6 +324,14 @@ All three apps serve interactive Swagger docs at `/docs`.
 | GET | `/prices` | Wholesale prices per model |
 | POST | `/prices` | Update a wholesale price |
 | POST | `/simulation/advance-day/` | Advance manufacturer simulation |
+| GET | `/scenarios/` | List scenarios + configs (used by the UI launcher) |
+| GET | `/scenarios/status` | Current run record (status, current day, stdout tail) |
+| POST | `/scenarios/start` | Launch a run: `{config, scenario, days}` |
+| POST | `/scenarios/stop` | SIGTERM the active engine subprocess |
+| GET | `/scenarios/logs` | List files in `logs/` with size + mtime |
+| GET | `/scenarios/logs/{name}` | Tail one log file (path-safe, `?max_bytes=` cap) |
+| GET | `/scenarios/metrics` | `logs/metrics.jsonl` parsed (`?limit=`) |
+| POST | `/scenarios/logs/clear` | Delete every file under `logs/` |
 
 **Retailer** (`http://localhost:8003/api`):
 
@@ -319,13 +365,39 @@ All three apps serve interactive Swagger docs at `/docs`.
 
 ## Skill Files
 
-`skills/manufacturer-manager.md` teaches a Claude Code agent to play the manufacturer's role. It specifies the available commands, a five-step decision framework (Assess → Fulfil → Order → Adjust → Log), and explicit DO NOTs (never call `day advance`, never exceed assembly capacity).
+Three Markdown skills teach Claude Code how to play each role. Each one specifies the CLI commands the role may use, a short decision framework, and explicit *DO NOT* rules (most importantly: never call `day advance` — the engine owns the clock).
 
-To run one day with the manufacturer driven by Claude Code:
+| Skill | Role | Key commands |
+|---|---|---|
+| `skills/manufacturer-manager.md` | Factory manager (the manufacturer app) | `manufacturer-cli capacity / inventory / sales orders / production release / purchase create / price set` |
+| `skills/provider-manager.md`     | Parts supplier (the provider app)       | `provider-cli stock / orders list / restock / price set` |
+| `skills/retail-manager.md`       | Retail store (the retailer app)         | `retailer-cli stock / customers orders / fulfill / backorder / purchase create / price set` |
 
-```bash
-.venv/bin/python -m engine.turn_engine config/sim.json scenarios/smoke-test.json 1
-# Agent reasoning → logs/day-001-Factory.log
+### Where the agent's output ends up
+
+Each `claude --print` invocation writes its complete reasoning trace to a per-day file under `logs/`:
+
+```
+logs/day-001-Factory.log       # prompt sent, every tool call + stdout, final response
+logs/day-001-PrinterWorld.log
+logs/day-001-ChipSupply Co.log
+logs/day-001-api-calls.jsonl   # every HTTP call the engine itself made
+logs/day-001-bash-calls.jsonl  # every bash command issued by an agent
+logs/metrics.jsonl             # one JSON snapshot per simulated day
 ```
 
-If the agent behaves poorly, rewrite `skills/manufacturer-manager.md` — not the code.
+### Running the three skills
+
+```bash
+# Whole supply chain, real LLM (requires authenticated `claude` CLI)
+.venv/bin/python -m engine.turn_engine config/sim.json scenarios/holiday-rush.json 20
+
+# Isolate one role at a time to test a skill (others fall back to stubs)
+.venv/bin/python -m engine.turn_engine config/sim-manufacturer-only.json scenarios/smoke-test.json 3
+.venv/bin/python -m engine.turn_engine config/sim-provider-only.json    scenarios/smoke-test.json 3
+.venv/bin/python -m engine.turn_engine config/sim-retailer-only.json    scenarios/smoke-test.json 3
+```
+
+…or do all of this from the **Scenarios** tab in the web UI. The page launches the same engine, streams stdout into the browser, and lets you open any of the per-day files above without leaving the page.
+
+If an agent behaves poorly, rewrite the skill file — not the engine. The engine is deliberately ignorant of business policy.

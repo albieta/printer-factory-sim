@@ -1,0 +1,55 @@
+{
+  "scenario_name": "supply-crunch-stress-test",
+  "base_demand": {
+    "mean": 5,
+    "variance": 2
+  },
+  "base_price": 400,
+  "events": [
+    {
+      "name": "normal",
+      "start_day": 1,
+      "end_day": 5,
+      "demand_modifier": 1.0,
+      "supply_modifier": 1.0,
+      "lead_time_modifier": 1.0,
+      "description": "Baseline period before the crunch."
+    },
+    {
+      "name": "mild_disruption",
+      "start_day": 6,
+      "end_day": 10,
+      "demand_modifier": 1.2,
+      "supply_modifier": 0.6,
+      "lead_time_modifier": 1.5,
+      "description": "Supply starts tightening; lead times stretch."
+    },
+    {
+      "name": "severe_crunch",
+      "start_day": 11,
+      "end_day": 20,
+      "demand_modifier": 1.4,
+      "supply_modifier": 0.2,
+      "lead_time_modifier": 3.0,
+      "description": "Severe shortage: provider output collapses, deliveries are slow. Can the chain maintain retailer stock?"
+    },
+    {
+      "name": "recovery",
+      "start_day": 21,
+      "end_day": 30,
+      "demand_modifier": 1.1,
+      "supply_modifier": 0.8,
+      "lead_time_modifier": 1.2,
+      "description": "Supply slowly recovers; backlog of orders clears. Agents rebuild buffers."
+    },
+    {
+      "name": "normal_again",
+      "start_day": 31,
+      "end_day": 35,
+      "demand_modifier": 1.0,
+      "supply_modifier": 1.0,
+      "lead_time_modifier": 1.0,
+      "description": "Full normalization. Measures how quickly the supply chain restores baseline service levels."
+    }
+  ]
+}

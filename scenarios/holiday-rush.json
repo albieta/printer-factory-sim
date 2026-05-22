@@ -42,6 +42,15 @@
       "supply_modifier": 0.6,
       "lead_time_modifier": 1.2,
       "description": "Christmas rush overlaps with constrained supply."
+    },
+    {
+      "name": "post_holiday_lull",
+      "start_day": 26,
+      "end_day": 35,
+      "demand_modifier": 0.5,
+      "supply_modifier": 1.0,
+      "lead_time_modifier": 1.0,
+      "description": "Post-holiday demand drop. Supply chains normalize; agents must drain excess inventory and avoid over-ordering."
     }
   ]
 }

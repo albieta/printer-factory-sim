@@ -186,11 +186,12 @@ def run_role_agent(
 
     skill_file: str | None = role_cfg.get("skill") or None
     cwd = role_cfg.get("path", ".")
+    model: str = role_cfg.get("model", "claude-haiku-4-5-20251001")
     if skill_file:
         prompt = build_prompt(role, day, signal, skill_file)
     else:
         prompt = f"[stub] {role} day {day}"
-    return run_agent(role, day, prompt, skill_file, cwd=cwd)
+    return run_agent(role, day, prompt, skill_file, cwd=cwd, model=model)
 
 
 def advance_app(app_url: str, app_name: str, logger: ApiLogger | None = None) -> dict[str, Any]:

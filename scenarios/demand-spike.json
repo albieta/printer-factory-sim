@@ -1,0 +1,47 @@
+{
+  "scenario_name": "sudden-demand-spike",
+  "base_demand": {
+    "mean": 4,
+    "variance": 1
+  },
+  "base_price": 400,
+  "events": [
+    {
+      "name": "quiet",
+      "start_day": 1,
+      "end_day": 7,
+      "demand_modifier": 0.8,
+      "supply_modifier": 1.0,
+      "lead_time_modifier": 1.0,
+      "description": "Below-average demand. Inventory builds up."
+    },
+    {
+      "name": "viral_moment",
+      "start_day": 8,
+      "end_day": 10,
+      "demand_modifier": 4.0,
+      "supply_modifier": 1.0,
+      "lead_time_modifier": 1.0,
+      "price_sensitivity": "high",
+      "description": "Viral product review causes a sudden demand spike over 3 days. Supply is fine but the chain must react fast."
+    },
+    {
+      "name": "elevated",
+      "start_day": 11,
+      "end_day": 17,
+      "demand_modifier": 2.0,
+      "supply_modifier": 1.0,
+      "lead_time_modifier": 1.0,
+      "description": "Sustained elevated demand following the viral moment."
+    },
+    {
+      "name": "fade",
+      "start_day": 18,
+      "end_day": 25,
+      "demand_modifier": 1.1,
+      "supply_modifier": 1.0,
+      "lead_time_modifier": 1.0,
+      "description": "Hype fades; demand returns toward baseline while excess inventory is cleared."
+    }
+  ]
+}

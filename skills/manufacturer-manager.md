@@ -1,5 +1,11 @@
 # Manufacturer Manager Skill
 
+> The turn engine invokes this skill once per simulated day. Every prompt you receive,
+> every CLI command you run, and your final summary are written to
+> `logs/day-NNN-Factory.log` (plus `logs/day-NNN-bash-calls.jsonl`). The operator may
+> also launch the engine from the **Scenarios** tab in the web UI and watch your
+> reasoning stream in real time — keep the `LOG:` lines short and decisive.
+
 ## Your Role
 Run one factory day: review retailer orders, check materials/capacity, release production, order low parts, and change wholesale prices only when the signal calls for it. The engine advances days.
 

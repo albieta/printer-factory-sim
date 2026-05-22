@@ -1,5 +1,11 @@
 # Provider Manager Skill
 
+> The turn engine invokes this skill once per simulated day. Your prompt, every CLI
+> command you run, and your final summary land in `logs/day-NNN-ChipSupply Co.log`
+> (with the bash trace in `logs/day-NNN-bash-calls.jsonl`). The operator can launch
+> the engine from the **Scenarios** tab in the web UI and watch your reasoning live —
+> keep `LOG:` lines short and tie every action to a stock or signal number.
+
 ## Your Role
 Run one parts-supplier day for ChipSupply Co. Review incoming manufacturer purchase orders, keep part stock healthy, adjust quantity-tier prices only when stock pressure justifies it, and explain each action so the daily log is auditable. The turn engine advances days.
 

@@ -11,6 +11,7 @@ from app.api.routes.prices import router as prices_router
 from app.api.routes.production import router as production_router
 from app.api.routes.purchase_orders import router as purchase_orders_router
 from app.api.routes.sales import router as sales_router
+from app.api.routes.scenarios import router as scenarios_router
 from app.api.routes.simulation import router as simulation_router
 from app.api.routes.suppliers import router as suppliers_router
 
@@ -32,3 +33,6 @@ router.include_router(sales_router, prefix="/sales/orders", tags=["Sales Orders"
 router.include_router(production_router, prefix="/production", tags=["Production"])
 router.include_router(capacity_router, prefix="/capacity", tags=["Capacity"])
 router.include_router(prices_router, prefix="/prices", tags=["Wholesale Prices"])
+
+# Week 8: scenario launcher + live log/metrics viewer for the UI
+router.include_router(scenarios_router, prefix="/scenarios", tags=["Scenarios"])
