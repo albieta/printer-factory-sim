@@ -344,6 +344,38 @@ def capacity() -> None:
         )
 
 
+@app.command()
+def open_assembly_line() -> None:
+    """Open a new parallel assembly line."""
+    from app.schemas.schemas import SimulationConfigUpdate
+
+    with _session() as db:
+        cfg = ConfigService(db).get_config()
+        new_lines = cfg.assembly_lines + 1
+        updated = ConfigService(db).update_config(SimulationConfigUpdate(assembly_lines=new_lines))
+        typer.echo(
+            f"Assembly line opened. "
+            f"Total lines: {updated.assembly_lines}, "
+            f"Daily capacity: {updated.daily_assembly_hours:.1f} hours"
+        )
+
+
+@app.command()
+def hire_worker() -> None:
+    """Hire a worker (add to pool across all lines)."""
+    from app.schemas.schemas import SimulationConfigUpdate
+
+    with _session() as db:
+        cfg = ConfigService(db).get_config()
+        new_workers = cfg.workers_per_line + 1
+        updated = ConfigService(db).update_config(SimulationConfigUpdate(workers_per_line=new_workers))
+        typer.echo(
+            f"Worker hired. "
+            f"Workers per line: {updated.workers_per_line}, "
+            f"Daily capacity: {updated.daily_assembly_hours:.1f} hours"
+        )
+
+
 # ── wholesale prices ──────────────────────────────────────────────────────────
 
 @price_app.command("list")

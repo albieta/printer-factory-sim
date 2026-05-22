@@ -1,6 +1,11 @@
 {
   "scenario_name": "smoke-test",
   "base_demand": {"mean": 4, "variance": 1},
+  "recommended_assembly": {
+    "assembly_lines": 1,
+    "workers_per_line": 1,
+    "shift_hours": 8.0
+  },
   "events": [
     {
       "name": "normal",

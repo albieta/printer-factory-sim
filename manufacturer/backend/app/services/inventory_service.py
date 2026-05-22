@@ -101,7 +101,9 @@ class InventoryService:
         return raw if raw is not None else Decimal(0)
 
     def get_capacity_info(self) -> dict[str, Any]:
-        config = self.db.query(SimulationConfig).first()
+        from app.services.config_service import ConfigService
+        config_service = ConfigService(self.db)
+        config = config_service.get_config()
         total_inventory = self.get_total_inventory_count()
         warehouse_capacity = config.warehouse_capacity if config else 2200
         available_capacity = float(warehouse_capacity - total_inventory)
@@ -111,6 +113,9 @@ class InventoryService:
             "current_usage": float(total_inventory),
             "available_capacity": available_capacity,
             "usage_percentage": float((total_inventory / warehouse_capacity) * 100) if warehouse_capacity > 0 else 0,
+            "assembly_lines": config.assembly_lines,
+            "workers_per_line": config.workers_per_line,
+            "daily_assembly_hours": config.daily_assembly_hours,
         }
 
     def has_capacity_for(self, quantity: Decimal) -> bool:

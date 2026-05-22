@@ -222,6 +222,11 @@ export interface ScenarioSummary {
   scenario_name?: string | null;
   event_count?: number;
   events?: ScenarioEvent[];
+  recommended_assembly?: {
+    assembly_lines: number;
+    workers_per_line: number;
+    shift_hours: number;
+  };
 }
 
 export interface ConfigSummary {
@@ -308,7 +313,15 @@ export interface MetricsSnapshot {
     prices: Record<string, number>;
     sales_orders: Record<string, number>;
     active_production_orders: number;
-    capacity: Record<string, unknown>;
+    capacity: {
+      warehouse_capacity: number;
+      current_usage: number;
+      available_capacity: number;
+      usage_percentage: number;
+      assembly_lines: number;
+      workers_per_line: number;
+      daily_assembly_hours: number;
+    };
     errors: string[];
   };
   providers: Array<{

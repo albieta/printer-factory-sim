@@ -135,6 +135,9 @@ class CapacityInfo(BaseModel):
     current_usage: float
     available_capacity: float
     usage_percentage: float
+    assembly_lines: int
+    workers_per_line: int
+    daily_assembly_hours: float
 
 
 class ManualAdjust(BaseModel):

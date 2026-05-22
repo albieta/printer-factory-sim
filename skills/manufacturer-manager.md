@@ -28,6 +28,8 @@ Act:
 bin/manufacturer-cli production release ORDER_ID
 bin/manufacturer-cli purchase create --supplier "SUPPLIER_NAME" --product "PRODUCT_NAME" --qty QUANTITY
 bin/manufacturer-cli price set MODEL_NAME NEW_PRICE
+bin/manufacturer-cli open-assembly-line
+bin/manufacturer-cli hire-worker
 ```
 
 ## DO NOT

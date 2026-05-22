@@ -242,6 +242,14 @@ const Scenarios: React.FC = () => {
     [scenarios, selectedScenario],
   );
 
+  useEffect(() => {
+    if (scenarioDetail?.recommended_assembly) {
+      setAssemblyLines(scenarioDetail.recommended_assembly.assembly_lines ?? 1);
+      setWorkersPerLine(scenarioDetail.recommended_assembly.workers_per_line ?? 1);
+      setShiftHours(scenarioDetail.recommended_assembly.shift_hours ?? 8.0);
+    }
+  }, [scenarioDetail]);
+
   const configDetail = useMemo(
     () => configs.find((c) => c.name === selectedConfig) ?? null,
     [configs, selectedConfig],
@@ -273,6 +281,15 @@ const Scenarios: React.FC = () => {
       m.retailers.reduce((acc, r) => acc + (r.customer_orders?.backordered_today ?? 0), 0),
     );
     return { days, placed, fulfilled, backordered };
+  }, [metrics]);
+
+  const capacityChart = useMemo(() => {
+    if (!metrics.length) return null;
+    const days: string[] = metrics.map((m) => `D${m.day}`);
+    const lines: number[] = metrics.map((m) => m.manufacturer?.capacity?.assembly_lines ?? 1);
+    const workers: number[] = metrics.map((m) => m.manufacturer?.capacity?.workers_per_line ?? 1);
+    const dailyHours: number[] = metrics.map((m) => m.manufacturer?.capacity?.daily_assembly_hours ?? 8.0);
+    return { days, lines, workers, dailyHours };
   }, [metrics]);
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -599,6 +616,46 @@ const Scenarios: React.FC = () => {
             />
           ) : (
             <div className="empty-state">Demand chart waits for the first metrics snapshot.</div>
+          )}
+        </div>
+      </div>
+
+      <div className="data-grid mt-3">
+        <div className="chart-container">
+          {capacityChart ? (
+            <ResponsivePlot
+              data={[
+                { x: capacityChart.days, y: capacityChart.lines, type: 'scatter', mode: 'lines+markers', name: 'Assembly lines', marker: { color: '#0066cc' } },
+                { x: capacityChart.days, y: capacityChart.workers, type: 'scatter', mode: 'lines+markers', name: 'Workers per line', marker: { color: '#ff6600' } },
+              ]}
+              layout={{
+                title: { text: 'Assembly capacity expansion' },
+                xaxis: { title: { text: 'Simulated day' } },
+                yaxis: { title: { text: 'Count' } },
+                margin: { t: 56, r: 24, b: 56, l: 56 },
+              }}
+              minHeight={300}
+            />
+          ) : (
+            <div className="empty-state">Capacity evolution chart waits for the first metrics snapshot.</div>
+          )}
+        </div>
+        <div className="chart-container">
+          {capacityChart ? (
+            <ResponsivePlot
+              data={[
+                { x: capacityChart.days, y: capacityChart.dailyHours, type: 'scatter', mode: 'lines+markers', name: 'Daily assembly hours', marker: { color: '#228B22' } },
+              ]}
+              layout={{
+                title: { text: 'Total daily assembly capacity' },
+                xaxis: { title: { text: 'Simulated day' } },
+                yaxis: { title: { text: 'Hours' } },
+                margin: { t: 56, r: 24, b: 56, l: 56 },
+              }}
+              minHeight={300}
+            />
+          ) : (
+            <div className="empty-state">Capacity hours chart waits for the first metrics snapshot.</div>
           )}
         </div>
       </div>

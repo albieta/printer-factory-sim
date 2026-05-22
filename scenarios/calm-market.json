@@ -5,6 +5,11 @@
     "variance": 1
   },
   "base_price": 400,
+  "recommended_assembly": {
+    "assembly_lines": 1,
+    "workers_per_line": 1,
+    "shift_hours": 8.0
+  },
   "events": [
     {
       "name": "steady_baseline",
