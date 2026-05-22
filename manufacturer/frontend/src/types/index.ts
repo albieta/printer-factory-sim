@@ -62,6 +62,34 @@ export interface Supplier {
   external_product_id?: number | null;
 }
 
+export interface ProviderPricingTier {
+  min_quantity: number;
+  unit_price: string;
+}
+
+export interface ProviderProduct {
+  id: number;
+  name: string;
+  description?: string | null;
+  lead_time_days: number;
+  pricing_tiers: ProviderPricingTier[];
+  stock_quantity: number;
+}
+
+export interface ProviderInfo {
+  name: string;
+  url: string;
+  online: boolean;
+}
+
+export interface ProviderCatalog {
+  name: string;
+  url: string;
+  online: boolean;
+  products?: ProviderProduct[];
+  error?: string;
+}
+
 export interface InventoryLevel {
   product_id: string;
   product_name?: string;

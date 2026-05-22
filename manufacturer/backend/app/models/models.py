@@ -247,6 +247,7 @@ class SimulationConfig(Base):
     max_workers_per_line: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
     total_costs: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     total_revenue: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    provider_urls: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True, default=None)
 
 
 class SalesOrderStatus(PyEnum):

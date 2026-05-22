@@ -56,51 +56,6 @@ STARTER_BOM: dict[str, list[dict[str, Any]]] = {
     ],
 }
 
-STARTER_SUPPLIERS: list[dict[str, Any]] = [
-    {
-        "name": "FilamentPro Inc.",
-        "product": "PLA Filament",
-        "unit_cost": 25.00,
-        "lead_time_days": 5,
-        "quantity_breaks": [{"qty": 100, "price": 22.50}, {"qty": 500, "price": 20.00}],
-    },
-    {
-        "name": "ABS Materials Ltd.",
-        "product": "ABS Filament",
-        "unit_cost": 30.00,
-        "lead_time_days": 7,
-        "quantity_breaks": [{"qty": 150, "price": 27.00}, {"qty": 600, "price": 24.00}],
-    },
-    {
-        "name": "MetalWorks Supply",
-        "product": "Aluminum Frame",
-        "unit_cost": 45.00,
-        "lead_time_days": 10,
-        "quantity_breaks": [{"qty": 50, "price": 42.00}, {"qty": 200, "price": 38.00}],
-    },
-    {
-        "name": "MotorTech Direct",
-        "product": "Stepper Motor",
-        "unit_cost": 15.00,
-        "lead_time_days": 14,
-        "quantity_breaks": [{"qty": 100, "price": 13.50}, {"qty": 400, "price": 12.00}],
-    },
-    {
-        "name": "ElectroComponents",
-        "product": "Control Board",
-        "unit_cost": 35.00,
-        "lead_time_days": 12,
-        "quantity_breaks": [{"qty": 75, "price": 32.00}, {"qty": 300, "price": 28.00}],
-    },
-    {
-        "name": "DisplayTech Solutions",
-        "product": "LCD Screen",
-        "unit_cost": 50.00,
-        "lead_time_days": 15,
-        "quantity_breaks": [{"qty": 50, "price": 47.00}, {"qty": 250, "price": 43.00}],
-    },
-]
-
 STARTER_INVENTORY: dict[str, float] = {
     "PLA Filament": 500.0,
     "ABS Filament": 400.0,

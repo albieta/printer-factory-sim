@@ -343,3 +343,7 @@ class FinancialSummary(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ProviderUrlUpdate(BaseModel):
+    url: str = ""

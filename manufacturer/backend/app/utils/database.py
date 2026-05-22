@@ -43,6 +43,7 @@ MIGRATIONS: dict[str, list[tuple[str, str]]] = {
         ("workers_per_line", "ALTER TABLE simulation_config ADD COLUMN workers_per_line INTEGER NOT NULL DEFAULT 1"),
         ("shift_hours", "ALTER TABLE simulation_config ADD COLUMN shift_hours FLOAT NOT NULL DEFAULT 8.0"),
         ("sim_day", "ALTER TABLE simulation_config ADD COLUMN sim_day INTEGER NOT NULL DEFAULT 0"),
+        ("provider_urls", "ALTER TABLE simulation_config ADD COLUMN provider_urls JSON"),
     ],
     "sales_orders": [
         ("in_progress_day", "ALTER TABLE sales_orders ADD COLUMN in_progress_day INTEGER"),
@@ -103,11 +104,52 @@ def ensure_schema() -> None:
         )
 
 
+def apply_external_provider_config(session: Session) -> None:
+    """Creates or updates Supplier rows from config.json provider entries."""
+    from app.models.models import Product, Supplier
+    from app.utils.app_config import get_configured_providers
+
+    for provider in get_configured_providers():
+        provider_name = provider.get("name")
+        provider_url = provider.get("url")
+        products = provider.get("products", [])
+        if not provider_name or not provider_url or not isinstance(products, list):
+            continue
+
+        for product_config in products:
+            product_name = product_config.get("manufacturer_product_name")
+            if not product_name:
+                continue
+            product = session.query(Product).filter(Product.name == product_name).first()
+            if product is None:
+                continue
+
+            supplier = (
+                session.query(Supplier)
+                .filter(Supplier.name == provider_name, Supplier.product_id == product.id)
+                .first()
+            )
+            if supplier is None:
+                supplier = Supplier(
+                    name=provider_name,
+                    product_id=product.id,
+                    unit_cost=product_config.get("unit_cost", 0),
+                    lead_time_days=product_config.get("lead_time_days", 1),
+                    quantity_breaks=product_config.get("quantity_breaks"),
+                )
+                session.add(supplier)
+
+            supplier.external_provider_url = str(provider_url).rstrip("/")
+            supplier.external_product_id = product_config.get("external_product_id")
+            supplier.unit_cost = product_config.get("unit_cost", supplier.unit_cost)
+            supplier.lead_time_days = product_config.get("lead_time_days", supplier.lead_time_days)
+            supplier.quantity_breaks = product_config.get("quantity_breaks", supplier.quantity_breaks)
+
+
 def bootstrap_database() -> None:
-    from app.models.models import ManufacturingOrder, Product, PurchaseOrder, Supplier
+    from app.models.models import ManufacturingOrder, PurchaseOrder
     from app.services.reference_service import backfill_references
     from app.services.wholesale_price_service import WholesalePriceService
-    from app.utils.app_config import get_configured_providers
 
     ensure_schema()
 
@@ -115,41 +157,7 @@ def bootstrap_database() -> None:
     try:
         backfill_references(session, ManufacturingOrder, "MO", "created_date")
         backfill_references(session, PurchaseOrder, "PO", "issue_date")
-        for provider in get_configured_providers():
-            provider_name = provider.get("name")
-            provider_url = provider.get("url")
-            products = provider.get("products", [])
-            if not provider_name or not provider_url or not isinstance(products, list):
-                continue
-
-            for product_config in products:
-                product_name = product_config.get("manufacturer_product_name")
-                if not product_name:
-                    continue
-                product = session.query(Product).filter(Product.name == product_name).first()
-                if product is None:
-                    continue
-
-                supplier = (
-                    session.query(Supplier)
-                    .filter(Supplier.name == provider_name, Supplier.product_id == product.id)
-                    .first()
-                )
-                if supplier is None:
-                    supplier = Supplier(
-                        name=provider_name,
-                        product_id=product.id,
-                        unit_cost=product_config.get("unit_cost", 0),
-                        lead_time_days=product_config.get("lead_time_days", 1),
-                        quantity_breaks=product_config.get("quantity_breaks"),
-                    )
-                    session.add(supplier)
-
-                supplier.external_provider_url = str(provider_url).rstrip("/")
-                supplier.external_product_id = product_config.get("external_product_id")
-                supplier.unit_cost = product_config.get("unit_cost", supplier.unit_cost)
-                supplier.lead_time_days = product_config.get("lead_time_days", supplier.lead_time_days)
-                supplier.quantity_breaks = product_config.get("quantity_breaks", supplier.quantity_breaks)
+        apply_external_provider_config(session)
         session.commit()
         WholesalePriceService(session).ensure_defaults()
         session.commit()

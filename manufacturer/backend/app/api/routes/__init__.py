@@ -10,6 +10,7 @@ from app.api.routes.materials import router as materials_router
 from app.api.routes.orders import router as orders_router
 from app.api.routes.prices import router as prices_router
 from app.api.routes.production import router as production_router
+from app.api.routes.providers import router as providers_router
 from app.api.routes.purchase_orders import router as purchase_orders_router
 from app.api.routes.sales import router as sales_router
 from app.api.routes.scenarios import router as scenarios_router
@@ -21,6 +22,7 @@ router = APIRouter()
 # Week 5/6 routes — unchanged
 router.include_router(config_router, prefix="/config", tags=["Configuration"])
 router.include_router(materials_router, prefix="/materials", tags=["Materials & BOM"])
+router.include_router(providers_router, tags=["Providers"])
 router.include_router(suppliers_router, prefix="/suppliers", tags=["Suppliers"])
 router.include_router(inventory_router, prefix="/inventory", tags=["Inventory"])
 router.include_router(orders_router, prefix="/orders", tags=["Manufacturing Orders"])

@@ -72,6 +72,13 @@ export const suppliersAPI = {
   deleteSupplier: (id: string) => api.delete(`/suppliers/${id}/`),
 };
 
+export const providersAPI = {
+  getProviders: () => api.get('/providers/'),
+  getProviderCatalog: (name: string) => api.get(`/providers/${encodeURIComponent(name)}/catalog`),
+  updateProviderUrl: (name: string, url: string) =>
+    api.put(`/providers/${encodeURIComponent(name)}/url`, { url }),
+};
+
 export const inventoryAPI = {
   getInventory: () => api.get<InventoryLevel[]>('/inventory/'),
   getCapacity: () => api.get<CapacityInfo>('/inventory/capacity/'),

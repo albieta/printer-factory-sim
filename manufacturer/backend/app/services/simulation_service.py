@@ -12,8 +12,9 @@ from app.services.config_service import ConfigService
 from app.services.inventory_service import InventoryService
 from app.services.order_service import OrderService
 from app.services.production_service import ProductionService
-from app.services.starter_profile import STARTER_INVENTORY, STARTER_PRINTERS, STARTER_MATERIALS, STARTER_BOM, STARTER_SUPPLIERS, WORKFLOW_STAGE_DEFS, build_starter_config
+from app.services.starter_profile import STARTER_INVENTORY, STARTER_PRINTERS, STARTER_MATERIALS, STARTER_BOM, WORKFLOW_STAGE_DEFS, build_starter_config
 from app.services.supplier_service import PurchaseOrderService
+from app.utils.database import apply_external_provider_config
 
 
 class SimulationService:
@@ -196,6 +197,9 @@ class SimulationService:
         for key, value in starter_config.items():
             setattr(config, key, value)
 
+        # Reset custom provider URLs to use defaults from config.json
+        config.provider_urls = None
+
         self.db.commit()
         return True
 
@@ -232,21 +236,10 @@ class SimulationService:
                 )
         self.db.commit()
 
-        for supplier_data in STARTER_SUPPLIERS:
-            self.db.add(
-                Supplier(
-                    name=supplier_data["name"],
-                    product_id=product_lookup[supplier_data["product"]].id,
-                    unit_cost=supplier_data["unit_cost"],
-                    lead_time_days=supplier_data["lead_time_days"],
-                    quantity_breaks=supplier_data["quantity_breaks"],
-                )
-            )
-        self.db.commit()
-
         for material_name, quantity in STARTER_INVENTORY.items():
             self.db.add(Inventory(product_id=product_lookup[material_name].id, quantity=quantity))
         self.db.commit()
-        return True
 
+        apply_external_provider_config(self.db)
+        self.db.commit()
         return True
