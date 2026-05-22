@@ -3,7 +3,6 @@
 from datetime import date
 from decimal import Decimal
 
-import pytest
 from sqlalchemy.orm import Session
 
 from app.models.models import Event, EventType, Inventory, Product, ProductType, SimulationConfig
@@ -71,7 +70,6 @@ class TestConfigurationResets:
 
         # Modify config
         config = config_service.get_config()
-        original_assembly_lines = config.assembly_lines
         config.assembly_lines = 5
         config.workers_per_line = 10
         db.commit()
@@ -274,7 +272,6 @@ class TestConfigurationConstraints:
         config_service = ConfigService(db)
 
         config = config_service.get_config()
-        original_lines = config.assembly_lines
 
         try:
             config.assembly_lines = 0
@@ -351,9 +348,6 @@ class TestScenarioRecommendations:
     def test_apply_assembly_recommendation_updates_config(self, db: Session) -> None:
         """Applying assembly recommendation should update config."""
         config_service = ConfigService(db)
-
-        # Get initial config
-        initial_config = config_service.get_config()
 
         # Create a different recommendation
         from app.schemas.schemas import SimulationConfigUpdate
