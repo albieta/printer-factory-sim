@@ -73,3 +73,33 @@ def delete_printer_model(printer_id: str, db: Session = Depends(get_db)):
     db.delete(printer)
     db.commit()
     return Response(status_code=204)
+
+
+@router.post("/apply-scenario-assembly", response_model=SimulationConfig)
+def apply_scenario_assembly(assembly: dict, db: Session = Depends(get_db)):
+    """Apply recommended assembly configuration from a scenario."""
+    config_service = ConfigService(db)
+    update_data = {
+        k: v for k, v in assembly.items()
+        if k in ["assembly_lines", "workers_per_line", "shift_hours"]
+    }
+    if not update_data:
+        return config_service.serialize_config()
+
+    config_service.update_config(SimulationConfigUpdate(**update_data))
+    return config_service.serialize_config()
+
+
+@router.post("/apply-scenario-costs", response_model=SimulationConfig)
+def apply_scenario_costs(costs: dict, db: Session = Depends(get_db)):
+    """Apply recommended cost configuration from a scenario."""
+    config_service = ConfigService(db)
+    update_data = {
+        k: v for k, v in costs.items()
+        if k in ["cost_per_assembly_line", "cost_per_worker_per_hour", "max_workers_per_line"]
+    }
+    if not update_data:
+        return config_service.serialize_config()
+
+    config_service.update_config(SimulationConfigUpdate(**update_data))
+    return config_service.serialize_config()

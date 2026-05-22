@@ -3,7 +3,7 @@ import { Alert, Badge, Button, Form, ProgressBar, Spinner, Table } from 'react-b
 import { FaBolt, FaPlay, FaStop, FaSyncAlt, FaTrash } from 'react-icons/fa';
 import PageGuide from '../components/PageGuide';
 import ResponsivePlot from '../components/ResponsivePlot';
-import { getErrorMessage, scenariosAPI } from '../services/api';
+import { configAPI, getErrorMessage, scenariosAPI } from '../services/api';
 import type {
   ConfigSummary,
   LogContents,
@@ -11,6 +11,7 @@ import type {
   MetricsSnapshot,
   ScenarioRunRecord,
   ScenarioSummary,
+  SimulationConfig,
 } from '../types';
 import { announceSimulationUpdate } from '../utils/simulationEvents';
 
@@ -62,25 +63,27 @@ const Scenarios: React.FC = () => {
   const [autoFollow, setAutoFollow] = useState(true);
   const [selectedModel, setSelectedModel] = useState<string>('claude-haiku-4-5-20251001');
   const [thinkingEnabled, setThinkingEnabled] = useState<boolean>(false);
-  const [assemblyLines, setAssemblyLines] = useState<number>(1);
-  const [workersPerLine, setWorkersPerLine] = useState<number>(1);
-  const [shiftHours, setShiftHours] = useState<number>(8.0);
+  const [currentConfig, setCurrentConfig] = useState<SimulationConfig | null>(null);
   const logBoxRef = useRef<HTMLPreElement | null>(null);
 
   // ── Loaders ─────────────────────────────────────────────────────────────
 
   const loadLibraries = useCallback(async () => {
     try {
-      const response = await scenariosAPI.list();
-      setScenarios(response.data.scenarios);
-      setConfigs(response.data.configs);
-      if (!selectedConfig && response.data.configs.length) {
-        const stub = response.data.configs.find((c) => c.name === 'sim-stub.json');
-        setSelectedConfig((stub ?? response.data.configs[0]).name);
+      const [scenariosRes, configRes] = await Promise.all([
+        scenariosAPI.list(),
+        configAPI.getConfig(),
+      ]);
+      setScenarios(scenariosRes.data.scenarios);
+      setConfigs(scenariosRes.data.configs);
+      setCurrentConfig(configRes.data);
+      if (!selectedConfig && scenariosRes.data.configs.length) {
+        const stub = scenariosRes.data.configs.find((c) => c.name === 'sim-stub.json');
+        setSelectedConfig((stub ?? scenariosRes.data.configs[0]).name);
       }
-      if (!selectedScenario && response.data.scenarios.length) {
-        const smoke = response.data.scenarios.find((s) => s.name === 'smoke-test.json');
-        setSelectedScenario((smoke ?? response.data.scenarios[0]).name);
+      if (!selectedScenario && scenariosRes.data.scenarios.length) {
+        const smoke = scenariosRes.data.scenarios.find((s) => s.name === 'smoke-test.json');
+        setSelectedScenario((smoke ?? scenariosRes.data.scenarios[0]).name);
       }
       setError(null);
     } catch (err) {
@@ -186,9 +189,6 @@ const Scenarios: React.FC = () => {
         days,
         model: selectedModel,
         thinking_enabled: thinkingEnabled,
-        assembly_lines: assemblyLines,
-        workers_per_line: workersPerLine,
-        shift_hours: shiftHours,
       });
       setRun(response.data);
       setNotice(`Started ${response.data.run_id} (${response.data.scenario} / ${response.data.config}).`);
@@ -242,13 +242,6 @@ const Scenarios: React.FC = () => {
     [scenarios, selectedScenario],
   );
 
-  useEffect(() => {
-    if (scenarioDetail?.recommended_assembly) {
-      setAssemblyLines(scenarioDetail.recommended_assembly.assembly_lines ?? 1);
-      setWorkersPerLine(scenarioDetail.recommended_assembly.workers_per_line ?? 1);
-      setShiftHours(scenarioDetail.recommended_assembly.shift_hours ?? 8.0);
-    }
-  }, [scenarioDetail]);
 
   const configDetail = useMemo(
     () => configs.find((c) => c.name === selectedConfig) ?? null,
@@ -448,46 +441,78 @@ const Scenarios: React.FC = () => {
             </div>
           </div>
 
-          <div className="surface-panel card-body">
-            <div className="section-title"><h4>Assembly capacity</h4></div>
-            <p className="text-muted small mb-3">
-              Configure assembly capacity to prevent queue saturation. With current settings:
-              <strong className="d-block mt-1">
-                {assemblyLines} line{assemblyLines !== 1 ? 's' : ''} × {workersPerLine} worker{workersPerLine !== 1 ? 's' : ''} × {shiftHours}h = {(assemblyLines * workersPerLine * shiftHours).toFixed(1)} hours/day
-              </strong>
-            </p>
-            <Form.Group className="mb-3">
-              <Form.Label>Assembly lines</Form.Label>
-              <Form.Control
-                type="number"
-                min={1}
-                max={20}
-                value={assemblyLines}
-                onChange={(e) => setAssemblyLines(Number(e.target.value) || 1)}
-              />
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Workers per line</Form.Label>
-              <Form.Control
-                type="number"
-                min={1}
-                max={20}
-                value={workersPerLine}
-                onChange={(e) => setWorkersPerLine(Number(e.target.value) || 1)}
-              />
-            </Form.Group>
-            <Form.Group>
-              <Form.Label>Shift hours</Form.Label>
-              <Form.Control
-                type="number"
-                min={1}
-                max={24}
-                step={0.5}
-                value={shiftHours}
-                onChange={(e) => setShiftHours(Number(e.target.value) || 8.0)}
-              />
-            </Form.Group>
-          </div>
+          {scenarioDetail && (currentConfig || true) && (
+            <div className="surface-panel card-body">
+              <div className="section-title"><h4>Scenario recommendations</h4></div>
+              <p className="text-muted small mb-4">
+                This scenario recommends specific assembly and cost configuration. Click apply to use these values, or continue with current settings.
+              </p>
+
+              {scenarioDetail.recommended_assembly && (
+                <div className="mb-4 p-3 bg-light rounded">
+                  <div className="d-flex justify-content-between align-items-start mb-3">
+                    <div>
+                      <h6 className="mb-2">Assembly Capacity</h6>
+                      {currentConfig && (
+                        <div className="text-muted small">
+                          <div>Current: {currentConfig.assembly_lines} line{currentConfig.assembly_lines !== 1 ? 's' : ''} × {currentConfig.workers_per_line} worker{currentConfig.workers_per_line !== 1 ? 's' : ''} × {currentConfig.shift_hours}h</div>
+                          <div>Recommended: {scenarioDetail.recommended_assembly.assembly_lines} line{scenarioDetail.recommended_assembly.assembly_lines !== 1 ? 's' : ''} × {scenarioDetail.recommended_assembly.workers_per_line} worker{scenarioDetail.recommended_assembly.workers_per_line !== 1 ? 's' : ''} × {scenarioDetail.recommended_assembly.shift_hours}h</div>
+                        </div>
+                      )}
+                    </div>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={async () => {
+                        try {
+                          const result = await configAPI.applyScenarioAssembly(scenarioDetail.recommended_assembly);
+                          setCurrentConfig(result.data);
+                          setNotice('Applied recommended assembly configuration');
+                          setTimeout(() => setNotice(null), 3000);
+                        } catch (err) {
+                          setError(getErrorMessage(err, 'Failed to apply assembly configuration'));
+                        }
+                      }}
+                    >
+                      Apply assembly
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {scenarioDetail.recommended_costs && (
+                <div className="p-3 bg-light rounded">
+                  <div className="d-flex justify-content-between align-items-start">
+                    <div>
+                      <h6 className="mb-2">Costs</h6>
+                      {currentConfig && (
+                        <div className="text-muted small">
+                          <div>Current: ${currentConfig.cost_per_assembly_line}/line, ${currentConfig.cost_per_worker_per_hour}/hr</div>
+                          <div>Recommended: ${scenarioDetail.recommended_costs.cost_per_assembly_line}/line, ${scenarioDetail.recommended_costs.cost_per_worker_per_hour}/hr</div>
+                        </div>
+                      )}
+                    </div>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={async () => {
+                        try {
+                          const result = await configAPI.applyScenarioCosts(scenarioDetail.recommended_costs);
+                          setCurrentConfig(result.data);
+                          setNotice('Applied recommended cost configuration');
+                          setTimeout(() => setNotice(null), 3000);
+                        } catch (err) {
+                          setError(getErrorMessage(err, 'Failed to apply cost configuration'));
+                        }
+                      }}
+                    >
+                      Apply costs
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

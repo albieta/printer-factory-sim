@@ -451,11 +451,10 @@ def main(argv: list[str]) -> int:
     print(f"Turn engine — scenario: {scenario.get('scenario_name', 'unnamed')}")
     print(f"Running {num_days} day(s).")
 
-    # Apply scenario configuration (assembly and costs) before simulation starts
+    # Apply assembly configuration from environment variables only
+    # (Scenario config is applied via UI, not automatically)
     mfr = config.get("manufacturer", {})
     if mfr and "url" in mfr:
-        apply_scenario_config(mfr["url"], scenario)
-        # Environment variables take precedence and override scenario values
         apply_assembly_config(mfr["url"])
 
     for day in range(1, num_days + 1):

@@ -52,6 +52,8 @@ export const configAPI = {
   createPrinterModel: (printer: { name: string; assembly_hours: number }) =>
     api.post<Product>('/config/printer-models/', printer),
   deletePrinterModel: (id: string) => api.delete(`/config/printer-models/${id}/`),
+  applyScenarioAssembly: (assembly: any) => api.post<SimulationConfig>('/config/apply-scenario-assembly', assembly),
+  applyScenarioCosts: (costs: any) => api.post<SimulationConfig>('/config/apply-scenario-costs', costs),
 };
 
 export const materialsAPI = {

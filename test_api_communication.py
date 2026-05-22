@@ -14,8 +14,6 @@ This test demonstrates:
 """
 
 import httpx
-import json
-from typing import Any
 
 
 def log_step(step: int, title: str, details: str = "") -> None:
