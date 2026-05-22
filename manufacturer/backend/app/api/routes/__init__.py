@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.routes.capacity import router as capacity_router
 from app.api.routes.config import router as config_router
 from app.api.routes.events import router as events_router
+from app.api.routes.financial import router as financial_router
 from app.api.routes.import_export import router as import_export_router
 from app.api.routes.inventory import router as inventory_router
 from app.api.routes.materials import router as materials_router
@@ -36,3 +37,6 @@ router.include_router(prices_router, prefix="/prices", tags=["Wholesale Prices"]
 
 # Week 8: scenario launcher + live log/metrics viewer for the UI
 router.include_router(scenarios_router, prefix="/scenarios", tags=["Scenarios"])
+
+# Week 8: financial management and reporting
+router.include_router(financial_router, prefix="/financial", tags=["Financial Management"])

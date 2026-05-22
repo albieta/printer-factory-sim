@@ -243,6 +243,9 @@ class SimulationConfigBase(BaseModel):
     shift_hours: float = 8.0
     demand_distribution_mean: float = 5.0
     demand_distribution_variance: float = 2.0
+    cost_per_assembly_line: float = 50000.0
+    cost_per_worker_per_hour: float = 50.0
+    max_workers_per_line: int = 10
 
 
 class SimulationConfigUpdate(SimulationConfigBase):
@@ -253,6 +256,8 @@ class SimulationConfig(SimulationConfigBase):
     id: int
     sim_date: date
     effective_daily_assembly_hours: float
+    total_costs: float = 0.0
+    total_revenue: float = 0.0
 
     class Config:
         from_attributes = True
@@ -326,3 +331,15 @@ class ImportResult(BaseModel):
     success: bool
     message: str
     errors: Optional[list[str]] = None
+
+
+class FinancialSummary(BaseModel):
+    total_costs: float
+    total_revenue: float
+    net_profit: float
+    cost_per_assembly_line: float
+    cost_per_worker_per_hour: float
+    max_workers_per_line: int
+
+    class Config:
+        from_attributes = True

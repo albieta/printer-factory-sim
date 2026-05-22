@@ -4,6 +4,7 @@ from typing import List
 
 from app.schemas.schemas import PurchaseOrder, PurchaseOrderCreate
 from app.services.supplier_service import PurchaseOrderService
+from app.services.financial_service import FinancialService
 from app.utils.database import get_db
 
 router = APIRouter()
@@ -19,10 +20,20 @@ def get_purchase_orders(db: Session = Depends(get_db)):
 def create_purchase_order(po: PurchaseOrderCreate, db: Session = Depends(get_db)):
     from app.services.config_service import ConfigService
 
-    sim_date = ConfigService(db).get_sim_date()
+    config_service = ConfigService(db)
+    sim_date = config_service.get_sim_date()
+    config = config_service.get_config()
     service = PurchaseOrderService(db)
     try:
         order = service.create_purchase_order(po, sim_date)
+        total_cost = float(order.quantity * order.unit_cost)
+        financial_service = FinancialService(db)
+        product_name = order.product.name if order.product else f"Product {order.product_id}"
+        financial_service.record_materials_purchased(
+            config.sim_day,
+            total_cost,
+            f"Purchased {order.quantity} {product_name} from {order.supplier.name}"
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:

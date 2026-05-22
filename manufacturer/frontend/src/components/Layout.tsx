@@ -9,6 +9,7 @@ import {
   FaChevronDown,
   FaClipboardList,
   FaCog,
+  FaDollarSign,
   FaFileAlt,
   FaIndustry,
   FaPlayCircle,
@@ -30,6 +31,7 @@ const navItems = [
   { path: '/suppliers', icon: <FaTruck />, label: 'Procurement' },
   { path: '/production', icon: <FaIndustry />, label: 'Assembly' },
   { path: '/reports', icon: <FaFileAlt />, label: 'Analytics' },
+  { path: '/financial', icon: <FaDollarSign />, label: 'Financials' },
   { path: '/scenarios', icon: <FaBolt />, label: 'Scenarios' },
   { path: '/settings', icon: <FaCog />, label: 'Configuration' },
 ];

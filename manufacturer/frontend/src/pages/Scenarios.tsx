@@ -292,6 +292,15 @@ const Scenarios: React.FC = () => {
     return { days, lines, workers, dailyHours };
   }, [metrics]);
 
+  const financialChart = useMemo(() => {
+    if (!metrics.length) return null;
+    const days: string[] = metrics.map((m) => `D${m.day}`);
+    const costs: number[] = metrics.map((m) => m.manufacturer?.financials?.total_costs ?? 0);
+    const revenue: number[] = metrics.map((m) => m.manufacturer?.financials?.total_revenue ?? 0);
+    const profit: number[] = metrics.map((m) => m.manufacturer?.financials?.net_profit ?? 0);
+    return { days, costs, revenue, profit };
+  }, [metrics]);
+
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
@@ -656,6 +665,46 @@ const Scenarios: React.FC = () => {
             />
           ) : (
             <div className="empty-state">Capacity hours chart waits for the first metrics snapshot.</div>
+          )}
+        </div>
+      </div>
+
+      <div className="data-grid mt-3">
+        <div className="chart-container">
+          {financialChart ? (
+            <ResponsivePlot
+              data={[
+                { x: financialChart.days, y: financialChart.costs, type: 'scatter', mode: 'lines+markers', name: 'Total costs', marker: { color: '#dc3545' } },
+                { x: financialChart.days, y: financialChart.revenue, type: 'scatter', mode: 'lines+markers', name: 'Total revenue', marker: { color: '#28a745' } },
+              ]}
+              layout={{
+                title: { text: 'Financial performance' },
+                xaxis: { title: { text: 'Simulated day' } },
+                yaxis: { title: { text: 'Amount ($)' } },
+                margin: { t: 56, r: 24, b: 56, l: 56 },
+              }}
+              minHeight={300}
+            />
+          ) : (
+            <div className="empty-state">Financial chart waits for the first metrics snapshot.</div>
+          )}
+        </div>
+        <div className="chart-container">
+          {financialChart ? (
+            <ResponsivePlot
+              data={[
+                { x: financialChart.days, y: financialChart.profit, type: 'scatter', mode: 'lines+markers', name: 'Net profit', marker: { color: financialChart.profit.some(p => p < 0) ? '#ffc107' : '#0dcaf0' } },
+              ]}
+              layout={{
+                title: { text: 'Net profit evolution' },
+                xaxis: { title: { text: 'Simulated day' } },
+                yaxis: { title: { text: 'Profit ($)' } },
+                margin: { t: 56, r: 24, b: 56, l: 56 },
+              }}
+              minHeight={300}
+            />
+          ) : (
+            <div className="empty-state">Profit chart waits for the first metrics snapshot.</div>
           )}
         </div>
       </div>

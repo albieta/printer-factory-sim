@@ -322,6 +322,11 @@ export interface MetricsSnapshot {
       workers_per_line: number;
       daily_assembly_hours: number;
     };
+    financials: {
+      total_costs: number;
+      total_revenue: number;
+      net_profit: number;
+    };
     errors: string[];
   };
   providers: Array<{

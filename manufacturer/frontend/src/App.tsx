@@ -7,6 +7,7 @@ import Inventory from './pages/Inventory';
 import Suppliers from './pages/Suppliers';
 import Production from './pages/Production';
 import Reports from './pages/Reports';
+import Financial from './pages/Financial';
 import Scenarios from './pages/Scenarios';
 import Settings from './pages/Settings';
 
@@ -21,6 +22,7 @@ const App: React.FC = () => {
           <Route path="/suppliers" element={<Suppliers />} />
           <Route path="/production" element={<Production />} />
           <Route path="/reports" element={<Reports />} />
+          <Route path="/financial" element={<Financial />} />
           <Route path="/scenarios" element={<Scenarios />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>

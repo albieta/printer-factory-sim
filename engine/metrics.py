@@ -100,6 +100,7 @@ def _manufacturer_snapshot(mfr_cfg: dict[str, Any], logger: ApiLogger | None) ->
     sales_data = _safe_get(f"{base_url}/api/sales/orders", logger)
     production_data = _safe_get(f"{base_url}/api/production/status", logger)
     capacity_data = _safe_get(f"{base_url}/api/capacity", logger)
+    financial_data = _safe_get(f"{base_url}/api/financial/summary", logger)
 
     inventory: dict[str, float] = {}
     if isinstance(inventory_data, list):
@@ -121,6 +122,14 @@ def _manufacturer_snapshot(mfr_cfg: dict[str, Any], logger: ApiLogger | None) ->
     if isinstance(production_data, dict):
         active_count = _to_int(production_data.get("count"))
 
+    financials: dict[str, float] = {}
+    if isinstance(financial_data, dict):
+        financials = {
+            "total_costs": _to_float(financial_data.get("total_costs")),
+            "total_revenue": _to_float(financial_data.get("total_revenue")),
+            "net_profit": _to_float(financial_data.get("net_profit")),
+        }
+
     return {
         "name": mfr_cfg.get("name", "manufacturer"),
         "inventory": inventory,
@@ -128,9 +137,10 @@ def _manufacturer_snapshot(mfr_cfg: dict[str, Any], logger: ApiLogger | None) ->
         "sales_orders": _status_counts([row for row in sales_orders if isinstance(row, dict)]),
         "active_production_orders": active_count,
         "capacity": capacity_data if isinstance(capacity_data, dict) else {},
+        "financials": financials,
         "errors": [
             value["error"]
-            for value in (inventory_data, prices_data, sales_data, production_data, capacity_data)
+            for value in (inventory_data, prices_data, sales_data, production_data, capacity_data, financial_data)
             if isinstance(value, dict) and "error" in value
         ],
     }

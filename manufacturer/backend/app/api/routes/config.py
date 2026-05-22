@@ -5,6 +5,7 @@ from typing import List
 from app.models.models import Product, ProductType
 from app.schemas.schemas import PrinterModel, PrinterModelCreate, SimulationConfig, SimulationConfigUpdate
 from app.services.config_service import ConfigService
+from app.services.financial_service import FinancialService
 from app.utils.database import get_db
 
 router = APIRouter()
@@ -24,20 +25,29 @@ def update_config(config_update: SimulationConfigUpdate, db: Session = Depends(g
 
 @router.post("/assembly/open-line", response_model=SimulationConfig)
 def open_assembly_line(db: Session = Depends(get_db)):
-    service = ConfigService(db)
-    config = service.get_config()
+    config_service = ConfigService(db)
+    financial_service = FinancialService(db)
+    config = config_service.get_config()
     new_lines = config.assembly_lines + 1
-    service.update_config(SimulationConfigUpdate(assembly_lines=new_lines))
-    return service.serialize_config()
+    config_service.update_config(SimulationConfigUpdate(assembly_lines=new_lines))
+    financial_service.record_assembly_line_opened(config.sim_day)
+    return config_service.serialize_config()
 
 
 @router.post("/assembly/hire-worker", response_model=SimulationConfig)
 def hire_worker(db: Session = Depends(get_db)):
-    service = ConfigService(db)
-    config = service.get_config()
+    config_service = ConfigService(db)
+    financial_service = FinancialService(db)
+    config = config_service.get_config()
+    if config.workers_per_line >= config.max_workers_per_line:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot hire more workers. Max workers per line is {config.max_workers_per_line}"
+        )
     new_workers = config.workers_per_line + 1
-    service.update_config(SimulationConfigUpdate(workers_per_line=new_workers))
-    return service.serialize_config()
+    config_service.update_config(SimulationConfigUpdate(workers_per_line=new_workers))
+    financial_service.record_worker_hired(config.sim_day)
+    return config_service.serialize_config()
 
 
 @router.get("/printer-models", response_model=List[PrinterModel])

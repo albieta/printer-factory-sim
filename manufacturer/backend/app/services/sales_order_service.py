@@ -38,6 +38,7 @@ from app.models.models import (
     WholesalePrice,
 )
 from app.services.config_service import ConfigService
+from app.services.financial_service import FinancialService
 
 # How many day-advance ticks a SalesOrder spends in each in-flight state.
 _PRODUCTION_DAYS = 1   # IN_PROGRESS → SHIPPED after this many ticks
@@ -310,6 +311,7 @@ class SalesOrderService:
             )
             .all()
         )
+        financial_service = FinancialService(self.db)
         for so in shipped:
             so.status = SalesOrderStatus.DELIVERED
             so.delivered_day = sim_day
@@ -323,6 +325,13 @@ class SalesOrderService:
                         "delivered_day": sim_day,
                     },
                 )
+            )
+            product_name = so.product.name if so.product else f"Product {so.product_id}"
+            financial_service.record_product_sold(
+                sim_day,
+                float(so.total_price),
+                product_name,
+                so.quantity
             )
             counts["delivered"] += 1
 

@@ -242,6 +242,11 @@ class SimulationConfig(Base):
     demand_distribution_variance: Mapped[float] = mapped_column(Float, nullable=False, default=2.0)
     sim_date: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
     sim_day: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cost_per_assembly_line: Mapped[float] = mapped_column(Float, nullable=False, default=50000.0)
+    cost_per_worker_per_hour: Mapped[float] = mapped_column(Float, nullable=False, default=50.0)
+    max_workers_per_line: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
+    total_costs: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    total_revenue: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
 
 
 class SalesOrderStatus(PyEnum):
@@ -306,3 +311,26 @@ class WholesalePrice(Base):
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, default=datetime.utcnow)
 
     product: Mapped["Product"] = relationship("Product")
+
+
+class FinancialTransactionType(PyEnum):
+    ASSEMBLY_LINE_OPENED = "ASSEMBLY_LINE_OPENED"
+    WORKER_HIRED = "WORKER_HIRED"
+    MATERIALS_PURCHASED = "MATERIALS_PURCHASED"
+    PRODUCT_SOLD = "PRODUCT_SOLD"
+
+
+class FinancialTransaction(Base):
+    """Track all financial activity: costs and revenues."""
+
+    __tablename__ = "financial_transactions"
+    __table_args__ = {"extend_existing": True}
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    transaction_type: Mapped[FinancialTransactionType] = mapped_column(
+        Enum(FinancialTransactionType), nullable=False
+    )
+    amount: Mapped[Decimal] = mapped_column(DECIMAL(12, 2), nullable=False)
+    description: Mapped[str] = mapped_column(String(255), nullable=False)
+    sim_day: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

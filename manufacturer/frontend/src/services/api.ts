@@ -122,4 +122,28 @@ export const scenariosAPI = {
   clearLogs: () => api.post<{ deleted: number }>('/scenarios/logs/clear'),
 };
 
+export interface FinancialSummary {
+  total_costs: number;
+  total_revenue: number;
+  net_profit: number;
+  cost_per_assembly_line: number;
+  cost_per_worker_per_hour: number;
+  max_workers_per_line: number;
+}
+
+export interface FinancialTransaction {
+  type: string;
+  amount: number;
+  description: string;
+  sim_day: number;
+}
+
+export const financialAPI = {
+  getSummary: () => api.get<FinancialSummary>('/financial/summary'),
+  getConfig: () => api.get<SimulationConfig>('/financial/config'),
+  updateConfig: (config: Partial<SimulationConfig>) => api.put<SimulationConfig>('/financial/config', config),
+  getTransactions: (day?: number) =>
+    api.get<FinancialTransaction[]>('/financial/transactions', { params: day ? { day } : {} }),
+};
+
 export default api;
