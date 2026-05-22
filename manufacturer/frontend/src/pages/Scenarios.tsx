@@ -450,7 +450,7 @@ const Scenarios: React.FC = () => {
 
               {scenarioDetail.recommended_assembly && (
                 <div className="mb-4 p-3 bg-light rounded">
-                  <div className="d-flex justify-content-between align-items-start mb-3">
+                  <div className="d-flex justify-content-between align-items-center mb-3 gap-3">
                     <div>
                       <h6 className="mb-2">Assembly Capacity</h6>
                       {currentConfig && (
@@ -460,40 +460,41 @@ const Scenarios: React.FC = () => {
                         </div>
                       )}
                     </div>
-                    {(() => {
-                      const isSame = !!(currentConfig &&
-                        currentConfig.assembly_lines === scenarioDetail.recommended_assembly.assembly_lines &&
-                        currentConfig.workers_per_line === scenarioDetail.recommended_assembly.workers_per_line &&
-                        currentConfig.shift_hours === scenarioDetail.recommended_assembly.shift_hours);
-                      return (
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          disabled={isSame}
-                          title={isSame ? 'Current assembly configuration matches recommendation' : ''}
-                          onClick={async () => {
-                            try {
-                              const result = await configAPI.applyScenarioAssembly(scenarioDetail.recommended_assembly);
-                              setCurrentConfig(result.data);
-                              setNotice('Applied recommended assembly configuration');
-                              setTimeout(() => setNotice(null), 3000);
-                            } catch (err) {
-                              setError(getErrorMessage(err, 'Failed to apply assembly configuration'));
-                            }
-                          }}
-                          className={isSame ? 'opacity-50' : ''}
-                        >
-                          Apply recommended
-                        </Button>
-                      );
-                    })()}
+                    <div className="flex-shrink-0">
+                      {(() => {
+                        const isSame = !!(currentConfig &&
+                          currentConfig.assembly_lines === scenarioDetail.recommended_assembly.assembly_lines &&
+                          currentConfig.workers_per_line === scenarioDetail.recommended_assembly.workers_per_line &&
+                          currentConfig.shift_hours === scenarioDetail.recommended_assembly.shift_hours);
+                        return (
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            disabled={isSame}
+                            title={isSame ? 'Current assembly configuration matches recommendation' : ''}
+                            onClick={async () => {
+                              try {
+                                const result = await configAPI.applyScenarioAssembly(scenarioDetail.recommended_assembly);
+                                setCurrentConfig(result.data);
+                                setNotice('Applied recommended assembly configuration');
+                                setTimeout(() => setNotice(null), 3000);
+                              } catch (err) {
+                                setError(getErrorMessage(err, 'Failed to apply assembly configuration'));
+                              }
+                            }}
+                          >
+                            Apply recommended
+                          </Button>
+                        );
+                      })()}
+                    </div>
                   </div>
                 </div>
               )}
 
               {scenarioDetail.recommended_costs && (
                 <div className="p-3 bg-light rounded">
-                  <div className="d-flex justify-content-between align-items-start">
+                  <div className="d-flex justify-content-between align-items-center gap-3">
                     <div>
                       <h6 className="mb-2">Costs</h6>
                       {currentConfig && (
@@ -503,33 +504,34 @@ const Scenarios: React.FC = () => {
                         </div>
                       )}
                     </div>
-                    {(() => {
-                      const isSame = !!(currentConfig &&
-                        currentConfig.cost_per_assembly_line === scenarioDetail.recommended_costs.cost_per_assembly_line &&
-                        currentConfig.cost_per_worker_per_hour === scenarioDetail.recommended_costs.cost_per_worker_per_hour &&
-                        currentConfig.max_workers_per_line === scenarioDetail.recommended_costs.max_workers_per_line);
-                      return (
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          disabled={isSame}
-                          title={isSame ? 'Current cost configuration matches recommendation' : ''}
-                          onClick={async () => {
-                            try {
-                              const result = await configAPI.applyScenarioCosts(scenarioDetail.recommended_costs);
-                              setCurrentConfig(result.data);
-                              setNotice('Applied recommended cost configuration');
-                              setTimeout(() => setNotice(null), 3000);
-                            } catch (err) {
-                              setError(getErrorMessage(err, 'Failed to apply cost configuration'));
-                            }
-                          }}
-                          className={isSame ? 'opacity-50' : ''}
-                        >
-                          Apply recommended
-                        </Button>
-                      );
-                    })()}
+                    <div className="flex-shrink-0">
+                      {(() => {
+                        const isSame = !!(currentConfig &&
+                          currentConfig.cost_per_assembly_line === scenarioDetail.recommended_costs.cost_per_assembly_line &&
+                          currentConfig.cost_per_worker_per_hour === scenarioDetail.recommended_costs.cost_per_worker_per_hour &&
+                          currentConfig.max_workers_per_line === scenarioDetail.recommended_costs.max_workers_per_line);
+                        return (
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            disabled={isSame}
+                            title={isSame ? 'Current cost configuration matches recommendation' : ''}
+                            onClick={async () => {
+                              try {
+                                const result = await configAPI.applyScenarioCosts(scenarioDetail.recommended_costs);
+                                setCurrentConfig(result.data);
+                                setNotice('Applied recommended cost configuration');
+                                setTimeout(() => setNotice(null), 3000);
+                              } catch (err) {
+                                setError(getErrorMessage(err, 'Failed to apply cost configuration'));
+                              }
+                            }}
+                          >
+                            Apply recommended
+                          </Button>
+                        );
+                      })()}
+                    </div>
                   </div>
                 </div>
               )}
