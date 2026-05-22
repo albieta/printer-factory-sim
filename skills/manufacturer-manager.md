@@ -32,11 +32,12 @@ bin/manufacturer-cli price set MODEL_NAME NEW_PRICE
 bin/manufacturer-cli open-assembly-line
 bin/manufacturer-cli hire-worker
 ```
-Financial Costs (built in):
-- Assembly line: $50,000 each (customizable)
-- Worker per hour: $50/hour (customizable)
-- Max workers per line: 10
+Financial Costs:
+- Assembly line: customizable cost per new line
+- Worker per hour: customizable hourly wage
+- Max workers per line: configurable limit per assembly line
 - Materials: varies by supplier and quantity
+- Check actual costs with `bin/manufacturer-cli financial summary`
 
 ## DO NOT
 - Do not call `day advance`.
@@ -70,8 +71,8 @@ Follow these steps, running the appropriate CLI commands:
    - For each material, run `bin/manufacturer-cli purchase create --supplier "SUPPLIER_NAME" --product "PRODUCT_NAME" --qty <QUANTITY>`
 
 4. **Scale** (optional): If demand is consistently high and warehouse capacity is adequate, consider capacity expansion:
-   - Run `bin/manufacturer-cli open-assembly-line` (costs $50,000, increases production capacity)
-   - Run `bin/manufacturer-cli hire-worker` (costs $50/hour for all shift hours, up to 10 per line)
+   - Run `bin/manufacturer-cli open-assembly-line` (check cost with `financial summary`, increases production capacity)
+   - Run `bin/manufacturer-cli hire-worker` (check hourly cost with `financial summary`, up to the configured limit per line)
    - Only expand if profitable (revenue growth > cost of expansion)
 
 5. **Adjust**: Check current prices:

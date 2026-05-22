@@ -11,6 +11,11 @@ STARTER_CONFIG: dict[str, Any] = {
     "daily_assembly_hours": 8.0,
     "demand_distribution_mean": 5.0,
     "demand_distribution_variance": 2.0,
+    "cost_per_assembly_line": 50000.0,
+    "cost_per_worker_per_hour": 50.0,
+    "max_workers_per_line": 10,
+    "total_costs": 0.0,
+    "total_revenue": 0.0,
 }
 
 STARTER_PRINTERS: list[dict[str, Any]] = [
