@@ -7,12 +7,12 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
-from app.models.models import Event, EventType, ManufacturingOrder, OrderStatus, Product, ProductType, PurchaseOrder, PurchaseOrderStatus
+from app.models.models import Event, EventType, ManufacturingOrder, OrderStatus, Product, ProductType, PurchaseOrder, PurchaseOrderStatus, BillOfMaterials, Supplier, Inventory
 from app.services.config_service import ConfigService
 from app.services.inventory_service import InventoryService
 from app.services.order_service import OrderService
 from app.services.production_service import ProductionService
-from app.services.starter_profile import STARTER_INVENTORY, WORKFLOW_STAGE_DEFS, build_starter_config
+from app.services.starter_profile import STARTER_INVENTORY, STARTER_PRINTERS, STARTER_MATERIALS, STARTER_BOM, STARTER_SUPPLIERS, WORKFLOW_STAGE_DEFS, build_starter_config
 from app.services.supplier_service import PurchaseOrderService
 
 
@@ -160,8 +160,6 @@ class SimulationService:
             for material in self.db.query(Product).filter(Product.type == ProductType.MATERIAL).all()
         }
 
-        from app.models.models import Inventory
-
         inventory_items = self.db.query(Inventory).all()
         for inventory in inventory_items:
             inventory.quantity = Decimal(0)
@@ -178,4 +176,73 @@ class SimulationService:
             setattr(config, key, value)
 
         self.db.commit()
+        return True
+
+    def reset_to_empty(self) -> bool:
+        """Delete all data except simulation config and start fresh."""
+        self.db.query(Event).delete()
+        self.db.query(ManufacturingOrder).delete()
+        self.db.query(PurchaseOrder).delete()
+        self.db.query(BillOfMaterials).delete()
+        self.db.query(Inventory).delete()
+        self.db.query(Product).delete()
+        self.db.query(Supplier).delete()
+
+        config = self.config_service.get_config()
+        starter_config = build_starter_config(sim_date=date.today())
+        for key, value in starter_config.items():
+            setattr(config, key, value)
+
+        self.db.commit()
+        return True
+
+    def reset_to_default_config(self) -> bool:
+        """Reset to starter profile with all default data."""
+        self.reset_simulation()
+
+        product_lookup: dict[str, Product] = {}
+
+        for printer_data in STARTER_PRINTERS:
+            printer = Product(
+                name=printer_data["name"],
+                type=ProductType.PRINTER,
+                assembly_hours=printer_data["assembly_hours"],
+            )
+            self.db.add(printer)
+            product_lookup[printer.name] = printer
+        self.db.commit()
+
+        for material_name in STARTER_MATERIALS:
+            material = Product(name=material_name, type=ProductType.MATERIAL)
+            self.db.add(material)
+            product_lookup[material.name] = material
+        self.db.commit()
+
+        for printer_name, entries in STARTER_BOM.items():
+            for entry in entries:
+                self.db.add(
+                    BillOfMaterials(
+                        finished_product_id=product_lookup[printer_name].id,
+                        material_id=product_lookup[entry["material"]].id,
+                        quantity=entry["quantity"],
+                    )
+                )
+        self.db.commit()
+
+        for supplier_data in STARTER_SUPPLIERS:
+            self.db.add(
+                Supplier(
+                    name=supplier_data["name"],
+                    product_id=product_lookup[supplier_data["product"]].id,
+                    unit_cost=supplier_data["unit_cost"],
+                    lead_time_days=supplier_data["lead_time_days"],
+                    quantity_breaks=supplier_data["quantity_breaks"],
+                )
+            )
+        self.db.commit()
+
+        for material_name, quantity in STARTER_INVENTORY.items():
+            self.db.add(Inventory(product_id=product_lookup[material_name].id, quantity=quantity))
+        self.db.commit()
+
         return True

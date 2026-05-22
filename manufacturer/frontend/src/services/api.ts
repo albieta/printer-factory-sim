@@ -95,6 +95,8 @@ export const simulationAPI = {
   getStatus: () => api.get<SimulationStatus>('/simulation/status/'),
   advanceDay: () => api.post<DayAdvanceResult>('/simulation/advance-day/'),
   reset: () => api.post<{ success: boolean; message: string }>('/simulation/reset/'),
+  resetToEmpty: () => api.post<{ success: boolean; message: string }>('/simulation/reset-empty/'),
+  resetToDefaultConfig: () => api.post<{ success: boolean; message: string }>('/simulation/reset-default-config/'),
 };
 
 export const eventsAPI = {

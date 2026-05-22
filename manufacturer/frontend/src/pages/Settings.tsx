@@ -199,6 +199,36 @@ const Settings: React.FC = () => {
     }
   };
 
+  const resetToEmpty = async () => {
+    if (!window.confirm('Clear the simulation to empty state? All products, suppliers, materials, BOM, and orders will be deleted.')) {
+      return;
+    }
+
+    try {
+      await simulationAPI.resetToEmpty();
+      setMessage('Simulation cleared to empty state.');
+      announceSimulationUpdate();
+      await loadSetup();
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to clear the simulation.'));
+    }
+  };
+
+  const resetToDefaultConfig = async () => {
+    if (!window.confirm('Reset to default prefilled demo configuration? All orders and events will be cleared, but products, suppliers, and materials will be restored.')) {
+      return;
+    }
+
+    try {
+      await simulationAPI.resetToDefaultConfig();
+      setMessage('Simulation reset to default prefilled demo configuration.');
+      announceSimulationUpdate();
+      await loadSetup();
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to reset to default configuration.'));
+    }
+  };
+
   const handleImportFullState = async () => {
     if (!importFile) {
       return;
@@ -334,7 +364,15 @@ const Settings: React.FC = () => {
           <div className="action-buttons mt-4">
             <Button variant="primary" onClick={saveConfig} disabled={saving}><FaSave className="me-2" />{saving ? 'Saving...' : 'Save configuration'}</Button>
             <Button variant="outline-secondary" onClick={restoreCurrentValues}><FaUndo className="me-2" />Restore current values</Button>
-            <Button variant="danger" onClick={resetSimulation}><FaUndo className="me-2" />Reset to starter profile</Button>
+          </div>
+
+          <div className="mt-4 pt-3 border-top">
+            <p className="text-muted mb-3">Reset options:</p>
+            <div className="action-buttons">
+              <Button variant="warning" onClick={resetToDefaultConfig}><FaUndo className="me-2" />Reset to default config</Button>
+              <Button variant="outline-danger" onClick={resetSimulation}><FaUndo className="me-2" />Reset to starter profile</Button>
+              <Button variant="danger" onClick={resetToEmpty}><FaUndo className="me-2" />Reset to empty</Button>
+            </div>
           </div>
         </Card.Body>
       </Card>
