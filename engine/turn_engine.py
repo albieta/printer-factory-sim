@@ -354,11 +354,34 @@ def apply_assembly_config(mfr_url: str, logger: ApiLogger | None = None) -> dict
 
 
 def apply_scenario_config(mfr_url: str, scenario: dict[str, Any], logger: ApiLogger | None = None) -> dict[str, Any]:
-    """Apply scenario configuration (assembly and costs) to the manufacturer.
+    """Apply scenario configuration (assembly and costs) to the manufacturer if config is at defaults.
 
-    Applies recommended_assembly and recommended_costs from the scenario JSON.
+    Only applies recommended_assembly and recommended_costs from the scenario JSON if the
+    current configuration matches the starter profile defaults. This prevents overriding
+    user customizations.
+
     Environment variables take precedence over scenario values.
     """
+    try:
+        current_config = _get(f"{mfr_url}/api/config/", logger=logger)
+    except httpx.HTTPError as exc:
+        return {"error": str(exc)}
+
+    # Check if current config is at starter defaults (user hasn't customized)
+    # by comparing key assembly and cost fields
+    is_at_defaults = (
+        current_config.get("assembly_lines") == 1
+        and current_config.get("workers_per_line") == 1
+        and current_config.get("shift_hours") == 8.0
+        and current_config.get("cost_per_assembly_line") == 50000.0
+        and current_config.get("cost_per_worker_per_hour") == 50.0
+        and current_config.get("max_workers_per_line") == 10
+    )
+
+    if not is_at_defaults:
+        # User has customized config; don't override
+        return current_config
+
     payload = {}
 
     recommended_assembly = scenario.get("recommended_assembly", {})
@@ -380,7 +403,7 @@ def apply_scenario_config(mfr_url: str, scenario: dict[str, Any], logger: ApiLog
             payload["max_workers_per_line"] = recommended_costs["max_workers_per_line"]
 
     if not payload:
-        return {}
+        return current_config
 
     try:
         result = _put(f"{mfr_url}/api/config/", payload, logger=logger)
