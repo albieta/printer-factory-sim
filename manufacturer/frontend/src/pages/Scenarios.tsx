@@ -467,7 +467,7 @@ const Scenarios: React.FC = () => {
                         currentConfig.shift_hours === scenarioDetail.recommended_assembly.shift_hours);
                       return (
                         <Button
-                          variant={isSame ? 'light' : 'primary'}
+                          variant="primary"
                           size="sm"
                           disabled={isSame}
                           title={isSame ? 'Current assembly configuration matches recommendation' : ''}
@@ -481,7 +481,7 @@ const Scenarios: React.FC = () => {
                               setError(getErrorMessage(err, 'Failed to apply assembly configuration'));
                             }
                           }}
-                          style={isSame ? { color: '#999', borderColor: '#ddd' } : {}}
+                          className={isSame ? 'opacity-50' : ''}
                         >
                           Apply recommended
                         </Button>
@@ -510,7 +510,7 @@ const Scenarios: React.FC = () => {
                         currentConfig.max_workers_per_line === scenarioDetail.recommended_costs.max_workers_per_line);
                       return (
                         <Button
-                          variant={isSame ? 'light' : 'primary'}
+                          variant="primary"
                           size="sm"
                           disabled={isSame}
                           title={isSame ? 'Current cost configuration matches recommendation' : ''}
@@ -524,7 +524,7 @@ const Scenarios: React.FC = () => {
                               setError(getErrorMessage(err, 'Failed to apply cost configuration'));
                             }
                           }}
-                          style={isSame ? { color: '#999', borderColor: '#ddd' } : {}}
+                          className={isSame ? 'opacity-50' : ''}
                         >
                           Apply recommended
                         </Button>
