@@ -483,7 +483,7 @@ const Scenarios: React.FC = () => {
                           }}
                           style={isSame ? { color: '#999', borderColor: '#ddd' } : {}}
                         >
-                          Apply assembly
+                          Apply recommended
                         </Button>
                       );
                     })()}
@@ -526,7 +526,7 @@ const Scenarios: React.FC = () => {
                           }}
                           style={isSame ? { color: '#999', borderColor: '#ddd' } : {}}
                         >
-                          Apply costs
+                          Apply recommended
                         </Button>
                       );
                     })()}
