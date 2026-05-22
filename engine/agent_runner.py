@@ -198,7 +198,7 @@ def _parse_stream_json(raw_output: str) -> tuple[list[dict[str, Any]], str]:
                         tool_invocations[idx]["stderr"] = ""
 
             # Then check top-level tool_use_result
-            if tool_result:
+            if tool_result and isinstance(tool_result, dict):
                 stdout = tool_result.get("stdout", "")
                 stderr = tool_result.get("stderr", "")
                 if tool_invocations:

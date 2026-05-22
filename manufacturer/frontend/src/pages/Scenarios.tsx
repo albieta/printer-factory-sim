@@ -38,6 +38,12 @@ const formatBytes = (size: number): string => {
   return `${(size / 1024 / 1024).toFixed(2)} MB`;
 };
 
+const AVAILABLE_MODELS = [
+  { id: 'claude-opus-4-7', label: 'Claude Opus 4.7', description: 'Most capable, slower, expensive' },
+  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', description: 'Balanced performance and cost' },
+  { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', description: 'Fast and cost-effective' },
+];
+
 const Scenarios: React.FC = () => {
   const [scenarios, setScenarios] = useState<ScenarioSummary[]>([]);
   const [configs, setConfigs] = useState<ConfigSummary[]>([]);
@@ -54,6 +60,8 @@ const Scenarios: React.FC = () => {
   const [selectedScenario, setSelectedScenario] = useState<string>('');
   const [days, setDays] = useState<number>(5);
   const [autoFollow, setAutoFollow] = useState(true);
+  const [selectedModel, setSelectedModel] = useState<string>('claude-haiku-4-5-20251001');
+  const [thinkingEnabled, setThinkingEnabled] = useState<boolean>(false);
   const logBoxRef = useRef<HTMLPreElement | null>(null);
 
   // ── Loaders ─────────────────────────────────────────────────────────────
@@ -173,6 +181,8 @@ const Scenarios: React.FC = () => {
         config: selectedConfig,
         scenario: selectedScenario,
         days,
+        model: selectedModel,
+        thinking_enabled: thinkingEnabled,
       });
       setRun(response.data);
       setNotice(`Started ${response.data.run_id} (${response.data.scenario} / ${response.data.config}).`);
@@ -361,6 +371,49 @@ const Scenarios: React.FC = () => {
                 ))}
               </div>
             ) : null}
+          </div>
+
+          <div className="surface-panel card-body">
+            <div className="section-title"><h4>Choose model & config</h4></div>
+            <Form.Group>
+              <Form.Label>Claude model</Form.Label>
+              <Form.Select value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)}>
+                {AVAILABLE_MODELS.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </Form.Select>
+              {AVAILABLE_MODELS.find((m) => m.id === selectedModel) && (
+                <div className="text-muted small mt-1">
+                  {AVAILABLE_MODELS.find((m) => m.id === selectedModel)?.description}
+                </div>
+              )}
+            </Form.Group>
+            <Form.Group className="mt-3">
+              <Form.Check
+                type="switch"
+                id="thinking-switch"
+                label="Enable extended thinking"
+                checked={thinkingEnabled}
+                onChange={(e) => setThinkingEnabled(e.target.checked)}
+              />
+              <div className="text-muted small mt-1">
+                {thinkingEnabled
+                  ? 'Extended thinking enabled — agents will spend more time reasoning'
+                  : 'Extended thinking disabled — faster execution'}
+              </div>
+            </Form.Group>
+            <div className="metric-list compact-list mt-3">
+              <div className="metric-item stat-row">
+                <span>Selected model</span>
+                <strong className="mono">{selectedModel}</strong>
+              </div>
+              <div className="metric-item stat-row">
+                <span>Thinking mode</span>
+                <strong>{thinkingEnabled ? 'Enabled' : 'Disabled'}</strong>
+              </div>
+            </div>
           </div>
         </div>
       )}

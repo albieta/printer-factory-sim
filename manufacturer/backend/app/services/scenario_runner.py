@@ -84,7 +84,14 @@ class ScenarioRunner:
                 return None
             return self._record.to_dict()
 
-    def start(self, config_name: str, scenario_name: str, days: int) -> dict[str, Any]:
+    def start(
+        self,
+        config_name: str,
+        scenario_name: str,
+        days: int,
+        model: str = "claude-haiku-4-5-20251001",
+        thinking_enabled: bool = False,
+    ) -> dict[str, Any]:
         """Launch a scenario run in the background.
 
         Raises
@@ -135,6 +142,8 @@ class ScenarioRunner:
             # Unbuffered output so the UI sees progress without delays.
             env = os.environ.copy()
             env.setdefault("PYTHONUNBUFFERED", "1")
+            env["CLAUDE_MODEL"] = model
+            env["CLAUDE_THINKING_ENABLED"] = "true" if thinking_enabled else "false"
 
             self._process = subprocess.Popen(
                 cmd,

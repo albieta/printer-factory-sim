@@ -184,9 +184,11 @@ def run_role_agent(
 ) -> str:
     """Run the stub or claude agent for a role; return log output."""
 
+    import os
     skill_file: str | None = role_cfg.get("skill") or None
     cwd = role_cfg.get("path", ".")
-    model: str = role_cfg.get("model", "claude-haiku-4-5-20251001")
+    # Use env var if set, otherwise fall back to config, then default
+    model: str = os.environ.get("CLAUDE_MODEL") or role_cfg.get("model", "claude-haiku-4-5-20251001")
     if skill_file:
         prompt = build_prompt(role, day, signal, skill_file)
     else:

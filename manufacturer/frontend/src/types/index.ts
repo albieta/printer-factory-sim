@@ -262,6 +262,8 @@ export interface ScenarioStartRequest {
   config: string;
   scenario: string;
   days: number;
+  model?: string;
+  thinking_enabled?: boolean;
 }
 
 export interface LogFile {

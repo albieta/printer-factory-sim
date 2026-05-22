@@ -17,6 +17,8 @@ class ScenarioStartRequest(BaseModel):
     config: str = Field(..., description="Filename of config under config/")
     scenario: str = Field(..., description="Filename of scenario under scenarios/")
     days: int = Field(..., ge=1, le=60, description="Number of simulated days to run")
+    model: str = Field(default="claude-haiku-4-5-20251001", description="Claude model to use for agents")
+    thinking_enabled: bool = Field(default=False, description="Whether to enable extended thinking")
 
 
 @router.get("/")
@@ -36,7 +38,13 @@ def get_status() -> dict[str, Any]:
 @router.post("/start")
 def start_scenario(payload: ScenarioStartRequest) -> dict[str, Any]:
     try:
-        return scenario_runner.start(payload.config, payload.scenario, payload.days)
+        return scenario_runner.start(
+            payload.config,
+            payload.scenario,
+            payload.days,
+            model=payload.model,
+            thinking_enabled=payload.thinking_enabled,
+        )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except RuntimeError as exc:
