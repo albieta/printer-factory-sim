@@ -318,6 +318,10 @@ class ScenarioRunner:
                     ],
                 }
             )
+            if data.get("recommended_assembly"):
+                summary["recommended_assembly"] = data.get("recommended_assembly")
+            if data.get("recommended_costs"):
+                summary["recommended_costs"] = data.get("recommended_costs")
         else:  # config
             skill_flags: list[bool] = []
             if isinstance(data, dict):

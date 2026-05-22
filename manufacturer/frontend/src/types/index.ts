@@ -138,6 +138,12 @@ export interface SimulationConfig {
   demand_distribution_mean: number;
   demand_distribution_variance: number;
   sim_date?: string;
+  cost_per_assembly_line: number;
+  cost_per_worker_per_hour: number;
+  max_workers_per_line: number;
+  total_costs: number;
+  total_revenue: number;
+  sim_day: number;
 }
 
 export interface SimulationStatus {
@@ -226,6 +232,11 @@ export interface ScenarioSummary {
     assembly_lines: number;
     workers_per_line: number;
     shift_hours: number;
+  };
+  recommended_costs?: {
+    cost_per_assembly_line: number;
+    cost_per_worker_per_hour: number;
+    max_workers_per_line: number;
   };
 }
 
