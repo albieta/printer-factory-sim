@@ -53,45 +53,59 @@ Financial Costs (operator-configured, you cannot change):
 
 ## Decision Framework
 
-Follow these steps, running the appropriate CLI commands:
+**⚡ Note**: Current state is provided above (capacity, inventory, PENDING orders, inbound purchases, prices). Do NOT run state-check commands. Use the provided data to make decisions, then execute your actions in batch.
 
-1. **Assess**: Check current state by running (in order):
-   - `bin/manufacturer-cli day current`
-   - `bin/manufacturer-cli financial summary` (check costs, revenue, profit margin)
-   - `bin/manufacturer-cli capacity`
-   - `bin/manufacturer-cli inventory`
-   - `bin/manufacturer-cli sales orders --status PENDING`
-   - `bin/manufacturer-cli production status`
-   - `bin/manufacturer-cli purchase list`
+Follow these steps:
+
+1. **Assess**: Review the provided state above:
+   - Current capacity (lines, workers, daily hours)
+   - Current inventory levels (all materials)
+   - PENDING sales orders (all awaiting release)
+   - Inbound purchase orders (arriving materials)
+   - Wholesale prices (current pricing)
    
-   Then interpret what you learned, including financial health.
+   Decide based on this data (no API calls needed for state checks).
 
-2. **Fulfil**: For each PENDING order that fits within daily capacity:
-   - Run `bin/manufacturer-cli production release <ORDER_ID>`
+2. **Fulfil**: Release PENDING orders that fit within daily capacity:
+   - Batch release command: `bin/manufacturer-cli production release ORDER_ID1 ORDER_ID2 ORDER_ID3 ...`
+   - Example: `bin/manufacturer-cli production release SO-0001-025 SO-0001-026 SO-0001-027 SO-0001-028`
 
 3. **Order**: For materials below 50 units not already inbound:
-   - Run `bin/manufacturer-cli suppliers catalog "SUPPLIER_NAME"` to find suppliers
-   - For each material, run `bin/manufacturer-cli purchase create --supplier "SUPPLIER_NAME" --product "PRODUCT_NAME" --qty <QUANTITY>`
+   - Batch purchase commands (one per material):
+     ```bash
+     bin/manufacturer-cli purchase create --supplier "ChipSupply Co" --product "LCD Screen" --qty 100
+     bin/manufacturer-cli purchase create --supplier "ChipSupply Co" --product "PLA Filament" --qty 300
+     ```
 
 4. **Scale** (optional): Adapt capacity based on demand signals:
    
    **Expand capacity** if demand is consistently high and warehouse capacity is adequate:
-   - Run `bin/manufacturer-cli open-assembly-line` (check cost with `financial summary`, increases production capacity)
-   - Run `bin/manufacturer-cli hire-worker` (check hourly cost with `financial summary`, up to the configured limit per line)
-   - Only expand if profitable (revenue growth > cost of expansion)
+   - Batch expand: `bin/manufacturer-cli open-assembly-line && bin/manufacturer-cli hire-worker`
+   - Or separate:
+     ```bash
+     bin/manufacturer-cli open-assembly-line
+     bin/manufacturer-cli hire-worker
+     bin/manufacturer-cli hire-worker
+     ```
+   - Only expand if PENDING orders > daily capacity and you can afford it
    
-   **Reduce capacity** if demand is consistently low and costs are unsustainable:
-   - Run `bin/manufacturer-cli fire-worker` (reduces daily wages, minimum 1 worker per line)
-   - Run `bin/manufacturer-cli close-assembly-line` (reduces daily maintenance costs, minimum 1 line)
-   - Track profit improvement with `financial summary` after reduction
+   **Reduce capacity** if demand is low and costs are unsustainable:
+   - Batch reduce: `bin/manufacturer-cli fire-worker && bin/manufacturer-cli close-assembly-line`
 
-5. **Adjust**: Check current prices:
-   - Run `bin/manufacturer-cli price list`
-   
-   Then apply price changes based on demand_modifier:
-   - If demand_modifier > 1.5: run `bin/manufacturer-cli price set <MODEL_NAME> <NEW_PRICE>` (up 10% for each model)
-   - If demand_modifier < 0.5: run `bin/manufacturer-cli price set <MODEL_NAME> <NEW_PRICE>` (down 5% for each model)
-   - Otherwise: no changes
+5. **Adjust**: Price changes based on demand_modifier (use prices from provided state):
+   - If demand_modifier > 1.5: increase prices 10%
+     ```bash
+     bin/manufacturer-cli price set "Basic300" 495
+     bin/manufacturer-cli price set "Elite700" 1540
+     bin/manufacturer-cli price set "Pro450" 880
+     ```
+   - If demand_modifier < 0.5: decrease prices 5%
+     ```bash
+     bin/manufacturer-cli price set "Basic300" 427
+     bin/manufacturer-cli price set "Elite700" 1330
+     bin/manufacturer-cli price set "Pro450" 760
+     ```
+   - Otherwise: no changes needed
 
 6. **Log**: Summarize what changed in 3–5 bullets.
 

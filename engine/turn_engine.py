@@ -73,6 +73,100 @@ def _retailer_base_prices(retailer_url: str, logger: ApiLogger | None = None) ->
     return prices
 
 
+def _fetch_manufacturer_state(mfr_url: str, logger: ApiLogger | None = None) -> dict[str, Any]:
+    """Fetch all manufacturer state in a single call.
+
+    Uses the bulk state endpoint (/api/state/all) to get all data needed
+    for agent decision-making. Falls back to fetching individually if bulk
+    endpoint is not available.
+    """
+    try:
+        # Try bulk endpoint first (Option C)
+        state = _get(f"{mfr_url}/api/state/all", logger=logger)
+        if "error" not in state:
+            return state
+    except (httpx.HTTPError, KeyError):
+        pass
+
+    # Fallback: fetch individually (Option B)
+    try:
+        return {
+            "day": _get(f"{mfr_url}/api/day/current", logger=logger),
+            "capacity": _get(f"{mfr_url}/api/capacity", logger=logger),
+            "inventory": _get(f"{mfr_url}/api/inventory", logger=logger),
+            "sales_orders": _get(f"{mfr_url}/api/sales/orders?status=PENDING", logger=logger),
+            "purchase_orders": _get(f"{mfr_url}/api/purchases", logger=logger),
+            "production_status": _get(f"{mfr_url}/api/production/status", logger=logger),
+            "prices": _get(f"{mfr_url}/api/prices", logger=logger),
+        }
+    except httpx.HTTPError as exc:
+        return {"error": str(exc)}
+
+
+def _format_state_for_prompt(state: dict[str, Any], role: str = "manufacturer") -> str:
+    """Format state data for inclusion in agent prompt.
+
+    Returns formatted markdown with current state as context for the agent,
+    so it doesn't need to make repeated state-check API calls.
+    """
+    if "error" in state:
+        return f"\n⚠️ State unavailable: {state.get('error', 'Unknown error')}\n"
+
+    if role == "manufacturer":
+        capacity = state.get("capacity", {})
+        inventory = state.get("inventory", {})
+        sales_orders = state.get("sales_orders", {})
+        purchase_orders = state.get("purchase_orders", {})
+        prices = state.get("prices", {})
+        day = state.get("day", {}).get("date", "unknown")
+
+        # Build inventory table
+        inv_lines = ["| Material | Current | Status |", "|-|-|-|"]
+        for mat, qty in inventory.items():
+            inv_lines.append(f"| {mat} | {qty} | OK |")
+        inv_table = "\n".join(inv_lines)
+
+        # Build pending orders summary
+        pending = sales_orders.get("pending", [])
+        pending_count = sales_orders.get("pending_count", 0)
+        pending_sample = "\n".join([f"- {o['id']}: {o['model']}×{o['quantity']}" for o in pending[:5]])
+        if pending_count > 5:
+            pending_sample += f"\n- ... and {pending_count - 5} more"
+
+        # Build inbound purchases summary
+        inbound = purchase_orders.get("inbound", [])
+        inbound_lines = []
+        for p in inbound:
+            inbound_lines.append(f"- {p['product']}: {p['quantity']} units (due day {p.get('expected_arrival_day', '?')})")
+        inbound_text = "\n".join(inbound_lines) if inbound_lines else "None"
+
+        # Build prices
+        price_lines = [f"- {model}: ${price}" for model, price in prices.items()]
+        prices_text = "\n".join(price_lines)
+
+        return f"""
+## Current State (Day {day})
+
+**Production Capacity**: {capacity.get('lines', 1)} lines × {capacity.get('workers_per_line', 1)} workers × {capacity.get('shift_hours', 8)}h = **{capacity.get('daily_hours', 8)} hours/day**
+
+**Inventory Levels**:
+{inv_table}
+
+**PENDING Sales Orders** ({pending_count} total):
+{pending_sample}
+
+**Inbound Purchase Orders** (arriving):
+{inbound_text}
+
+**Wholesale Prices**:
+{prices_text}
+
+---
+"""
+
+    return "\n"
+
+
 # ── per-turn steps ────────────────────────────────────────────────────────────
 
 
@@ -182,8 +276,16 @@ def run_role_agent(
     role_cfg: dict[str, Any],
     day: int,
     signal: dict[str, Any],
+    state_context: str = "",
 ) -> str:
-    """Run the stub or claude agent for a role; return log output."""
+    """Run the stub or claude agent for a role; return log output.
+
+    Parameters
+    ----------
+    state_context:
+        Pre-fetched state formatted for embedding in prompt.
+        If provided, agent reads this instead of making state-check calls.
+    """
 
     import os
     skill_file: str | None = role_cfg.get("skill") or None
@@ -191,7 +293,7 @@ def run_role_agent(
     # Use env var if set, otherwise fall back to config, then default
     model: str = os.environ.get("CLAUDE_MODEL") or role_cfg.get("model", "claude-haiku-4-5-20251001")
     if skill_file:
-        prompt = build_prompt(role, day, signal, skill_file)
+        prompt = build_prompt(role, day, signal, skill_file, state_context=state_context)
     else:
         prompt = f"[stub] {role} day {day}"
     return run_agent(role, day, prompt, skill_file, cwd=cwd, model=model)
@@ -288,8 +390,18 @@ def run_day(
         agent_outputs[role] = run_role_agent(role, r_cfg, day, signal)
         print(f"  [{role}] agent: {agent_outputs[role].strip()[:80]}")
 
+    # Fetch manufacturer state upfront (Option B/C: embed in prompt)
     mfr_name = mfr.get("name", "manufacturer")
-    agent_outputs[mfr_name] = run_role_agent(mfr_name, mfr, day, signal)
+    mfr_state_context = ""
+    if mfr and "url" in mfr:
+        try:
+            mfr_state = _fetch_manufacturer_state(mfr["url"], logger=api_logger)
+            mfr_state_context = _format_state_for_prompt(mfr_state, role="manufacturer")
+            print(f"  [{mfr_name}] state pre-fetched (Option B/C)")
+        except Exception as e:
+            print(f"  [{mfr_name}] state pre-fetch failed: {e}", file=sys.stderr)
+
+    agent_outputs[mfr_name] = run_role_agent(mfr_name, mfr, day, signal, state_context=mfr_state_context)
     print(f"  [{mfr_name}] agent: {agent_outputs[mfr_name].strip()[:80]}")
 
     for p_cfg in providers:

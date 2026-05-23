@@ -15,6 +15,7 @@ from app.api.routes.purchase_orders import router as purchase_orders_router
 from app.api.routes.sales import router as sales_router
 from app.api.routes.scenarios import router as scenarios_router
 from app.api.routes.simulation import router as simulation_router
+from app.api.routes.state import router as state_router
 from app.api.routes.suppliers import router as suppliers_router
 
 router = APIRouter()
@@ -42,3 +43,6 @@ router.include_router(scenarios_router, prefix="/scenarios", tags=["Scenarios"])
 
 # Week 8: financial management and reporting
 router.include_router(financial_router, prefix="/financial", tags=["Financial Management"])
+
+# State snapshot endpoint for agent decision-making
+router.include_router(state_router, tags=["State Snapshot"])

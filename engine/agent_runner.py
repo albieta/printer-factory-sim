@@ -213,15 +213,29 @@ def build_prompt(
     day: int,
     signal: dict[str, object],
     skill_file: str,
+    state_context: str = "",
 ) -> str:
-    """Assemble the prompt given to ``claude --print``."""
+    """Assemble the prompt given to ``claude --print``.
+
+    Parameters
+    ----------
+    state_context:
+        Formatted state data to embed in the prompt.
+        If provided, agent has current state without making API calls.
+    """
 
     skill_text = Path(skill_file).read_text(encoding="utf-8")
+
+    # Insert state context if provided
+    state_section = f"{state_context}\n" if state_context else ""
+
     return (
         f"# Simulation turn — day {day}\n\n"
+        f"{state_section}"
         f"## Your skill\n\n{skill_text}\n\n"
         f"## Market signal for day {day}\n\n"
         f"```json\n{signal}\n```\n\n"
         f"Follow the decision framework in your skill file.  "
+        f"**Batch your commands** to reduce API calls: you can request multiple tool executions in one response.\n"
         f"When done, print your 3–5 bullet summary.\n"
     )
