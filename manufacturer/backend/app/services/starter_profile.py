@@ -65,6 +65,51 @@ STARTER_INVENTORY: dict[str, float] = {
     "LCD Screen": 100.0,
 }
 
+STARTER_SUPPLIERS: list[dict[str, Any]] = [
+    {
+        "name": "PlasticWorks Inc",
+        "product": "PLA Filament",
+        "unit_cost": 15.0,
+        "lead_time_days": 2,
+        "quantity_breaks": [100, 500, 1000],
+    },
+    {
+        "name": "PolymerSupply Co",
+        "product": "ABS Filament",
+        "unit_cost": 18.0,
+        "lead_time_days": 2,
+        "quantity_breaks": [100, 500, 1000],
+    },
+    {
+        "name": "MetalSource Ltd",
+        "product": "Aluminum Frame",
+        "unit_cost": 25.0,
+        "lead_time_days": 3,
+        "quantity_breaks": [50, 200, 500],
+    },
+    {
+        "name": "MotorTech USA",
+        "product": "Stepper Motor",
+        "unit_cost": 12.0,
+        "lead_time_days": 2,
+        "quantity_breaks": [100, 500, 1000],
+    },
+    {
+        "name": "ChipSupply Co",
+        "product": "Control Board",
+        "unit_cost": 45.0,
+        "lead_time_days": 4,
+        "quantity_breaks": [50, 100, 250],
+    },
+    {
+        "name": "DisplayTech Inc",
+        "product": "LCD Screen",
+        "unit_cost": 60.0,
+        "lead_time_days": 3,
+        "quantity_breaks": [25, 50, 100],
+    },
+]
+
 ORDER_STATUS_LABELS = {
     "PENDING": "Awaiting Release",
     "RELEASED": "Queued for Production",

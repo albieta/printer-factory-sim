@@ -44,27 +44,29 @@ Use these as normal stock targets unless the live `catalog` or `stock` output sh
 
 ## Decision Framework
 
+**⚡ Batch your commands** to reduce API calls: combine state checks and actions with `&&`.
+
 Follow these steps, running the appropriate CLI commands:
 
-1. **Assess**
-   - Run `bin/provider-cli day current`
-   - Run `bin/provider-cli catalog`
-   - Run `bin/provider-cli stock`
-   - Run `bin/provider-cli orders list`
+1. **Assess** (batch state checks)
+   ```bash
+   bin/provider-cli day current && bin/provider-cli catalog && bin/provider-cli stock && bin/provider-cli orders list
+   ```
    - Print one `LOG: assess - ...` line naming the tightest stock item and any pending/rejected order pressure.
 
-2. **Restock**
+2. **Restock** (batch restock commands)
    - If a product is below 50% of its starting stock, restock up to about the starting stock.
    - If `demand_modifier > 1.5`, restock products below 75% of starting stock so the manufacturer can react to demand.
    - If `supply_modifier < 0.7`, restock conservatively but protect products already below 30% first.
-   - For each restock, run `bin/provider-cli restock "PRODUCT_NAME" QUANTITY`.
+   - Batch restock: `bin/provider-cli restock "Product1" 100 && bin/provider-cli restock "Product2" 200`
    - Print one `LOG: restock - ...` line explaining what changed or why no restock was needed.
 
-3. **Adjust Prices**
+3. **Adjust Prices** (batch price changes)
    - Use the tiers shown by `catalog`; the second argument to `price set` is the tier's `min_quantity`.
    - If stock is below 30% of starting stock, raise the top tier for that product 5-10%.
    - If stock is above 150% of starting stock and demand is not high, lower the top tier 5-10%.
    - Keep every daily price move within 15%.
+   - Batch pricing: `bin/provider-cli price set "Product1" 100 50 && bin/provider-cli price set "Product2" 50 55`
    - Print one `LOG: pricing - ...` line naming each price change or saying none.
 
 4. **Summarize**

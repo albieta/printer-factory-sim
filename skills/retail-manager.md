@@ -45,19 +45,20 @@ Use these as low-stock anchors unless the live `stock` output shows a better cur
 
 ## Decision Framework
 
+**⚡ Batch your commands** to reduce API calls: combine state checks and actions with `&&`.
+
 Follow these steps, running the appropriate CLI commands:
 
-1. **Assess**
-   - Run `bin/retailer-cli day current`
-   - Run `bin/retailer-cli catalog`
-   - Run `bin/retailer-cli stock`
-   - Run `bin/retailer-cli customers orders`
-   - Run `bin/retailer-cli purchase list`
+1. **Assess** (batch state checks)
+   ```bash
+   bin/retailer-cli day current && bin/retailer-cli catalog && bin/retailer-cli stock && bin/retailer-cli customers orders && bin/retailer-cli purchase list
+   ```
    - Print one `LOG: assess - ...` line naming demand/backorder pressure and the lowest-stock model.
 
-2. **Customer Orders**
+2. **Customer Orders** (batch fulfill/backorder commands)
    - For any BACKORDERED order that now has enough stock, run `bin/retailer-cli fulfill ORDER_ID`.
    - For any PENDING order with insufficient stock, run `bin/retailer-cli backorder ORDER_ID`.
+   - Batch multiple: `bin/retailer-cli fulfill O1 && bin/retailer-cli fulfill O2 && bin/retailer-cli backorder O3`
    - Print one `LOG: customers - ...` line with fulfilled/backordered counts or "no manual customer action".
 
 3. **Reorder From Manufacturer**
