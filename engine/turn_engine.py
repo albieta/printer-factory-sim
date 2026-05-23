@@ -21,7 +21,6 @@ each app's REST surface.
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -62,19 +61,27 @@ def _clear_state_cache() -> None:
 def _post(url: str, payload: dict[str, Any], logger: ApiLogger | None = None) -> dict[str, Any]:
     with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
         r = client.post(url, json=payload)
+        try:
+            data = r.json() if r.content else {}
+        except Exception:
+            data = {}
         if logger:
-            logger.log("POST", url, payload, r.status_code, r.json())
+            logger.log("POST", url, payload, r.status_code, data)
         r.raise_for_status()
-    return dict(r.json())
+    return dict(data) if data else {}
 
 
 def _get(url: str, logger: ApiLogger | None = None) -> dict[str, Any]:
     with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
         r = client.get(url)
+        try:
+            data = r.json() if r.content else {}
+        except Exception:
+            data = {}
         if logger:
-            logger.log("GET", url, None, r.status_code, r.json())
+            logger.log("GET", url, None, r.status_code, data)
         r.raise_for_status()
-    return dict(r.json())
+    return dict(data) if data else {}
 
 
 def _retailer_base_prices(retailer_url: str, logger: ApiLogger | None = None) -> dict[str, float]:
@@ -219,24 +226,23 @@ def inject_customer_demand(
     return results
 
 
-def forward_demand_to_manufacturer(
-    mfr_cfg: dict[str, Any],
-    retailer_name: str,
+def forward_demand_via_retailer(
+    retailer_cfg: dict[str, Any],
     demand_results: list[dict[str, Any]],
     logger: ApiLogger | None = None,
 ) -> list[dict[str, Any]]:
-    """Forward each demand order to the manufacturer as a SalesOrder.
+    """Forward BACKORDERED demand orders to the retailer's purchase endpoint.
 
-    This bridges the gap in Phase 1 where the retailer (with no skill file)
-    doesn't auto-restock from the manufacturer. The turn engine directly
-    POSTs sales orders to /api/sales/orders at the manufacturer.
+    The retailer's place_purchase_order() will create both a SalesOrder at
+    the manufacturer AND a local PurchaseOrder (tracked via external_order_id).
+
+    Only forward orders that are BACKORDERED — orders already FULFILLED from
+    retailer's stock don't need production.
 
     Parameters
     ----------
-    mfr_cfg:
-        Manufacturer config from sim.json with 'url' key.
-    retailer_name:
-        Name of the retailer to set as source of sales order.
+    retailer_cfg:
+        Retailer config from sim.json with 'url' key.
     demand_results:
         List of demand order results from inject_customer_demand.
     logger:
@@ -244,22 +250,24 @@ def forward_demand_to_manufacturer(
 
     Returns
     -------
-    List of results for each order forwarded. Each item has keys:
+    List of results for each PO created. Each item has keys:
     - "model", "qty": order details
-    - "result": response from manufacturer (on success)
+    - "result": response from retailer (on success)
     - "error": error message (on failure)
     """
     results = []
     for order in demand_results:
         if "error" in order:
-            # Skip orders that failed to place at retailer
+            continue
+        order_data = order.get("result", {}).get("order", {})
+        if order_data.get("status") != "BACKORDERED":
+            # Order was fulfilled from retailer stock; no production needed
             continue
         try:
             result = _post(
-                f"{mfr_cfg['url']}/api/sales/orders",
+                f"{retailer_cfg['url']}/api/purchases",
                 {
-                    "retailer": retailer_name,
-                    "model": order["model"],
+                    "product_name": order["model"],
                     "quantity": order["qty"],
                 },
                 logger=logger,
@@ -393,12 +401,11 @@ def run_day(
         )
     summary["demand_injected"] = demand_results
 
-    # ── 1.5. Forward demand to manufacturer (Phase 1 bridge) ──────────────────
+    # ── 1.5. Forward BACKORDERED demand to retailer's purchase service ─────────
     sales_forward_results = []
     for i, r_cfg in enumerate(retailers):
-        r_name = r_cfg.get("name", "retailer")
         sales_forward_results.append(
-            forward_demand_to_manufacturer(mfr, r_name, demand_results[i], logger=api_logger)
+            forward_demand_via_retailer(r_cfg, demand_results[i], logger=api_logger)
         )
     summary["sales_forwarded"] = sales_forward_results
 
@@ -455,104 +462,8 @@ def run_day(
     return summary
 
 
-def apply_assembly_config(mfr_url: str, logger: ApiLogger | None = None) -> dict[str, Any]:
-    """Apply assembly configuration from environment variables to the manufacturer.
-
-    Environment variables:
-    - ASSEMBLY_LINES: number of parallel assembly lines
-    - WORKERS_PER_LINE: workers per line
-    - SHIFT_HOURS: hours per shift
-    """
-
-    assembly_lines = os.environ.get("ASSEMBLY_LINES")
-    workers_per_line = os.environ.get("WORKERS_PER_LINE")
-    shift_hours = os.environ.get("SHIFT_HOURS")
-
-    if not (assembly_lines or workers_per_line or shift_hours):
-        return {}
-
-    try:
-        payload = {}
-        if assembly_lines:
-            payload["assembly_lines"] = int(assembly_lines)
-        if workers_per_line:
-            payload["workers_per_line"] = int(workers_per_line)
-        if shift_hours:
-            payload["shift_hours"] = float(shift_hours)
-
-        result = _put(f"{mfr_url}/api/config/", payload, logger=logger)
-        return result
-    except (ValueError, httpx.HTTPError) as exc:
-        return {"error": str(exc)}
 
 
-def apply_scenario_config(mfr_url: str, scenario: dict[str, Any], logger: ApiLogger | None = None) -> dict[str, Any]:
-    """Apply scenario configuration (assembly and costs) to the manufacturer if config is at defaults.
-
-    Only applies recommended_assembly and recommended_costs from the scenario JSON if the
-    current configuration matches the starter profile defaults. This prevents overriding
-    user customizations.
-
-    Environment variables take precedence over scenario values.
-    """
-    try:
-        current_config = _get(f"{mfr_url}/api/config/", logger=logger)
-    except httpx.HTTPError as exc:
-        return {"error": str(exc)}
-
-    # Check if current config is at starter defaults (user hasn't customized)
-    # by comparing key assembly and cost fields
-    is_at_defaults = (
-        current_config.get("assembly_lines") == 1
-        and current_config.get("workers_per_line") == 1
-        and current_config.get("shift_hours") == 8.0
-        and current_config.get("cost_per_assembly_line") == 50000.0
-        and current_config.get("cost_per_worker_per_hour") == 50.0
-        and current_config.get("max_workers_per_line") == 10
-    )
-
-    if not is_at_defaults:
-        # User has customized config; don't override
-        return current_config
-
-    payload = {}
-
-    recommended_assembly = scenario.get("recommended_assembly", {})
-    if recommended_assembly:
-        if "assembly_lines" in recommended_assembly:
-            payload["assembly_lines"] = recommended_assembly["assembly_lines"]
-        if "workers_per_line" in recommended_assembly:
-            payload["workers_per_line"] = recommended_assembly["workers_per_line"]
-        if "shift_hours" in recommended_assembly:
-            payload["shift_hours"] = recommended_assembly["shift_hours"]
-
-    recommended_costs = scenario.get("recommended_costs", {})
-    if recommended_costs:
-        if "cost_per_assembly_line" in recommended_costs:
-            payload["cost_per_assembly_line"] = recommended_costs["cost_per_assembly_line"]
-        if "cost_per_worker_per_hour" in recommended_costs:
-            payload["cost_per_worker_per_hour"] = recommended_costs["cost_per_worker_per_hour"]
-        if "max_workers_per_line" in recommended_costs:
-            payload["max_workers_per_line"] = recommended_costs["max_workers_per_line"]
-
-    if not payload:
-        return current_config
-
-    try:
-        result = _put(f"{mfr_url}/api/config/", payload, logger=logger)
-        return result
-    except httpx.HTTPError as exc:
-        return {"error": str(exc)}
-
-
-def _put(url: str, payload: dict[str, Any], logger: ApiLogger | None = None) -> dict[str, Any]:
-    """PUT request to update resource."""
-    with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
-        r = client.put(url, json=payload)
-        if logger:
-            logger.log("PUT", url, payload, r.status_code, r.json())
-        r.raise_for_status()
-    return dict(r.json())
 
 
 # ── entry point ───────────────────────────────────────────────────────────────
@@ -583,12 +494,6 @@ def main(argv: list[str]) -> int:
 
     print(f"Turn engine — scenario: {scenario.get('scenario_name', 'unnamed')}")
     print(f"Running {num_days} day(s).")
-
-    # Apply assembly configuration from environment variables only
-    # (Scenario config is applied via UI, not automatically)
-    mfr = config.get("manufacturer", {})
-    if mfr and "url" in mfr:
-        apply_assembly_config(mfr["url"])
 
     for day in range(1, num_days + 1):
         run_day(config, scenario, day)

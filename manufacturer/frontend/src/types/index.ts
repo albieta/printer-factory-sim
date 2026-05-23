@@ -297,6 +297,33 @@ export interface ScenarioRunRecord {
   current_day: number;
 }
 
+// ── Retailer types ──────────────────────────────────────────────────────────
+export interface RetailerStockItem {
+  product_name: string;
+  quantity: number;
+}
+
+export interface RetailerCustomerOrder {
+  id: number;
+  customer?: string;
+  product?: string;
+  quantity: number;
+  status: string;
+  placed_day?: number;
+  fulfilled_day?: number;
+  total_price?: number;
+}
+
+export interface RetailerPurchaseOrder {
+  id: number;
+  product_name?: string;
+  quantity: number;
+  status: string;
+  placed_day?: number;
+  expected_delivery_day?: number;
+  delivered_day?: number;
+}
+
 export interface ScenarioStatusResponse {
   active: boolean;
   run: ScenarioRunRecord | null;

@@ -75,8 +75,55 @@ export const suppliersAPI = {
 export const providersAPI = {
   getProviders: () => api.get('/providers/'),
   getProviderCatalog: (name: string) => api.get(`/providers/${encodeURIComponent(name)}/catalog`),
+  getProviderStock: (name: string) => api.get(`/providers/${encodeURIComponent(name)}/stock`),
+  getProviderOrders: (name: string) => api.get(`/providers/${encodeURIComponent(name)}/orders`),
   updateProviderUrl: (name: string, url: string) =>
     api.put(`/providers/${encodeURIComponent(name)}/url`, { url }),
+};
+
+export interface RetailerSummary {
+  available: boolean;
+  current_day: number;
+  fulfilled_count: number;
+  backordered_count: number;
+  total_revenue: number;
+}
+
+export interface RetailerStock {
+  available: boolean;
+  schema_version?: number;
+  items?: Array<{ product_name: string; quantity: number }>;
+}
+
+export interface RetailerOrder {
+  id: number;
+  customer?: string;
+  product?: string;
+  quantity: number;
+  status: string;
+  placed_day?: number;
+  fulfilled_day?: number;
+  total_price?: number;
+}
+
+export interface RetailerPurchaseOrder {
+  id: number;
+  product_name?: string;
+  quantity: number;
+  status: string;
+  placed_day?: number;
+  expected_delivery_day?: number;
+  delivered_day?: number;
+}
+
+export const retailerAPI = {
+  getSummary: () => api.get<RetailerSummary>('/retailer/summary'),
+  getStock: () => api.get<RetailerStock>('/retailer/stock'),
+  getOrders: (status?: string) =>
+    api.get<{ available: boolean; orders: RetailerOrder[] }>('/retailer/orders', {
+      params: status ? { status } : {},
+    }),
+  getPurchases: () => api.get<{ available: boolean; purchases: RetailerPurchaseOrder[] }>('/retailer/purchases'),
 };
 
 export const inventoryAPI = {

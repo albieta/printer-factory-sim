@@ -21,6 +21,7 @@ handles create, list, get, and the manual release step.
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -222,6 +223,26 @@ class SalesOrderService:
             .all()
         )
         return [self.serialize_order(o) for o in active]
+
+    def auto_release_pending_orders(self, sim_date: date) -> int:
+        """Auto-release all PENDING SalesOrders to production.
+
+        Used in stub mode (no LLM) to ensure the manufacturing pipeline
+        progresses even when agents don't explicitly release orders.
+
+        Returns the count of orders successfully released.
+        """
+        pending = self.db.query(SalesOrder).filter(
+            SalesOrder.status == SalesOrderStatus.PENDING
+        ).all()
+
+        released = 0
+        for order in pending:
+            result = self.release_to_production(str(order.id))
+            if result.get("success"):
+                released += 1
+
+        return released
 
     def progress_sales_orders(self, sim_day: int) -> dict[str, int]:
         """Advance SalesOrder states as part of day-advance.

@@ -65,6 +65,63 @@ class ProviderProxyService:
 
         return None
 
+    def get_provider_stock(self, provider_name: str) -> dict[str, Any] | None:
+        """Proxy GET /api/stock from named provider.
+        Returns None if provider offline or not found."""
+        from app.utils.app_config import get_configured_providers
+
+        for provider in get_configured_providers():
+            if provider.get("name") != provider_name:
+                continue
+
+            provider_url = self.provider_urls.get(provider_name) or provider.get("url")
+            if not provider_url:
+                return None
+
+            if not self._is_provider_online(provider_url):
+                return {"name": provider_name, "online": False, "items": []}
+
+            try:
+                with httpx.Client(timeout=3.0) as client:
+                    response = client.get(f"{provider_url}/api/stock")
+                    if response.status_code == 200:
+                        return response.json()
+            except (httpx.RequestError, httpx.TimeoutException):
+                pass
+
+            return None
+
+        return None
+
+    def get_provider_orders(self, provider_name: str) -> list[dict[str, Any]] | None:
+        """Proxy GET /api/orders from named provider.
+        Returns None if provider offline or not found."""
+        from app.utils.app_config import get_configured_providers
+
+        for provider in get_configured_providers():
+            if provider.get("name") != provider_name:
+                continue
+
+            provider_url = self.provider_urls.get(provider_name) or provider.get("url")
+            if not provider_url:
+                return None
+
+            if not self._is_provider_online(provider_url):
+                return []
+
+            try:
+                with httpx.Client(timeout=3.0) as client:
+                    response = client.get(f"{provider_url}/api/orders")
+                    if response.status_code == 200:
+                        data = response.json()
+                        return data if isinstance(data, list) else data.get("orders", [])
+            except (httpx.RequestError, httpx.TimeoutException):
+                pass
+
+            return None
+
+        return None
+
     def _is_provider_online(self, provider_url: str) -> bool:
         """Check if provider is reachable with a GET request to /health."""
         try:

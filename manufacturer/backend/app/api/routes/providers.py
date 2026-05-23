@@ -34,6 +34,28 @@ def get_provider_catalog(name: str, db: Session = Depends(get_db)) -> dict[str, 
     return catalog
 
 
+@router.get("/{name}/stock")
+def get_provider_stock(name: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Proxy stock levels from named provider."""
+    config = db.query(SimulationConfig).first()
+    provider_urls = config.provider_urls or {} if config else {}
+    service = ProviderProxyService(provider_urls)
+    stock = service.get_provider_stock(name)
+    if stock is None:
+        return {"name": name, "online": False, "items": []}
+    return stock
+
+
+@router.get("/{name}/orders")
+def get_provider_orders(name: str, db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+    """Proxy orders from named provider."""
+    config = db.query(SimulationConfig).first()
+    provider_urls = config.provider_urls or {} if config else {}
+    service = ProviderProxyService(provider_urls)
+    orders = service.get_provider_orders(name)
+    return orders or []
+
+
 @router.put("/{name}/url")
 def update_provider_url(name: str, payload: ProviderUrlUpdate, db: Session = Depends(get_db)) -> dict[str, Any]:
     """Update provider URL override. Pass empty string to use default from config.json."""

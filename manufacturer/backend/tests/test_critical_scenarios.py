@@ -18,8 +18,6 @@ from app.models.models import (
     Event,
     EventType,
     Inventory,
-    ManufacturingOrder,
-    OrderStatus,
     Product,
     ProductType,
     SimulationConfig,

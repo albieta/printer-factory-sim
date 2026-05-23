@@ -40,6 +40,8 @@ const Suppliers: React.FC = () => {
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [providerCatalogs, setProviderCatalogs] = useState<Map<string, ProviderCatalog>>(new Map());
+  const [providerStocks, setProviderStocks] = useState<Map<string, Array<{product_name: string; quantity: number}>>>(new Map());
+  const [providerOrders, setProviderOrders] = useState<Map<string, Array<{id: number; status: string}>>>(new Map());
   const [loading, setLoading] = useState(true);
   const [savingSupplier, setSavingSupplier] = useState(false);
   const [savingPo, setSavingPo] = useState(false);
@@ -83,6 +85,9 @@ const Suppliers: React.FC = () => {
       setError(null);
 
       const catalogMap = new Map<string, ProviderCatalog>();
+      const stockMap = new Map<string, Array<{product_name: string; quantity: number}>>();
+      const ordersMap = new Map<string, Array<{id: number; status: string}>>();
+
       for (const provider of providersRes.data) {
         if (provider.online) {
           try {
@@ -91,11 +96,31 @@ const Suppliers: React.FC = () => {
           } catch {
             catalogMap.set(provider.name, { name: provider.name, url: provider.url, online: false });
           }
+
+          try {
+            const stockRes = await providersAPI.getProviderStock(provider.name);
+            if (stockRes.data && stockRes.data.items) {
+              stockMap.set(provider.name, stockRes.data.items);
+            }
+          } catch {
+            // Stock data unavailable
+          }
+
+          try {
+            const ordersRes = await providersAPI.getProviderOrders(provider.name);
+            if (ordersRes.data && Array.isArray(ordersRes.data)) {
+              ordersMap.set(provider.name, ordersRes.data);
+            }
+          } catch {
+            // Orders data unavailable
+          }
         } else {
           catalogMap.set(provider.name, { name: provider.name, url: provider.url, online: false });
         }
       }
       setProviderCatalogs(catalogMap);
+      setProviderStocks(stockMap);
+      setProviderOrders(ordersMap);
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to load supplier and purchasing data.'));
     } finally {
@@ -362,6 +387,8 @@ const Suppliers: React.FC = () => {
           </p>
           {providers.map((provider) => {
             const catalog = providerCatalogs.get(provider.name);
+            const stock = providerStocks.get(provider.name) ?? [];
+            const orders = providerOrders.get(provider.name) ?? [];
             return (
               <Card key={provider.name} className="mb-4">
                 <Card.Header className="d-flex justify-content-between align-items-center">
@@ -377,65 +404,113 @@ const Suppliers: React.FC = () => {
                   )}
                 </Card.Header>
                 <Card.Body>
-                  {provider.online && catalog?.products && catalog.products.length > 0 ? (
-                    <Table responsive hover>
-                      <thead>
-                        <tr>
-                          <th>Product</th>
-                          <th>Stock</th>
-                          <th>Lead Time</th>
-                          <th>Base Price</th>
-                          <th>Pricing Tiers</th>
-                          <th>Action</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {catalog.products.map((product) => {
-                          const linkedProductIds = linkedProviderProducts.get(provider.url);
-                          const isLinked = linkedProductIds?.has(product.id) ?? false;
-                          return (
-                            <tr key={product.id}>
-                              <td><strong>{product.name}</strong></td>
-                              <td>{product.stock_quantity} units</td>
-                              <td>{product.lead_time_days} days</td>
-                              <td>{formatCurrency(Number(product.pricing_tiers?.[0]?.unit_price ?? 0))}</td>
-                              <td>
-                                {product.pricing_tiers && product.pricing_tiers.length > 1 ? (
-                                  product.pricing_tiers.map((tier) => (
-                                    <span key={`${tier.min_quantity}`} className="badge badge-neutral me-2">
-                                      {tier.min_quantity}+ @ {formatCurrency(Number(tier.unit_price))}
-                                    </span>
-                                  ))
-                                ) : (
-                                  <span className="text-muted">No tiers</span>
-                                )}
-                              </td>
-                              <td>
-                                <Button
-                                  variant={isLinked ? 'secondary' : 'outline-primary'}
-                                  size="sm"
-                                  onClick={() => {
-                                    if (!isLinked) {
-                                      setSelectedProviderProduct({ provider: provider.name, product });
-                                      setShowLinkModal(true);
-                                    }
-                                  }}
-                                  disabled={isLinked}
-                                >
-                                  {isLinked ? '✓ Linked' : 'Link as Supplier'}
-                                </Button>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </Table>
-                  ) : !provider.online ? (
+                  {provider.online ? (
+                    <>
+                      {/* Catalog Products */}
+                      {catalog?.products && catalog.products.length > 0 ? (
+                        <>
+                          <h5 className="mb-3">Available Products</h5>
+                          <Table responsive hover className="mb-4">
+                            <thead>
+                              <tr>
+                                <th>Product</th>
+                                <th>In Stock</th>
+                                <th>Lead Time</th>
+                                <th>Base Price</th>
+                                <th>Pricing Tiers</th>
+                                <th>Action</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {catalog.products.map((product) => {
+                                const linkedProductIds = linkedProviderProducts.get(provider.url);
+                                const isLinked = linkedProductIds?.has(product.id) ?? false;
+                                return (
+                                  <tr key={product.id}>
+                                    <td><strong>{product.name}</strong></td>
+                                    <td>{product.stock_quantity} units</td>
+                                    <td>{product.lead_time_days} days</td>
+                                    <td>{formatCurrency(Number(product.pricing_tiers?.[0]?.unit_price ?? 0))}</td>
+                                    <td>
+                                      {product.pricing_tiers && product.pricing_tiers.length > 1 ? (
+                                        product.pricing_tiers.map((tier) => (
+                                          <span key={`${tier.min_quantity}`} className="badge badge-neutral me-2">
+                                            {tier.min_quantity}+ @ {formatCurrency(Number(tier.unit_price))}
+                                          </span>
+                                        ))
+                                      ) : (
+                                        <span className="text-muted">No tiers</span>
+                                      )}
+                                    </td>
+                                    <td>
+                                      <Button
+                                        variant={isLinked ? 'secondary' : 'outline-primary'}
+                                        size="sm"
+                                        onClick={() => {
+                                          if (!isLinked) {
+                                            setSelectedProviderProduct({ provider: provider.name, product });
+                                            setShowLinkModal(true);
+                                          }
+                                        }}
+                                        disabled={isLinked}
+                                      >
+                                        {isLinked ? '✓ Linked' : 'Link as Supplier'}
+                                      </Button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </Table>
+                        </>
+                      ) : null}
+
+                      {/* Provider Stock Summary */}
+                      {stock.length > 0 ? (
+                        <>
+                          <h5 className="mb-3">Current Stock at {provider.name}</h5>
+                          <Table responsive hover className="mb-4" size="sm">
+                            <thead>
+                              <tr>
+                                <th>Product</th>
+                                <th>Quantity</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {stock.map((item, idx) => (
+                                <tr key={idx}>
+                                  <td>{item.product_name}</td>
+                                  <td>{item.quantity} units</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </Table>
+                        </>
+                      ) : null}
+
+                      {/* Recent Orders to Provider */}
+                      {orders.length > 0 ? (
+                        <>
+                          <h5 className="mb-3">Recent Orders from Manufacturer</h5>
+                          <div className="text-muted mb-4">
+                            <span className="badge badge-neutral me-2">
+                              {orders.filter((o) => o.status === 'PENDING').length} In Flight
+                            </span>
+                            <span className="badge badge-completed">
+                              {orders.filter((o) => o.status === 'DELIVERED').length} Delivered
+                            </span>
+                          </div>
+                        </>
+                      ) : null}
+
+                      {!catalog?.products && stock.length === 0 && orders.length === 0 ? (
+                        <div className="text-muted">No catalog, stock, or order data available from this provider.</div>
+                      ) : null}
+                    </>
+                  ) : (
                     <Alert variant="warning" className="mb-0">
                       <strong>{provider.name}</strong> is currently offline. Catalog data is unavailable. Existing suppliers from this provider will continue to function based on cached settings.
                     </Alert>
-                  ) : (
-                    <div className="text-muted">No products available from this provider.</div>
                   )}
                 </Card.Body>
               </Card>

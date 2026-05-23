@@ -5,6 +5,7 @@ import Overview from './pages/Overview';
 import Orders from './pages/Orders';
 import Inventory from './pages/Inventory';
 import Suppliers from './pages/Suppliers';
+import Retailers from './pages/Retailers';
 import Production from './pages/Production';
 import Reports from './pages/Reports';
 import Financial from './pages/Financial';
@@ -20,6 +21,7 @@ const App: React.FC = () => {
           <Route path="/orders" element={<Orders />} />
           <Route path="/inventory" element={<Inventory />} />
           <Route path="/suppliers" element={<Suppliers />} />
+          <Route path="/retailers" element={<Retailers />} />
           <Route path="/production" element={<Production />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/financial" element={<Financial />} />

@@ -12,6 +12,7 @@ from app.api.routes.prices import router as prices_router
 from app.api.routes.production import router as production_router
 from app.api.routes.providers import router as providers_router
 from app.api.routes.purchase_orders import router as purchase_orders_router
+from app.api.routes.retailer import router as retailer_router
 from app.api.routes.sales import router as sales_router
 from app.api.routes.scenarios import router as scenarios_router
 from app.api.routes.simulation import router as simulation_router
@@ -46,3 +47,6 @@ router.include_router(financial_router, prefix="/financial", tags=["Financial Ma
 
 # State snapshot endpoint for agent decision-making
 router.include_router(state_router, tags=["State Snapshot"])
+
+# Week 8: retailer proxy routes
+router.include_router(retailer_router, prefix="/retailer", tags=["Retailers"])

@@ -13,6 +13,7 @@ import {
   FaFileAlt,
   FaIndustry,
   FaPlayCircle,
+  FaStore,
   FaTimes,
   FaTruck,
 } from 'react-icons/fa';
@@ -29,6 +30,7 @@ const navItems = [
   { path: '/orders', icon: <FaClipboardList />, label: 'Manufacturing Orders' },
   { path: '/inventory', icon: <FaBoxes />, label: 'Inventory' },
   { path: '/suppliers', icon: <FaTruck />, label: 'Procurement' },
+  { path: '/retailers', icon: <FaStore />, label: 'Retailers' },
   { path: '/production', icon: <FaIndustry />, label: 'Assembly' },
   { path: '/reports', icon: <FaFileAlt />, label: 'Analytics' },
   { path: '/financial', icon: <FaDollarSign />, label: 'Financials' },

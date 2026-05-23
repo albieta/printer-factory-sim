@@ -276,6 +276,17 @@ class PurchaseOrderService:
 
             inventory_service.update_inventory(po.product_id, Decimal(po.quantity), "add")
 
+            if po.unit_cost and float(po.unit_cost) > 0:
+                from app.models.models import SimulationConfig as SimConf
+                from app.services.financial_service import FinancialService
+                sim_day = self.db.query(SimConf).one().sim_day
+                cost = float(po.unit_cost) * po.quantity
+                product_label = po.product.name if po.product else str(po.product_id)
+                FinancialService(self.db).record_materials_purchased(
+                    sim_day, cost,
+                    f"PO {po.reference_code}: {po.quantity}× {product_label}"
+                )
+
             event = Event(
                 event_type=EventType.PO_DELIVERED,
                 sim_date=sim_date,
