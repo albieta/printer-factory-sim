@@ -9,7 +9,8 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.services.starter_profile import STARTER_INVENTORY, build_starter_config
 
-DATABASE_URL = "sqlite:///./printer_factory_sim.db"
+_db_path = Path(__file__).resolve().parent.parent.parent / "printer_factory_sim.db"
+DATABASE_URL = f"sqlite:///{_db_path}"
 
 engine = create_engine(
     DATABASE_URL,

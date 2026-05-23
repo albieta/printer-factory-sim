@@ -23,8 +23,6 @@ from __future__ import annotations
 import json
 import os
 import sys
-import threading
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -40,24 +38,22 @@ DEFAULT_TIMEOUT = 10.0  # seconds for routine API calls
 
 # ── State cache for within-day queries ────────────────────────────────────────
 _state_cache: dict[str, dict[str, Any]] = {}
-_cache_lock = threading.Lock()
 
 
 def _get_cached_state(url: str, logger: ApiLogger | None = None) -> dict[str, Any]:
     """Get cached state or fetch and cache it."""
-    with _cache_lock:
-        if url in _state_cache:
-            return _state_cache[url]
+    if url in _state_cache:
+        return _state_cache[url]
 
-        state = _fetch_manufacturer_state(url, logger=logger)
-        _state_cache[url] = state
-        return state
+    state = _fetch_manufacturer_state(url, logger=logger)
+    _state_cache[url] = state
+    return state
 
 
 def _clear_state_cache() -> None:
     """Clear state cache (called at start of new day)."""
-    with _cache_lock:
-        _state_cache.clear()
+    global _state_cache
+    _state_cache.clear()
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -406,10 +402,14 @@ def run_day(
         )
     summary["sales_forwarded"] = sales_forward_results
 
-    # ── 2. Role decision hooks (parallelized where possible) ────────────────────
+    # ── 2. Role decision hooks ────────────────────────────────────────────────
     # Clear state cache at start of day
     _clear_state_cache()
     agent_outputs = {}
+    for r_cfg in retailers:
+        role = r_cfg.get("name", "retailer")
+        agent_outputs[role] = run_role_agent(role, r_cfg, day, signal)
+        print(f"  [{role}] agent: {agent_outputs[role].strip()[:80]}")
 
     # Fetch manufacturer state upfront (Option B/C: embed in prompt + cache)
     mfr_name = mfr.get("name", "manufacturer")
@@ -422,40 +422,13 @@ def run_day(
         except Exception as e:
             print(f"  [{mfr_name}] state pre-fetch failed: {e}", file=sys.stderr)
 
-    # Run retailer and provider agents in parallel (they don't depend on each other)
-    # Manufacturer must run sequentially after retailers (depends on demand)
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        retailer_futures = {}
-        for r_cfg in retailers:
-            role = r_cfg.get("name", "retailer")
-            retailer_futures[role] = executor.submit(run_role_agent, role, r_cfg, day, signal)
-
-        provider_futures = {}
-        for p_cfg in providers:
-            role = p_cfg.get("name", "provider")
-            provider_futures[role] = executor.submit(run_role_agent, role, p_cfg, day, signal)
-
-        # Collect retailer results (must wait before manufacturer runs)
-        for role, future in retailer_futures.items():
-            agent_outputs[role] = future.result()
-            print(f"  [{role}] agent: {agent_outputs[role].strip()[:80]}")
-
-    # Run manufacturer (after retailers, but can run in parallel with providers)
     agent_outputs[mfr_name] = run_role_agent(mfr_name, mfr, day, signal, state_context=mfr_state_context)
     print(f"  [{mfr_name}] agent: {agent_outputs[mfr_name].strip()[:80]}")
 
-    # Collect provider results (they may already be done if running in parallel)
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        provider_futures = {}
-        for p_cfg in providers:
-            role = p_cfg.get("name", "provider")
-            # Check if already running from earlier parallel execution
-            if role not in agent_outputs:
-                provider_futures[role] = executor.submit(run_role_agent, role, p_cfg, day, signal)
-
-        for role, future in provider_futures.items():
-            agent_outputs[role] = future.result()
-            print(f"  [{role}] agent: {agent_outputs[role].strip()[:80]}")
+    for p_cfg in providers:
+        role = p_cfg.get("name", "provider")
+        agent_outputs[role] = run_role_agent(role, p_cfg, day, signal)
+        print(f"  [{role}] agent: {agent_outputs[role].strip()[:80]}")
 
     summary["agent_outputs"] = {k: v[:200] for k, v in agent_outputs.items()}
 
