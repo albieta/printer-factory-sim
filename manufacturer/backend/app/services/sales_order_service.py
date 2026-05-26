@@ -348,9 +348,13 @@ class SalesOrderService:
                 )
             )
             product_name = so.product.name if so.product else f"Product {so.product_id}"
+            revenue = float(so.total_price)
+            if revenue == 0 and so.product_id:
+                # Order was created before a wholesale price existed; use current price.
+                revenue = float(self._wholesale_price(so.product_id) * so.quantity)
             financial_service.record_product_sold(
                 sim_day,
-                float(so.total_price),
+                revenue,
                 product_name,
                 so.quantity
             )

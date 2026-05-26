@@ -12,7 +12,7 @@
   },
   "recommended_costs": {
     "cost_per_assembly_line": 50000,
-    "cost_per_worker_per_hour": 50,
+    "cost_per_worker_per_hour": 30,
     "max_workers_per_line": 10
   },
   "events": [

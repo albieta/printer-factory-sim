@@ -37,11 +37,13 @@ bin/retailer-cli price set "MODEL_NAME" NEW_PRICE
 - Do not place duplicate replenishment orders for a model that already has enough pending inbound stock.
 - Do not leave a PENDING customer order unexplained. Most new orders are auto-fulfilled or auto-backordered by the app, so investigate if PENDING appears.
 
-## Starting Stock Reference
-Use these as low-stock anchors unless the live `stock` output shows a better current baseline:
-- Basic300: 5
-- Pro450: 3
-- Elite700: 1
+## Safety Stock Targets
+Maintain these minimums ON HAND (not counting inbound) at all times:
+- Basic300: **30 units**
+- Pro450: **15 units**
+- Elite700: **5 units**
+
+These are floors, not ceilings. When backordered demand exists, order enough to clear it PLUS restore safety stock.
 
 ## Decision Framework
 
@@ -62,10 +64,17 @@ Follow these steps, running the appropriate CLI commands:
    - Print one `LOG: customers - ...` line with fulfilled/backordered counts or "no manual customer action".
 
 3. **Reorder From Manufacturer**
-   - For each model with stock below 3 days of likely demand, place a replenishment order unless inbound pending quantity already covers it.
-   - Normal demand: target at least 5 Basic300, 3 Pro450, and 2 Elite700 on hand plus inbound.
-   - `demand_modifier > 1.5`: order 2-3x the normal target, especially for Basic300 and Pro450.
-   - `demand_modifier < 0.8`: order only to clear backorders or restore the minimum shelf quantity.
+   - Use the **Still Short** column from the state above: it shows how many units are backordered and not yet covered by current stock + inbound.
+   - **Order quantity formula per model**:
+     ```
+     order_qty = max(0, still_short + safety_stock_target - already_inbound_covering_safety)
+     ```
+     Simplified: if Still Short > 0, order at least `still_short + safety_stock_target`.
+     If on_hand + inbound < safety_stock_target (no backlog), order `safety_stock_target - on_hand - inbound`.
+   - Normal daily demand estimates: ~5 Basic300/day, ~3 Pro450/day, ~2 Elite700/day.
+   - `demand_modifier > 1.5`: increase order by 50% and add 5 days of demand as buffer.
+   - `demand_modifier < 0.8`: order only to clear backorders or restore safety stock.
+   - Do NOT order a model if total (on_hand + inbound) already exceeds `backlog + 2× safety_stock_target`.
    - Use `bin/retailer-cli purchase create "MODEL_NAME" QUANTITY`.
    - Print one `LOG: purchasing - ...` line naming each purchase or saying none.
 

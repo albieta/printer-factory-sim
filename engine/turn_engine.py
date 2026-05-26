@@ -340,22 +340,47 @@ def _format_state_for_prompt(state: dict[str, Any], role: str = "manufacturer") 
         pending_cust = [o for o in orders_list if isinstance(o, dict) and o.get("status", "").upper() in ("PENDING", "BACKORDERED")]
         backorders = [o for o in orders_list if isinstance(o, dict) and o.get("status", "").upper() == "BACKORDERED"]
         inbound_pos = [p for p in purchases_list if isinstance(p, dict) and p.get("status", "").upper() in ("PENDING", "CONFIRMED", "IN_PROGRESS")]
-        inbound_text = ", ".join(
-            f"{p.get('product_name', '?')} ×{p.get('quantity', 0)}" for p in inbound_pos
-        ) or "None"
+
+        # Per-model backorder counts
+        backorder_by_model: dict[str, int] = {}
+        for o in backorders:
+            m = o.get("product_name") or o.get("model", "?")
+            backorder_by_model[m] = backorder_by_model.get(m, 0) + int(o.get("quantity", 1))
+
+        # Per-model inbound totals (pending purchase orders from manufacturer)
+        inbound_by_model: dict[str, int] = {}
+        for p in inbound_pos:
+            m = p.get("product_name") or p.get("model", "?")
+            inbound_by_model[m] = inbound_by_model.get(m, 0) + int(p.get("quantity", 0))
+
+        # Combined demand table: Stock | Backordered | Inbound | Net short
+        stock_by_model: dict[str, int] = {
+            s.get("product_name", "?"): int(s.get("quantity", 0))
+            for s in stock_list if isinstance(s, dict)
+        }
+        all_models = sorted(set(list(stock_by_model) + list(backorder_by_model) + list(inbound_by_model)))
+        demand_lines = ["| Model | On Hand | Backordered | Inbound (mfr) | Still Short |", "|-|-|-|-|-|"]
+        for m in all_models:
+            on_hand = stock_by_model.get(m, 0)
+            bo = backorder_by_model.get(m, 0)
+            inb = inbound_by_model.get(m, 0)
+            short = max(0, bo - on_hand - inb)
+            flag = " ⚠️" if short > 0 else ""
+            demand_lines.append(f"| {m} | {on_hand} | {bo} | {inb} | {short}{flag} |")
+        demand_table = "\n".join(demand_lines)
 
         return f"""
 ## Current State (Day {day_val})
 
-**Printer Stock**:
-{stock_table}
+**Demand & Stock Overview**:
+{demand_table}
+
+*(Still Short = backordered units not covered by current stock + inbound. Order at least this much to clear the backlog.)*
 
 **Catalog Prices**:
 {prices_text}
 
-**Customer Orders**: {len(pending_cust)} pending/backordered (of which {len(backorders)} backordered)
-
-**Inbound Replenishment Orders** (from manufacturer): {inbound_text}
+**Customer Orders**: {len(pending_cust)} pending/backordered total (of which {len(backorders)} backordered)
 
 ---
 """
@@ -444,48 +469,35 @@ def forward_demand_via_retailer(
 ) -> list[dict[str, Any]]:
     """Forward BACKORDERED demand orders to the retailer's purchase endpoint.
 
-    The retailer's place_purchase_order() will create both a SalesOrder at
-    the manufacturer AND a local PurchaseOrder (tracked via external_order_id).
+    Consolidates per-model so one PO per model is placed per day instead of one
+    per customer. This keeps the manufacturer order queue manageable while still
+    ensuring all backordered demand is covered.
 
     Only forward orders that are BACKORDERED — orders already FULFILLED from
     retailer's stock don't need production.
-
-    Parameters
-    ----------
-    retailer_cfg:
-        Retailer config from sim.json with 'url' key.
-    demand_results:
-        List of demand order results from inject_customer_demand.
-    logger:
-        Optional API logger to record all calls.
-
-    Returns
-    -------
-    List of results for each PO created. Each item has keys:
-    - "model", "qty": order details
-    - "result": response from retailer (on success)
-    - "error": error message (on failure)
     """
-    results = []
+    # Aggregate backordered quantity per model
+    model_qty: dict[str, int] = {}
     for order in demand_results:
         if "error" in order:
             continue
         order_data = order.get("result", {}).get("order", {})
         if order_data.get("status") != "BACKORDERED":
-            # Order was fulfilled from retailer stock; no production needed
             continue
+        model = order["model"]
+        model_qty[model] = model_qty.get(model, 0) + order["qty"]
+
+    results = []
+    for model, qty in model_qty.items():
         try:
             result = _post(
                 f"{retailer_cfg['url']}/api/purchases",
-                {
-                    "product_name": order["model"],
-                    "quantity": order["qty"],
-                },
+                {"product_name": model, "quantity": qty},
                 logger=logger,
             )
-            results.append({"model": order["model"], "qty": order["qty"], "result": result})
+            results.append({"model": model, "qty": qty, "result": result})
         except httpx.HTTPError as exc:
-            results.append({"model": order["model"], "qty": order["qty"], "error": str(exc)})
+            results.append({"model": model, "qty": qty, "error": str(exc)})
     return results
 
 
