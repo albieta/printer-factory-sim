@@ -17,9 +17,10 @@ per PRD-week7 §3.1 and §9).
 The engine never reads a database directly — all state access goes through
 each app's REST surface.
 
-Parallel execution: all three role agents run concurrently via
-ThreadPoolExecutor. State is pre-fetched for every role before agents start,
-so agents spend zero tool calls on assessment.
+Agent execution order: retailer → manufacturer → provider (sequential).
+State is pre-fetched concurrently before agents start, then re-fetched
+for the manufacturer after retailer agents complete so it sees orders
+placed by the retailer during its turn.
 
 Fast mode (FAST_MODE=true env var): scripted deterministic agents run instead
 of claude subprocesses — no LLM tokens, ~60× faster per day.
@@ -73,6 +74,65 @@ def _get(url: str, logger: ApiLogger | None = None) -> dict[str, Any]:
             logger.log("GET", url, None, r.status_code, data)
         r.raise_for_status()
     return dict(data) if data else {}
+
+
+def _put(url: str, payload: dict[str, Any], logger: ApiLogger | None = None) -> dict[str, Any]:
+    with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
+        r = client.put(url, json=payload)
+        try:
+            data = r.json() if r.content else {}
+        except Exception:
+            data = {}
+        if logger:
+            logger.log("PUT", url, payload, r.status_code, data)
+        r.raise_for_status()
+    return dict(data) if data else {}
+
+
+_MANUFACTURER_DEFAULTS: dict[str, float] = {
+    "assembly_lines": 1.0,
+    "workers_per_line": 1.0,
+    "shift_hours": 8.0,
+    "cost_per_assembly_line": 50000.0,
+    "cost_per_worker_per_hour": 50.0,
+    "max_workers_per_line": 10.0,
+}
+
+
+def apply_scenario_config(mfr_url: str, scenario: dict[str, Any]) -> dict[str, Any]:
+    """Apply scenario recommended_assembly / recommended_costs to the manufacturer.
+
+    Only overrides fields that are still at their default values so that
+    operator customisations made before the run (e.g. via the UI's
+    "Apply recommended" button) are preserved.
+
+    Returns the resulting config dict (or an empty dict on network error).
+    """
+    try:
+        current = _get(f"{mfr_url}/api/config/")
+    except httpx.HTTPError:
+        return {}
+
+    candidates: dict[str, Any] = {
+        **scenario.get("recommended_assembly", {}),
+        **scenario.get("recommended_costs", {}),
+    }
+
+    updates: dict[str, Any] = {}
+    for key, recommended_val in candidates.items():
+        default = _MANUFACTURER_DEFAULTS.get(key)
+        current_val = current.get(key)
+        if default is not None and current_val is not None:
+            if abs(float(current_val) - float(default)) < 0.01:
+                updates[key] = recommended_val
+
+    if not updates:
+        return current
+
+    try:
+        return _put(f"{mfr_url}/api/config/", updates)
+    except httpx.HTTPError:
+        return current
 
 
 def _retailer_base_prices(retailer_url: str, logger: ApiLogger | None = None) -> dict[str, float]:
@@ -589,6 +649,64 @@ def advance_app(app_url: str, app_name: str, logger: ApiLogger | None = None) ->
         return {"error": str(exc)}
 
 
+# ── run initialisation ───────────────────────────────────────────────────────
+
+
+def _initialize_run(config: dict[str, Any], scenario: dict[str, Any]) -> None:
+    """One-time setup called once before the day loop.
+
+    Disables the manufacturer's internal phantom demand generator, which
+    creates ManufacturingOrders on every advance_day() tick. In turn-engine
+    mode all demand is injected via inject_customer_demand(), so the legacy
+    generator only adds noise and competes for production capacity.
+    """
+    mfr_url = config.get("manufacturer", {}).get("url")
+    if not mfr_url:
+        return
+
+    print("  [init] configuring manufacturer for turn-engine mode…")
+
+    # Apply scenario recommended assembly/cost settings (only for fields at defaults).
+    applied = apply_scenario_config(mfr_url, scenario)
+    if applied:
+        print(
+            f"  [init] capacity: {applied.get('assembly_lines')}L × "
+            f"{applied.get('workers_per_line')}W × {applied.get('shift_hours')}h | "
+            f"wage: ${applied.get('cost_per_worker_per_hour')}/hr"
+        )
+
+    # Disable phantom demand generator (legacy Week 5 internal orders).
+    try:
+        with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
+            r = client.put(
+                f"{mfr_url}/api/config",
+                json={"demand_distribution_mean": 0.0, "demand_distribution_variance": 0.0},
+            )
+        if r.is_success:
+            print("  [init] phantom demand generator disabled (mean=0, variance=0)")
+        else:
+            print(f"  [init] WARNING: could not disable demand generator: {r.status_code}")
+    except httpx.HTTPError as exc:
+        print(f"  [init] WARNING: could not reach manufacturer to disable demand: {exc}")
+
+    # Warn about missing or zero wholesale prices — orders created before
+    # prices are set will record $0 revenue at delivery time (the delivery
+    # fallback already handles this, but it's worth surfacing early).
+    try:
+        prices_data = _get(f"{mfr_url}/api/prices")
+        prices = prices_data.get("prices", {})
+        if not prices:
+            print("  [init] WARNING: no wholesale prices configured — revenue will be $0")
+        else:
+            zero = [k for k, v in prices.items() if float(v or 0) == 0]
+            if zero:
+                print(f"  [init] WARNING: $0 wholesale price for: {', '.join(zero)}")
+            else:
+                print(f"  [init] prices OK: {', '.join(f'{k}=${v}' for k, v in prices.items())}")
+    except httpx.HTTPError as exc:
+        print(f"  [init] WARNING: could not check wholesale prices: {exc}")
+
+
 # ── main turn ─────────────────────────────────────────────────────────────────
 
 
@@ -650,9 +768,11 @@ def run_day(
 ) -> dict[str, Any]:
     """Execute one complete simulation turn.
 
-    Agents run in parallel (ThreadPoolExecutor). State is pre-fetched for all
-    three roles before any agent starts. Fast mode replaces claude with scripted
-    decision logic.
+    State is pre-fetched concurrently for all roles, then agents run
+    sequentially: retailer → manufacturer → provider. After the retailer
+    agent completes, manufacturer state is re-fetched so the manufacturer
+    agent sees any SalesOrders placed by the retailer during its turn.
+    Fast mode replaces claude with scripted decision logic.
     """
 
     fast_mode: bool = os.environ.get("FAST_MODE", "").lower() in ("1", "true", "yes")
@@ -696,25 +816,44 @@ def run_day(
     print("  [engine] pre-fetching state for all roles…")
     state_map = _prefetch_all_state(retailers, mfr, providers, api_logger)
 
-    # ── 3. Run all role agents in parallel ────────────────────────────────────
+    # ── 3. Run role agents sequentially: retailer → manufacturer → provider ───
+    # Sequential order ensures each actor sees the decisions made upstream:
+    # the manufacturer sees SalesOrders placed by the retailer, and the
+    # provider sees purchase orders placed by the manufacturer.
     agent_outputs: dict[str, str] = {}
 
-    def _run_one(role: str, role_cfg: dict[str, Any]) -> tuple[str, str]:
-        _, ctx = state_map.get(role, ({}, ""))
-        out = run_role_agent(role, role_cfg, day, signal, state_context=ctx, fast_mode=fast_mode)
-        return role, out
+    # 3a. Retailer agents first
+    for r_cfg in retailers:
+        role_name = r_cfg.get("name", "retailer")
+        _, ctx = state_map.get(role_name, ({}, ""))
+        output = run_role_agent(role_name, r_cfg, day, signal, state_context=ctx, fast_mode=fast_mode)
+        agent_outputs[role_name] = output
+        print(f"  [{role_name}] agent: {output.strip()[:80]}")
 
-    all_roles: list[tuple[str, dict[str, Any]]] = (
-        [(r_cfg.get("name", "retailer"), r_cfg) for r_cfg in retailers]
-        + [(mfr_name, mfr)]
-        + [(p_cfg.get("name", "provider"), p_cfg) for p_cfg in providers]
-    )
+    # 3b. Re-fetch manufacturer state so it includes SalesOrders placed by
+    #     the retailer agent during its turn (purchase orders → sales orders).
+    if retailers and mfr.get("url"):
+        print("  [engine] re-fetching manufacturer state after retailer actions…")
+        try:
+            fresh_mfr_state = _fetch_manufacturer_state(mfr["url"], logger=api_logger)
+            fresh_mfr_ctx = _format_state_for_prompt(fresh_mfr_state, role="manufacturer")
+            state_map[mfr_name] = (fresh_mfr_state, fresh_mfr_ctx)
+        except Exception as exc:
+            print(f"  [engine] WARNING: manufacturer state re-fetch failed: {exc}")
 
-    with ThreadPoolExecutor(max_workers=len(all_roles) or 1) as ex:
-        for fut in as_completed([ex.submit(_run_one, name, cfg) for name, cfg in all_roles]):
-            role_name, output = fut.result()
-            agent_outputs[role_name] = output
-            print(f"  [{role_name}] agent: {output.strip()[:80]}")
+    # 3c. Manufacturer agent
+    _, mfr_ctx = state_map.get(mfr_name, ({}, ""))
+    mfr_output = run_role_agent(mfr_name, mfr, day, signal, state_context=mfr_ctx, fast_mode=fast_mode)
+    agent_outputs[mfr_name] = mfr_output
+    print(f"  [{mfr_name}] agent: {mfr_output.strip()[:80]}")
+
+    # 3d. Provider agents last (see purchase orders placed by manufacturer)
+    for p_cfg in providers:
+        role_name = p_cfg.get("name", "provider")
+        _, ctx = state_map.get(role_name, ({}, ""))
+        output = run_role_agent(role_name, p_cfg, day, signal, state_context=ctx, fast_mode=fast_mode)
+        agent_outputs[role_name] = output
+        print(f"  [{role_name}] agent: {output.strip()[:80]}")
 
     summary["agent_outputs"] = {k: v[:200] for k, v in agent_outputs.items()}
 
@@ -771,6 +910,8 @@ def main(argv: list[str]) -> int:
 
     print(f"Turn engine — scenario: {scenario.get('scenario_name', 'unnamed')}")
     print(f"Running {num_days} day(s).")
+
+    _initialize_run(config, scenario)
 
     for day in range(1, num_days + 1):
         run_day(config, scenario, day)
