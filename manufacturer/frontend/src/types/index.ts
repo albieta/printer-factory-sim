@@ -338,6 +338,7 @@ export interface ScenarioStartRequest {
   assembly_lines?: number;
   workers_per_line?: number;
   shift_hours?: number;
+  fast_mode?: boolean;
 }
 
 export interface LogFile {

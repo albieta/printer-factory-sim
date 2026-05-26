@@ -16,6 +16,10 @@ Bash invocations are also logged separately to
 Timeout behaviour: if ``claude --print`` exceeds ``timeout_seconds``, the
 runner logs a ``[timeout]`` marker and returns the partial output.  A stuck
 agent never freezes the simulation.
+
+Fast mode: when ``fast_mode=True``, the appropriate scripted agent from
+``engine.scripted_agents`` is called instead of spawning a claude subprocess.
+This is deterministic, free, and ~60× faster per day.
 """
 
 from __future__ import annotations
@@ -29,7 +33,7 @@ from engine.bash_logger import BashLogger
 
 
 LOGS_DIR = Path("logs")
-DEFAULT_TIMEOUT = 180
+DEFAULT_TIMEOUT = 90  # reduced from 180 — with state pre-fetched agents need fewer tool calls
 
 
 def _log_path(day: int, role: str) -> Path:
@@ -44,11 +48,16 @@ def run_agent(
     cwd: str = ".",
     timeout_seconds: int = DEFAULT_TIMEOUT,
     model: str = "claude-haiku-4-5-20251001",
+    fast_mode: bool = False,
+    role_cfg: Optional[dict[str, Any]] = None,
+    signal: Optional[dict[str, Any]] = None,
 ) -> str:
     """Run the agent for *role* on *day* and return its output.
 
-    If *skill_file* is ``None``, the stub path is taken: no subprocess is
-    spawned and a single-line marker is written to the log.
+    If *skill_file* is ``None``, the stub path is taken.
+
+    If *fast_mode* is ``True`` and *role_cfg* is provided, the scripted agent
+    from ``engine.scripted_agents`` runs instead of a claude subprocess.
 
     Log format: for skill_file agents, logs complete flow:
     1. Full prompt sent to Claude
@@ -59,6 +68,23 @@ def run_agent(
 
     LOGS_DIR.mkdir(exist_ok=True)
     log = _log_path(day, role)
+
+    # ── Fast mode: scripted deterministic agent ───────────────────────────────
+    if fast_mode and role_cfg is not None:
+        from engine.scripted_agents import (
+            run_scripted_manufacturer,
+            run_scripted_provider,
+            run_scripted_retailer,
+        )
+        _signal = signal or {}
+        role_lower = role.lower()
+        if "provider" in role_lower or "supply" in role_lower or "chip" in role_lower:
+            return run_scripted_provider(role, day, _signal, role_cfg)
+        elif "retail" in role_lower or "printer" in role_lower or "world" in role_lower:
+            return run_scripted_retailer(role, day, _signal, role_cfg)
+        else:
+            return run_scripted_manufacturer(role, day, _signal, role_cfg)
+
     bash_logger = BashLogger(day, role=role) if skill_file is not None else None
 
     if skill_file is None:
@@ -71,7 +97,6 @@ def run_agent(
             [
                 "claude",
                 "--print",
-                "--verbose",
                 "--output-format",
                 "stream-json",
                 "--permission-mode",

@@ -63,6 +63,7 @@ const Scenarios: React.FC = () => {
   const [autoFollow, setAutoFollow] = useState(true);
   const [selectedModel, setSelectedModel] = useState<string>('claude-haiku-4-5-20251001');
   const [thinkingEnabled, setThinkingEnabled] = useState<boolean>(false);
+  const [fastMode, setFastMode] = useState<boolean>(false);
   const [currentConfig, setCurrentConfig] = useState<SimulationConfig | null>(null);
   const logBoxRef = useRef<HTMLPreElement | null>(null);
 
@@ -189,6 +190,7 @@ const Scenarios: React.FC = () => {
         days,
         model: selectedModel,
         thinking_enabled: thinkingEnabled,
+        fast_mode: fastMode,
       });
       setRun(response.data);
       setNotice(`Started ${response.data.run_id} (${response.data.scenario} / ${response.data.config}).`);
@@ -421,6 +423,7 @@ const Scenarios: React.FC = () => {
                 id="thinking-switch"
                 label="Enable extended thinking"
                 checked={thinkingEnabled}
+                disabled={fastMode}
                 onChange={(e) => setThinkingEnabled(e.target.checked)}
               />
               <div className="text-muted small mt-1">
@@ -429,14 +432,35 @@ const Scenarios: React.FC = () => {
                   : 'Extended thinking disabled — faster execution'}
               </div>
             </Form.Group>
+            <Form.Group className="mt-3">
+              <Form.Check
+                type="switch"
+                id="fast-mode-switch"
+                label="Fast mode (scripted agents)"
+                checked={fastMode}
+                onChange={(e) => {
+                  setFastMode(e.target.checked);
+                  if (e.target.checked) setThinkingEnabled(false);
+                }}
+              />
+              <div className="text-muted small mt-1">
+                {fastMode
+                  ? 'Fast mode ON — deterministic scripted agents replace Claude (~60× faster, no API cost)'
+                  : 'Fast mode OFF — Claude LLM agents make real decisions (slower, uses API tokens)'}
+              </div>
+            </Form.Group>
             <div className="metric-list compact-list mt-3">
               <div className="metric-item stat-row">
                 <span>Selected model</span>
-                <strong className="mono">{selectedModel}</strong>
+                <strong className="mono">{fastMode ? 'scripted (no LLM)' : selectedModel}</strong>
               </div>
               <div className="metric-item stat-row">
                 <span>Thinking mode</span>
-                <strong>{thinkingEnabled ? 'Enabled' : 'Disabled'}</strong>
+                <strong>{fastMode ? 'N/A' : thinkingEnabled ? 'Enabled' : 'Disabled'}</strong>
+              </div>
+              <div className="metric-item stat-row">
+                <span>Fast mode</span>
+                <strong>{fastMode ? 'ON — scripted agents' : 'OFF — LLM agents'}</strong>
               </div>
             </div>
           </div>

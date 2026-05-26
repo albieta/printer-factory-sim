@@ -16,12 +16,21 @@ per PRD-week7 §3.1 and §9).
 
 The engine never reads a database directly — all state access goes through
 each app's REST surface.
+
+Parallel execution: all three role agents run concurrently via
+ThreadPoolExecutor. State is pre-fetched for every role before agents start,
+so agents spend zero tool calls on assessment.
+
+Fast mode (FAST_MODE=true env var): scripted deterministic agents run instead
+of claude subprocesses — no LLM tokens, ~60× faster per day.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -34,25 +43,6 @@ from engine.metrics import append_metrics, snapshot_metrics, summarize_metrics
 
 
 DEFAULT_TIMEOUT = 10.0  # seconds for routine API calls
-
-# ── State cache for within-day queries ────────────────────────────────────────
-_state_cache: dict[str, dict[str, Any]] = {}
-
-
-def _get_cached_state(url: str, logger: ApiLogger | None = None) -> dict[str, Any]:
-    """Get cached state or fetch and cache it."""
-    if url in _state_cache:
-        return _state_cache[url]
-
-    state = _fetch_manufacturer_state(url, logger=logger)
-    _state_cache[url] = state
-    return state
-
-
-def _clear_state_cache() -> None:
-    """Clear state cache (called at start of new day)."""
-    global _state_cache
-    _state_cache.clear()
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -99,6 +89,44 @@ def _retailer_base_prices(retailer_url: str, logger: ApiLogger | None = None) ->
     return prices
 
 
+def _fetch_retailer_state(retailer_url: str, logger: ApiLogger | None = None) -> dict[str, Any]:
+    """Fetch all retailer state in parallel sub-requests."""
+    try:
+        with httpx.Client(timeout=DEFAULT_TIMEOUT) as c:
+            stock_r = c.get(f"{retailer_url}/api/stock")
+            catalog_r = c.get(f"{retailer_url}/api/catalog")
+            orders_r = c.get(f"{retailer_url}/api/orders")
+            purchases_r = c.get(f"{retailer_url}/api/purchases")
+            day_r = c.get(f"{retailer_url}/api/day/current")
+        return {
+            "stock": stock_r.json() if stock_r.is_success else [],
+            "catalog": catalog_r.json() if catalog_r.is_success else {},
+            "orders": orders_r.json() if orders_r.is_success else [],
+            "purchases": purchases_r.json() if purchases_r.is_success else [],
+            "day": day_r.json() if day_r.is_success else {},
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+def _fetch_provider_state(provider_url: str, logger: ApiLogger | None = None) -> dict[str, Any]:
+    """Fetch all provider state in parallel sub-requests."""
+    try:
+        with httpx.Client(timeout=DEFAULT_TIMEOUT) as c:
+            stock_r = c.get(f"{provider_url}/api/stock")
+            catalog_r = c.get(f"{provider_url}/api/catalog")
+            orders_r = c.get(f"{provider_url}/api/orders?status=PENDING")
+            day_r = c.get(f"{provider_url}/api/day/current")
+        return {
+            "stock": stock_r.json() if stock_r.is_success else [],
+            "catalog": catalog_r.json() if catalog_r.is_success else {},
+            "orders": orders_r.json() if orders_r.is_success else [],
+            "day": day_r.json() if day_r.is_success else {},
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 def _fetch_manufacturer_state(mfr_url: str, logger: ApiLogger | None = None) -> dict[str, Any]:
     """Fetch all manufacturer state in a single call.
 
@@ -107,14 +135,12 @@ def _fetch_manufacturer_state(mfr_url: str, logger: ApiLogger | None = None) -> 
     endpoint is not available.
     """
     try:
-        # Try bulk endpoint first (Option C)
         state = _get(f"{mfr_url}/api/state/all", logger=logger)
         if "error" not in state:
             return state
     except (httpx.HTTPError, KeyError):
         pass
 
-    # Fallback: fetch individually (Option B)
     try:
         return {
             "day": _get(f"{mfr_url}/api/day/current", logger=logger),
@@ -130,10 +156,9 @@ def _fetch_manufacturer_state(mfr_url: str, logger: ApiLogger | None = None) -> 
 
 
 def _format_state_for_prompt(state: dict[str, Any], role: str = "manufacturer") -> str:
-    """Format state data for inclusion in agent prompt.
+    """Format pre-fetched state for embedding in an agent prompt.
 
-    Returns formatted markdown with current state as context for the agent,
-    so it doesn't need to make repeated state-check API calls.
+    Eliminates the need for the agent to run assess commands.
     """
     if "error" in state:
         return f"\n⚠️ State unavailable: {state.get('error', 'Unknown error')}\n"
@@ -146,27 +171,24 @@ def _format_state_for_prompt(state: dict[str, Any], role: str = "manufacturer") 
         prices = state.get("prices", {})
         day = state.get("day", {}).get("date", "unknown")
 
-        # Build inventory table
         inv_lines = ["| Material | Current | Status |", "|-|-|-|"]
         for mat, qty in inventory.items():
             inv_lines.append(f"| {mat} | {qty} | OK |")
         inv_table = "\n".join(inv_lines)
 
-        # Build pending orders summary
         pending = sales_orders.get("pending", [])
         pending_count = sales_orders.get("pending_count", 0)
         pending_sample = "\n".join([f"- {o['id']}: {o['model']}×{o['quantity']}" for o in pending[:5]])
         if pending_count > 5:
             pending_sample += f"\n- ... and {pending_count - 5} more"
 
-        # Build inbound purchases summary
         inbound = purchase_orders.get("inbound", [])
-        inbound_lines = []
-        for p in inbound:
-            inbound_lines.append(f"- {p['product']}: {p['quantity']} units (due day {p.get('expected_arrival_day', '?')})")
+        inbound_lines = [
+            f"- {p['product']}: {p['quantity']} units (due day {p.get('expected_arrival_day', '?')})"
+            for p in inbound
+        ]
         inbound_text = "\n".join(inbound_lines) if inbound_lines else "None"
 
-        # Build prices
         price_lines = [f"- {model}: ${price}" for model, price in prices.items()]
         prices_text = "\n".join(price_lines)
 
@@ -186,6 +208,94 @@ def _format_state_for_prompt(state: dict[str, Any], role: str = "manufacturer") 
 
 **Wholesale Prices**:
 {prices_text}
+
+---
+"""
+
+    if role == "retailer":
+        catalog = state.get("catalog", {})
+        stock_raw = state.get("stock", [])
+        orders_raw = state.get("orders", [])
+        purchases_raw = state.get("purchases", [])
+        day_val = state.get("day", {}).get("sim_day", state.get("day", {}).get("date", "?"))
+
+        entries = catalog.get("entries", []) if isinstance(catalog, dict) else []
+        stock_list = stock_raw if isinstance(stock_raw, list) else stock_raw.get("items", [])
+        orders_list = orders_raw if isinstance(orders_raw, list) else orders_raw.get("orders", [])
+        purchases_list = purchases_raw if isinstance(purchases_raw, list) else purchases_raw.get("orders", [])
+
+        stock_lines = ["| Model | On Hand |", "|-|-|"]
+        for s in stock_list:
+            if isinstance(s, dict):
+                stock_lines.append(f"| {s.get('product_name', '?')} | {s.get('quantity', 0)} |")
+        stock_table = "\n".join(stock_lines)
+
+        price_lines = [
+            f"- {e.get('product_name', '?')}: ${e.get('retail_price', '?')}"
+            for e in entries if isinstance(e, dict)
+        ]
+        prices_text = "\n".join(price_lines) if price_lines else "None"
+
+        pending_cust = [o for o in orders_list if isinstance(o, dict) and o.get("status", "").upper() in ("PENDING", "BACKORDERED")]
+        backorders = [o for o in orders_list if isinstance(o, dict) and o.get("status", "").upper() == "BACKORDERED"]
+        inbound_pos = [p for p in purchases_list if isinstance(p, dict) and p.get("status", "").upper() in ("PENDING", "CONFIRMED", "IN_PROGRESS")]
+        inbound_text = ", ".join(
+            f"{p.get('product_name', '?')} ×{p.get('quantity', 0)}" for p in inbound_pos
+        ) or "None"
+
+        return f"""
+## Current State (Day {day_val})
+
+**Printer Stock**:
+{stock_table}
+
+**Catalog Prices**:
+{prices_text}
+
+**Customer Orders**: {len(pending_cust)} pending/backordered (of which {len(backorders)} backordered)
+
+**Inbound Replenishment Orders** (from manufacturer): {inbound_text}
+
+---
+"""
+
+    if role == "provider":
+        catalog = state.get("catalog", {})
+        stock_raw = state.get("stock", [])
+        orders_raw = state.get("orders", [])
+        day_val = state.get("day", {}).get("sim_day", state.get("day", {}).get("date", "?"))
+
+        products = catalog.get("products", []) if isinstance(catalog, dict) else []
+        stock_list = stock_raw if isinstance(stock_raw, list) else []
+        orders_list = orders_raw if isinstance(orders_raw, list) else orders_raw.get("orders", [])
+
+        stock_by_name = {s.get("product_name", ""): s.get("quantity", 0) for s in stock_list if isinstance(s, dict)}
+
+        _STARTING = {
+            "Control Board": 500, "Stepper Motor": 800, "Aluminum Frame": 300,
+            "PLA Filament": 1000, "ABS Filament": 800, "LCD Screen": 200,
+        }
+        stock_lines = ["| Product | Current | Target | % |", "|-|-|-|-|"]
+        for prod in products:
+            if not isinstance(prod, dict):
+                continue
+            name = prod.get("name", "?")
+            qty = stock_by_name.get(name, prod.get("stock_quantity", 0))
+            target = _STARTING.get(name, 500)
+            pct = int(qty / target * 100) if target else 0
+            flag = " ⚠️" if pct < 30 else ""
+            stock_lines.append(f"| {name} | {qty} | {target} | {pct}%{flag} |")
+        stock_table = "\n".join(stock_lines)
+
+        pending_count = len([o for o in orders_list if isinstance(o, dict)])
+
+        return f"""
+## Current State (Day {day_val})
+
+**Stock vs Targets**:
+{stock_table}
+
+**Pending Orders**: {pending_count} awaiting fulfillment
 
 ---
 """
@@ -304,21 +414,21 @@ def run_role_agent(
     day: int,
     signal: dict[str, Any],
     state_context: str = "",
+    fast_mode: bool = False,
 ) -> str:
-    """Run the stub or claude agent for a role; return log output.
+    """Run the stub, scripted, or claude agent for a role; return log output."""
 
-    Parameters
-    ----------
-    state_context:
-        Pre-fetched state formatted for embedding in prompt.
-        If provided, agent reads this instead of making state-check calls.
-    """
-
-    import os
     skill_file: str | None = role_cfg.get("skill") or None
     cwd = role_cfg.get("path", ".")
-    # Use env var if set, otherwise fall back to config, then default
     model: str = os.environ.get("CLAUDE_MODEL") or role_cfg.get("model", "claude-haiku-4-5-20251001")
+
+    if fast_mode and skill_file:
+        # Scripted agent replaces claude subprocess entirely
+        return run_agent(
+            role, day, "", skill_file, cwd=cwd, model=model,
+            fast_mode=True, role_cfg=role_cfg, signal=signal,
+        )
+
     if skill_file:
         prompt = build_prompt(role, day, signal, skill_file, state_context=state_context)
     else:
@@ -355,6 +465,57 @@ def advance_app(app_url: str, app_name: str, logger: ApiLogger | None = None) ->
 # ── main turn ─────────────────────────────────────────────────────────────────
 
 
+def _prefetch_all_state(
+    retailers: list[dict[str, Any]],
+    mfr: dict[str, Any],
+    providers: list[dict[str, Any]],
+    api_logger: ApiLogger | None,
+) -> dict[str, tuple[dict[str, Any], str]]:
+    """Fetch state for all roles concurrently; return {role_name: (state, context_str)}."""
+
+    def fetch_mfr() -> tuple[str, dict[str, Any], str]:
+        name = mfr.get("name", "manufacturer")
+        if not mfr.get("url"):
+            return name, {}, ""
+        try:
+            state = _fetch_manufacturer_state(mfr["url"], logger=api_logger)
+            ctx = _format_state_for_prompt(state, role="manufacturer")
+        except Exception as exc:
+            state = {"error": str(exc)}
+            ctx = f"\n⚠️ State fetch failed: {exc}\n"
+        return name, state, ctx
+
+    def fetch_retailer(r_cfg: dict[str, Any]) -> tuple[str, dict[str, Any], str]:
+        name = r_cfg.get("name", "retailer")
+        try:
+            state = _fetch_retailer_state(r_cfg["url"], logger=api_logger)
+            ctx = _format_state_for_prompt(state, role="retailer")
+        except Exception as exc:
+            state = {"error": str(exc)}
+            ctx = f"\n⚠️ State fetch failed: {exc}\n"
+        return name, state, ctx
+
+    def fetch_provider(p_cfg: dict[str, Any]) -> tuple[str, dict[str, Any], str]:
+        name = p_cfg.get("name", "provider")
+        try:
+            state = _fetch_provider_state(p_cfg["url"], logger=api_logger)
+            ctx = _format_state_for_prompt(state, role="provider")
+        except Exception as exc:
+            state = {"error": str(exc)}
+            ctx = f"\n⚠️ State fetch failed: {exc}\n"
+        return name, state, ctx
+
+    results: dict[str, tuple[dict[str, Any], str]] = {}
+    tasks = [fetch_mfr] + [lambda r=r: fetch_retailer(r) for r in retailers] + [lambda p=p: fetch_provider(p) for p in providers]
+
+    with ThreadPoolExecutor(max_workers=min(len(tasks), 8)) as ex:
+        for fut in as_completed([ex.submit(t) for t in tasks]):
+            name, state, ctx = fut.result()
+            results[name] = (state, ctx)
+
+    return results
+
+
 def run_day(
     config: dict[str, Any],
     scenario: dict[str, Any],
@@ -362,46 +523,41 @@ def run_day(
 ) -> dict[str, Any]:
     """Execute one complete simulation turn.
 
-    Returns a summary dict with per-role results.
+    Agents run in parallel (ThreadPoolExecutor). State is pre-fetched for all
+    three roles before any agent starts. Fast mode replaces claude with scripted
+    decision logic.
     """
 
-    print(f"\n=== Day {day} ===")
+    fast_mode: bool = os.environ.get("FAST_MODE", "").lower() in ("1", "true", "yes")
+
+    print(f"\n=== Day {day} {'[fast-mode]' if fast_mode else ''} ===")
     signal = get_day_signal(scenario, day)
-    summary: dict[str, Any] = {"day": day, "signal": signal}
+    summary: dict[str, Any] = {"day": day, "signal": signal, "fast_mode": fast_mode}
 
     retailers: list[dict[str, Any]] = config.get("retailers", [])
     mfr: dict[str, Any] = config.get("manufacturer", {})
     providers: list[dict[str, Any]] = config.get("providers", [])
+    mfr_name = mfr.get("name", "manufacturer")
 
-    # Initialize API logger for this day
     api_logger = ApiLogger(day)
 
-    # ── 0. Apply scenario signal to providers before agents place orders ──────
-    provider_signal_results = []
+    # ── 0. Apply scenario signal to providers ─────────────────────────────────
     for p_cfg in providers:
-        provider_signal_results.append(
-            apply_provider_market_signal(p_cfg, signal, logger=api_logger)
-        )
-    summary["provider_signal_results"] = provider_signal_results
+        apply_provider_market_signal(p_cfg, signal, logger=api_logger)
 
-    # ── 1. Inject demand at each retailer ────────────────────────────────────
-    demand_results = []
-    base_prices_cache: dict[str, dict[str, float]] = {}
+    # ── 1. Inject demand at each retailer ─────────────────────────────────────
+    demand_results: list[list[dict[str, Any]]] = []
     for r_cfg in retailers:
-        r_url = r_cfg["url"]
         try:
-            retail_prices = _retailer_base_prices(r_url, logger=api_logger)
+            retail_prices = _retailer_base_prices(r_cfg["url"], logger=api_logger)
         except httpx.HTTPError:
             retail_prices = {}
-        # Use current retail prices as both actual and base prices.
-        # (Week 8 will snapshot seed prices separately for elasticity.)
-        base_prices_cache[r_url] = retail_prices
         demand_results.append(
             inject_customer_demand(r_cfg, scenario, day, retail_prices, retail_prices, logger=api_logger)
         )
     summary["demand_injected"] = demand_results
 
-    # ── 1.5. Forward BACKORDERED demand to retailer's purchase service ─────────
+    # ── 1.5. Forward backordered demand to retailer's purchase service ─────────
     sales_forward_results = []
     for i, r_cfg in enumerate(retailers):
         sales_forward_results.append(
@@ -409,45 +565,39 @@ def run_day(
         )
     summary["sales_forwarded"] = sales_forward_results
 
-    # ── 2. Role decision hooks ────────────────────────────────────────────────
-    # Clear state cache at start of day
-    _clear_state_cache()
-    agent_outputs = {}
-    for r_cfg in retailers:
-        role = r_cfg.get("name", "retailer")
-        agent_outputs[role] = run_role_agent(role, r_cfg, day, signal)
-        print(f"  [{role}] agent: {agent_outputs[role].strip()[:80]}")
+    # ── 2. Pre-fetch state for all roles concurrently ─────────────────────────
+    print("  [engine] pre-fetching state for all roles…")
+    state_map = _prefetch_all_state(retailers, mfr, providers, api_logger)
 
-    # Fetch manufacturer state upfront (Option B/C: embed in prompt + cache)
-    mfr_name = mfr.get("name", "manufacturer")
-    mfr_state_context = ""
-    if mfr and "url" in mfr:
-        try:
-            mfr_state = _get_cached_state(mfr["url"], logger=api_logger)
-            mfr_state_context = _format_state_for_prompt(mfr_state, role="manufacturer")
-            print(f"  [{mfr_name}] state pre-fetched (Option B/C + cache)")
-        except Exception as e:
-            print(f"  [{mfr_name}] state pre-fetch failed: {e}", file=sys.stderr)
+    # ── 3. Run all role agents in parallel ────────────────────────────────────
+    agent_outputs: dict[str, str] = {}
 
-    agent_outputs[mfr_name] = run_role_agent(mfr_name, mfr, day, signal, state_context=mfr_state_context)
-    print(f"  [{mfr_name}] agent: {agent_outputs[mfr_name].strip()[:80]}")
+    def _run_one(role: str, role_cfg: dict[str, Any]) -> tuple[str, str]:
+        _, ctx = state_map.get(role, ({}, ""))
+        out = run_role_agent(role, role_cfg, day, signal, state_context=ctx, fast_mode=fast_mode)
+        return role, out
 
-    for p_cfg in providers:
-        role = p_cfg.get("name", "provider")
-        agent_outputs[role] = run_role_agent(role, p_cfg, day, signal)
-        print(f"  [{role}] agent: {agent_outputs[role].strip()[:80]}")
+    all_roles: list[tuple[str, dict[str, Any]]] = (
+        [(r_cfg.get("name", "retailer"), r_cfg) for r_cfg in retailers]
+        + [(mfr_name, mfr)]
+        + [(p_cfg.get("name", "provider"), p_cfg) for p_cfg in providers]
+    )
+
+    with ThreadPoolExecutor(max_workers=len(all_roles) or 1) as ex:
+        for fut in as_completed([ex.submit(_run_one, name, cfg) for name, cfg in all_roles]):
+            role_name, output = fut.result()
+            agent_outputs[role_name] = output
+            print(f"  [{role_name}] agent: {output.strip()[:80]}")
 
     summary["agent_outputs"] = {k: v[:200] for k, v in agent_outputs.items()}
 
-    # ── 3. Advance: retailer → manufacturer → providers ───────────────────────
-    advance_results = {}
+    # ── 4. Advance: retailer → manufacturer → providers (order matters) ────────
+    advance_results: dict[str, Any] = {}
     for r_cfg in retailers:
         advance_results[r_cfg.get("name", "retailer")] = advance_app(
             r_cfg["url"], r_cfg.get("name", "retailer"), logger=api_logger
         )
-
     advance_results[mfr_name] = advance_app(mfr["url"], mfr_name, logger=api_logger)
-
     for p_cfg in providers:
         advance_results[p_cfg.get("name", "provider")] = advance_app(
             p_cfg["url"], p_cfg.get("name", "provider"), logger=api_logger
