@@ -67,7 +67,8 @@ class ProviderProxyService:
 
     def get_provider_stock(self, provider_name: str) -> dict[str, Any] | None:
         """Proxy GET /api/stock from named provider.
-        Returns None if provider offline or not found."""
+        Returns None if provider offline or not found.
+        Always returns {"online": bool, "items": [...]} when provider is found."""
         from app.utils.app_config import get_configured_providers
 
         for provider in get_configured_providers():
@@ -85,11 +86,13 @@ class ProviderProxyService:
                 with httpx.Client(timeout=3.0) as client:
                     response = client.get(f"{provider_url}/api/stock")
                     if response.status_code == 200:
-                        return response.json()
+                        data = response.json()
+                        items = data if isinstance(data, list) else data.get("items", [])
+                        return {"name": provider_name, "online": True, "items": items}
             except (httpx.RequestError, httpx.TimeoutException):
                 pass
 
-            return None
+            return {"name": provider_name, "online": False, "items": []}
 
         return None
 
