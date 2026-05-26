@@ -132,15 +132,25 @@ def _fetch_manufacturer_state(mfr_url: str, logger: ApiLogger | None = None) -> 
     """Fetch all manufacturer state in a single call.
 
     Uses the bulk state endpoint (/api/state/all) to get all data needed
-    for agent decision-making. Falls back to fetching individually if bulk
-    endpoint is not available.
+    for agent decision-making. Also fetches detailed inventory (demand +
+    inbound quantities) for the 4-column inventory table. Falls back to
+    fetching individually if bulk endpoint is not available.
     """
+    state: dict[str, Any] = {}
     try:
         state = _get(f"{mfr_url}/api/state/all", logger=logger)
-        if "error" not in state:
-            return state
     except (httpx.HTTPError, KeyError):
         pass
+
+    if "error" not in state and state:
+        # Augment with detailed inventory (accepted_order_demand, pending_inbound_quantity)
+        try:
+            inv_detail = _get(f"{mfr_url}/api/inventory/", logger=logger)
+            if isinstance(inv_detail, list):
+                state["inventory_detail"] = inv_detail
+        except httpx.HTTPError:
+            pass
+        return state
 
     try:
         return {
@@ -172,9 +182,36 @@ def _format_state_for_prompt(state: dict[str, Any], role: str = "manufacturer") 
         prices = state.get("prices", {})
         day = state.get("day", {}).get("date", "unknown")
 
-        inv_lines = ["| Material | Current | Status |", "|-|-|-|"]
+        # Build detail map from InventoryLevel objects (product_name → detail)
+        inv_detail_raw = state.get("inventory_detail", [])
+        inv_detail: dict[str, dict[str, Any]] = {}
+        for item in inv_detail_raw:
+            if isinstance(item, dict):
+                name = item.get("product_name") or item.get("name", "")
+                if name:
+                    inv_detail[name] = item
+
+        inv_lines = [
+            "| Material | Stock | Needed (accepted orders) | Ordered (not delivered) | Storage Status |",
+            "|-|-|-|-|-|",
+        ]
         for mat, qty in inventory.items():
-            inv_lines.append(f"| {mat} | {qty} | OK |")
+            qty_num = float(qty or 0)
+            detail = inv_detail.get(mat, {})
+            needed = float(detail.get("accepted_order_demand", 0))
+            in_transit = float(detail.get("pending_inbound_quantity", 0))
+            net_after_delivery = qty_num - needed + in_transit
+            if qty_num < needed and in_transit == 0:
+                status = "⚠️ CRITICAL"
+            elif qty_num < needed:
+                status = "⚠️ LOW (ordered)"
+            elif net_after_delivery > qty_num * 2 and qty_num > 200:
+                status = "⚡ EXCESS"
+            else:
+                status = "OK"
+            inv_lines.append(
+                f"| {mat} | {qty_num:.0f} | {needed:.0f} | {in_transit:.0f} | {status} |"
+            )
         inv_table = "\n".join(inv_lines)
 
         pending = sales_orders.get("pending", [])

@@ -332,25 +332,15 @@ const Scenarios: React.FC = () => {
     return { days: dayLabels, costs, revenue, profit };
   }, [metrics]);
 
-  // ── Price chart: provider (cheapest tier), manufacturer wholesale, retailer retail ──
-  const priceChart = useMemo(() => {
+  // ── Printer price chart: manufacturer wholesale + retailer retail ───────────
+  const printerPriceChart = useMemo(() => {
     if (!metrics.length) return null;
     const dayLabels = metrics.map((m) => `D${m.day}`);
-
-    // Collect all product names across all layers
-    const productNames = new Set<string>();
-    metrics.forEach((m) => {
-      Object.keys(m.manufacturer?.prices ?? {}).forEach((k) => productNames.add(k));
-      m.retailers.forEach((r) => Object.keys(r.prices ?? {}).forEach((k) => productNames.add(k)));
-    });
-    const providerProductNames = new Set<string>();
-    metrics.forEach((m) =>
-      m.providers.forEach((p) => Object.keys(p.prices ?? {}).forEach((k) => providerProductNames.add(k))),
-    );
-
     const traces: Data[] = [];
 
-    // Manufacturer wholesale prices
+    const productNames = new Set<string>();
+    metrics.forEach((m) => Object.keys(m.manufacturer?.prices ?? {}).forEach((k) => productNames.add(k)));
+
     productNames.forEach((product) => {
       const vals = metrics.map((m) => {
         const p = m.manufacturer?.prices?.[product];
@@ -359,13 +349,11 @@ const Scenarios: React.FC = () => {
       if (vals.some((v) => v != null)) {
         traces.push({
           x: dayLabels, y: vals as number[], type: 'scatter', mode: 'lines+markers',
-          name: `Mfr: ${product}`, line: { dash: 'solid' },
-          connectgaps: true,
+          name: `Wholesale: ${product}`, line: { dash: 'solid' }, connectgaps: true,
         } as Data);
       }
     });
 
-    // Retailer retail prices
     metrics[0]?.retailers.forEach((retailer, ri) => {
       const retailerName = retailer.name;
       const rProductNames = new Set<string>();
@@ -378,14 +366,26 @@ const Scenarios: React.FC = () => {
         if (vals.some((v) => v != null)) {
           traces.push({
             x: dayLabels, y: vals as number[], type: 'scatter', mode: 'lines+markers',
-            name: `${retailerName}: ${product}`, line: { dash: 'dot' },
-            connectgaps: true,
+            name: `${retailerName}: ${product}`, line: { dash: 'dot' }, connectgaps: true,
           } as Data);
         }
       });
     });
 
-    // Provider prices — cheapest tier per product
+    return traces.length ? { days: dayLabels, traces } : null;
+  }, [metrics]);
+
+  // ── Material price chart: provider cheapest tier per component ────────────
+  const materialPriceChart = useMemo(() => {
+    if (!metrics.length) return null;
+    const dayLabels = metrics.map((m) => `D${m.day}`);
+    const traces: Data[] = [];
+
+    const providerProductNames = new Set<string>();
+    metrics.forEach((m) =>
+      m.providers.forEach((p) => Object.keys(p.prices ?? {}).forEach((k) => providerProductNames.add(k))),
+    );
+
     metrics[0]?.providers.forEach((provider, pi) => {
       const providerName = provider.name;
       providerProductNames.forEach((product) => {
@@ -398,8 +398,7 @@ const Scenarios: React.FC = () => {
         if (vals.some((v) => v != null)) {
           traces.push({
             x: dayLabels, y: vals as number[], type: 'scatter', mode: 'lines+markers',
-            name: `${providerName}: ${product}`, line: { dash: 'dashdot' },
-            connectgaps: true,
+            name: `${providerName}: ${product}`, line: { dash: 'dashdot' }, connectgaps: true,
           } as Data);
         }
       });
@@ -408,23 +407,22 @@ const Scenarios: React.FC = () => {
     return traces.length ? { days: dayLabels, traces } : null;
   }, [metrics]);
 
-  // ── Events overlay: horizontal bars per scenario event ───────────────────
+  // ── Events overlay: horizontal bars per scenario event (numeric x-axis) ───
   const eventsOverlay = useMemo(() => {
     const events = scenarioDetail?.events;
-    if (!events?.length || !metrics.length) return null;
+    if (!events?.length) return null;
 
-    const maxDay = Math.max(...metrics.map((m) => m.day));
+    // Derive full day range from scenario definition (not just simulated days)
+    const maxScenarioDay = Math.max(...events.map((ev) => ev.end_day ?? ev.start_day ?? 1), 1);
 
-    // One trace per event as a horizontal bar (using scatter with fill)
-    // We'll use shapes via layout.shapes — returned as layout config for the caller
     const shapes: Partial<Shape>[] = events
       .filter((ev) => ev.start_day != null && ev.end_day != null)
       .map((ev, i) => ({
         type: 'rect' as const,
         xref: 'x' as const,
         yref: 'y' as const,
-        x0: `D${ev.start_day}`,
-        x1: `D${Math.min(ev.end_day ?? maxDay, maxDay)}`,
+        x0: ev.start_day,
+        x1: ev.end_day,
         y0: i - 0.4,
         y1: i + 0.4,
         fillcolor: `hsl(${(i * 67) % 360}, 60%, 55%)`,
@@ -435,7 +433,7 @@ const Scenarios: React.FC = () => {
     const annotations: Partial<Annotations>[] = events
       .filter((ev) => ev.start_day != null)
       .map((ev, i) => ({
-        x: `D${ev.start_day}`,
+        x: ev.start_day ?? 0,
         y: i,
         text: ev.name ?? `event ${i + 1}`,
         xanchor: 'left' as const,
@@ -445,8 +443,8 @@ const Scenarios: React.FC = () => {
 
     const yLabels = events.map((ev, i) => ev.name ?? `event ${i + 1}`);
 
-    return { shapes, annotations, yLabels, eventCount: events.length };
-  }, [scenarioDetail, metrics]);
+    return { shapes, annotations, yLabels, eventCount: events.length, maxScenarioDay };
+  }, [scenarioDetail]);
 
   // ── Render ───────────────────────────────────────────────────────────────
 
@@ -939,14 +937,14 @@ const Scenarios: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Price chart + Events overlay ─── */}
+      {/* ── Price charts ─── */}
       <div className="data-grid mt-3">
         <div className="chart-container">
-          {priceChart ? (
+          {printerPriceChart ? (
             <ResponsivePlot
-              data={priceChart.traces}
+              data={printerPriceChart.traces}
               layout={{
-                title: { text: 'Product prices over time' },
+                title: { text: 'Printer prices (wholesale vs retail)' },
                 xaxis: { title: { text: 'Simulated day' } },
                 yaxis: { title: { text: 'Price ($)' } },
                 legend: { orientation: 'h', y: -0.25 },
@@ -955,45 +953,67 @@ const Scenarios: React.FC = () => {
               minHeight={320}
             />
           ) : (
-            <div className="empty-state">Price chart shows provider / manufacturer / retailer prices after the first day completes.</div>
+            <div className="empty-state">Printer price chart shows manufacturer wholesale and retailer retail after the first day.</div>
           )}
         </div>
         <div className="chart-container">
-          {eventsOverlay ? (
+          {materialPriceChart ? (
             <ResponsivePlot
-              data={[
-                {
-                  // invisible scatter just to set up the axis range
-                  x: priceChart?.days ?? metrics.map((m) => `D${m.day}`),
-                  y: Array(metrics.length).fill(0),
-                  type: 'scatter',
-                  mode: 'none',
-                  showlegend: false,
-                },
-              ]}
+              data={materialPriceChart.traces}
               layout={{
-                title: { text: 'Scenario events timeline' },
+                title: { text: 'Material prices (provider components)' },
                 xaxis: { title: { text: 'Simulated day' } },
-                yaxis: {
-                  title: { text: '' },
-                  tickvals: eventsOverlay.yLabels.map((_, i) => i),
-                  ticktext: eventsOverlay.yLabels,
-                  range: [-0.6, eventsOverlay.eventCount - 0.4],
-                },
-                shapes: eventsOverlay.shapes,
-                annotations: eventsOverlay.annotations,
-                margin: { t: 56, r: 24, b: 56, l: 120 },
-                plot_bgcolor: '#f8f9fa',
+                yaxis: { title: { text: 'Price ($)' } },
+                legend: { orientation: 'h', y: -0.25 },
+                margin: { t: 56, r: 24, b: 80, l: 56 },
               }}
-              minHeight={Math.max(200, eventsOverlay.eventCount * 50 + 80)}
+              minHeight={320}
             />
           ) : (
-            <div className="empty-state">
-              Events overlay shows scenario event windows once a run has metrics.
-              {!scenarioDetail?.events?.length ? ' The selected scenario has no named events.' : ''}
-            </div>
+            <div className="empty-state">Material price chart shows provider component prices after the first day.</div>
           )}
         </div>
+      </div>
+
+      {/* ── Events timeline (full width, numeric axis so all events render correctly) ─── */}
+      <div className="chart-container mt-3">
+        {eventsOverlay ? (
+          <ResponsivePlot
+            data={[
+              {
+                // Dummy trace to anchor the numeric x-axis to the full scenario range
+                x: [0.5, eventsOverlay.maxScenarioDay + 0.5],
+                y: [null, null],
+                type: 'scatter',
+                mode: 'none' as const,
+                showlegend: false,
+              },
+            ]}
+            layout={{
+              title: { text: 'Scenario events timeline' },
+              xaxis: {
+                title: { text: 'Simulated day' },
+                range: [0.5, eventsOverlay.maxScenarioDay + 0.5],
+              },
+              yaxis: {
+                title: { text: '' },
+                tickvals: eventsOverlay.yLabels.map((_, i) => i),
+                ticktext: eventsOverlay.yLabels,
+                range: [-0.6, eventsOverlay.eventCount - 0.4],
+              },
+              shapes: eventsOverlay.shapes,
+              annotations: eventsOverlay.annotations,
+              margin: { t: 56, r: 24, b: 56, l: 120 },
+              plot_bgcolor: '#f8f9fa',
+            }}
+            minHeight={Math.max(200, eventsOverlay.eventCount * 50 + 80)}
+          />
+        ) : (
+          <div className="empty-state">
+            Events timeline shows scenario event windows once a scenario is selected.
+            {!scenarioDetail?.events?.length ? ' The selected scenario has no named events.' : ''}
+          </div>
+        )}
       </div>
 
       <div className="card mt-3">

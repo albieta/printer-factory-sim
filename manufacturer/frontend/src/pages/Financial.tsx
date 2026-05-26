@@ -1,12 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, Form, Row, Col, Table } from 'react-bootstrap';
-import { FaDollarSign, FaSave, FaUndo, FaChartLine } from 'react-icons/fa';
+import { FaSave, FaUndo, FaChartLine } from 'react-icons/fa';
 import PageGuide from '../components/PageGuide';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ResponsivePlot from '../components/ResponsivePlot';
 import { financialAPI, getErrorMessage } from '../services/api';
 import type { FinancialSummary, FinancialTransaction } from '../services/api';
-import type { SimulationConfig } from '../types';
 import { announceSimulationUpdate, onSimulationUpdate } from '../utils/simulationEvents';
 
 interface FormData {
@@ -17,7 +16,6 @@ interface FormData {
 
 const Financial: React.FC = () => {
   const [summary, setSummary] = useState<FinancialSummary | null>(null);
-  const [config, setConfig] = useState<SimulationConfig | null>(null);
   const [transactions, setTransactions] = useState<FinancialTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -33,13 +31,12 @@ const Financial: React.FC = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [summaryRes, configRes, transactionsRes] = await Promise.all([
+      const [summaryRes, , transactionsRes] = await Promise.all([
         financialAPI.getSummary(),
         financialAPI.getConfig(),
         financialAPI.getTransactions(),
       ]);
       setSummary(summaryRes.data);
-      setConfig(configRes.data);
       setTransactions(transactionsRes.data);
       setFormData({
         cost_per_assembly_line: String(summaryRes.data.cost_per_assembly_line),
@@ -149,9 +146,9 @@ const Financial: React.FC = () => {
   return (
     <div className="page-container">
       <PageGuide
-        icon={<FaDollarSign />}
         title="Financial Management"
-        description="Configure costs and monitor financial status"
+        controls="Set cost per assembly line, cost per worker per hour, and the worker cap per line. Changes take effect on the next day advance."
+        next="Costs are deducted automatically each day. Revenue comes from fulfilled sales orders. Watch net profit to decide whether to expand or trim capacity."
       />
 
       {message && <Alert variant="success">{message}</Alert>}

@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, Form, Modal, Table, Collapse } from 'react-bootstrap';
-import { FaPlus, FaShoppingCart, FaTrash, FaCheckCircle, FaTimesCircle, FaLink } from 'react-icons/fa';
+import { FaShoppingCart, FaTrash, FaCheckCircle, FaTimesCircle } from 'react-icons/fa';
 import PageGuide from '../components/PageGuide';
-import { getErrorMessage, materialsAPI, purchaseOrdersAPI, suppliersAPI, providersAPI } from '../services/api';
-import type { Product, PurchaseOrder, Supplier, ProviderCatalog, ProviderInfo, ProviderProduct } from '../types';
+import { getErrorMessage, inventoryAPI, materialsAPI, purchaseOrdersAPI, suppliersAPI, providersAPI } from '../services/api';
+import type { InventoryLevel, Product, PurchaseOrder, Supplier, ProviderCatalog, ProviderInfo, ProviderProduct } from '../types';
 import { PurchaseOrderStatus } from '../types';
 import { announceSimulationUpdate, onSimulationUpdate } from '../utils/simulationEvents';
 import { formatCurrency } from '../utils/formatters';
@@ -39,6 +39,7 @@ const Suppliers: React.FC = () => {
   const [materials, setMaterials] = useState<Product[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [inventoryLevels, setInventoryLevels] = useState<InventoryLevel[]>([]);
   const [providerCatalogs, setProviderCatalogs] = useState<Map<string, ProviderCatalog>>(new Map());
   const [providerStocks, setProviderStocks] = useState<Map<string, Array<{product_name: string; quantity: number}>>>(new Map());
   const [providerOrders, setProviderOrders] = useState<Map<string, Array<{id: number; status: string}>>>(new Map());
@@ -72,16 +73,18 @@ const Suppliers: React.FC = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [suppliersRes, materialsRes, poRes, providersRes] = await Promise.all([
+      const [suppliersRes, materialsRes, poRes, providersRes, inventoryRes] = await Promise.all([
         suppliersAPI.getSuppliers(),
         materialsAPI.getMaterials(),
         purchaseOrdersAPI.getPurchaseOrders(),
         providersAPI.getProviders(),
+        inventoryAPI.getInventory(),
       ]);
       setSuppliers(suppliersRes.data);
       setMaterials(materialsRes.data);
       setPurchaseOrders(poRes.data);
       setProviders(providersRes.data);
+      setInventoryLevels(inventoryRes.data);
       setError(null);
 
       const catalogMap = new Map<string, ProviderCatalog>();
@@ -264,6 +267,56 @@ const Suppliers: React.FC = () => {
     }
   };
 
+  // Materials procurement status — one row per externally linked material
+  const procurementStatus = useMemo(() => {
+    const invByName = new Map(inventoryLevels.map((il) => [il.product_name ?? il.product_id, il]));
+    const rows: Array<{
+      material: string;
+      providerName: string;
+      providerStock: number | null;
+      manufacturerStock: number;
+      neededForOrders: number;
+      orderedInTransit: number;
+      status: string;
+    }> = [];
+
+    for (const supplier of suppliers) {
+      if (!supplier.external_provider_url || !supplier.external_product_id) continue;
+      const providerName = supplier.name;
+      const materialName = supplier.product_name ?? materials.find((m) => m.id === supplier.product_id)?.name ?? supplier.product_id;
+
+      // Resolve provider product name from catalog using the linked product ID
+      // (more reliable than name matching — IDs are stable, names may differ between apps)
+      const catalog = providerCatalogs.get(providerName);
+      const catalogProduct = catalog?.products?.find((p) => p.id === supplier.external_product_id);
+      const providerProductName = catalogProduct?.name ?? materialName;
+
+      const stockItems = providerStocks.get(providerName) ?? [];
+      const stockItem = stockItems.find((i) => i.product_name === providerProductName);
+      const providerStock = stockItem != null ? stockItem.quantity : null;
+
+      const inv = invByName.get(materialName);
+      const manufacturerStock = inv ? Number(inv.quantity) : 0;
+      const neededForOrders = inv ? Number(inv.accepted_order_demand) : 0;
+      const orderedInTransit = inv ? Number(inv.pending_inbound_quantity) : 0;
+      const netAfterDelivery = manufacturerStock - neededForOrders + orderedInTransit;
+
+      let status: string;
+      if (manufacturerStock < neededForOrders && orderedInTransit === 0) {
+        status = '⚠️ CRITICAL';
+      } else if (manufacturerStock < neededForOrders) {
+        status = '⚠️ LOW (ordered)';
+      } else if (netAfterDelivery > manufacturerStock * 2 && manufacturerStock > 100) {
+        status = '⚡ Excess';
+      } else {
+        status = '✓ OK';
+      }
+
+      rows.push({ material: materialName, providerName, providerStock, manufacturerStock, neededForOrders, orderedInTransit, status });
+    }
+    return rows;
+  }, [suppliers, inventoryLevels, materials, providerStocks]);
+
   const purchaseSummary = useMemo(() => {
     const pending = purchaseOrders.filter((order) => order.status === PurchaseOrderStatus.PENDING).length;
     const delivered = purchaseOrders.filter((order) => order.status === PurchaseOrderStatus.DELIVERED).length;
@@ -374,6 +427,55 @@ const Suppliers: React.FC = () => {
               </Card.Body>
             </Card>
           </Collapse>
+        </div>
+      )}
+
+      {/* Materials Procurement Status */}
+      {procurementStatus.length > 0 && (
+        <div>
+          <h2 className="mt-5 mb-1">Materials Procurement Status</h2>
+          <p className="text-muted mb-3">
+            Real-time view of externally sourced materials — how much is on hand, how much is committed to accepted orders, and how much is already on its way.
+          </p>
+          <div className="card mb-4">
+            <div className="card-body p-0">
+              <Table responsive hover className="mb-0">
+                <thead>
+                  <tr>
+                    <th>Material</th>
+                    <th>Provider</th>
+                    <th>Provider Stock</th>
+                    <th>Manufacturer Stock</th>
+                    <th>Needed for Orders</th>
+                    <th>Ordered / In Transit</th>
+                    <th>Storage Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {procurementStatus.map((row) => (
+                    <tr key={`${row.providerName}-${row.material}`}>
+                      <td><strong>{row.material}</strong></td>
+                      <td>{row.providerName}</td>
+                      <td>{row.providerStock != null ? `${row.providerStock} units` : '—'}</td>
+                      <td>{row.manufacturerStock} units</td>
+                      <td>{row.neededForOrders} units</td>
+                      <td>{row.orderedInTransit} units</td>
+                      <td>
+                        <span className={`badge ${
+                          row.status.includes('CRITICAL') ? 'badge-blocked' :
+                          row.status.includes('LOW') ? 'badge-pending' :
+                          row.status.includes('Excess') ? 'badge-neutral' :
+                          'badge-completed'
+                        }`}>
+                          {row.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            </div>
+          </div>
         </div>
       )}
 
