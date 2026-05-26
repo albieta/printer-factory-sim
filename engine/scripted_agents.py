@@ -69,6 +69,13 @@ def _patch(url: str, body: dict[str, Any]) -> dict[str, Any]:
         return dict(r.json())
 
 
+def _put(url: str, body: dict[str, Any]) -> dict[str, Any]:
+    with httpx.Client(timeout=_DEFAULT_HTTP_TIMEOUT) as c:
+        r = c.put(url, json=body)
+        r.raise_for_status()
+        return dict(r.json())
+
+
 def _write_log(day: int, role: str, content: str) -> None:
     LOGS_DIR.mkdir(exist_ok=True)
     path = LOGS_DIR / f"day-{day:03d}-{role}.log"
@@ -270,7 +277,10 @@ def run_scripted_retailer(
 
         if new_price is not None:
             try:
-                _patch(f"{url}/api/catalog/{model}/price", {"retail_price": new_price})
+                _put(
+                    f"{url}/api/catalog/{model}/price",
+                    {"product_name": model, "retail_price": str(new_price)},
+                )
                 price_changes.append(f"{model}: {current_price:.2f}→{new_price:.2f}")
             except Exception as exc:
                 actions.append(f"Price change failed for {model}: {exc}")

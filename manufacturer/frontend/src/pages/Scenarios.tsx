@@ -1,6 +1,7 @@
+import type { Annotations, Data, Shape } from 'plotly.js';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Badge, Button, Form, ProgressBar, Spinner, Table } from 'react-bootstrap';
-import { FaBolt, FaPlay, FaStop, FaSyncAlt, FaTrash } from 'react-icons/fa';
+import { FaBolt, FaDownload, FaPlay, FaStop, FaSyncAlt, FaTrash } from 'react-icons/fa';
 import PageGuide from '../components/PageGuide';
 import ResponsivePlot from '../components/ResponsivePlot';
 import { configAPI, getErrorMessage, scenariosAPI } from '../services/api';
@@ -17,19 +18,17 @@ import { announceSimulationUpdate } from '../utils/simulationEvents';
 
 const POLL_INTERVAL_MS = 2000;
 const STDOUT_TAIL_LINES = 200;
+const LS_CONFIG = 'scenarios.selectedConfig';
+const LS_SCENARIO = 'scenarios.selectedScenario';
+const LS_DAYS = 'scenarios.days';
 
 const statusVariant = (status?: string): string => {
   switch (status) {
-    case 'running':
-      return 'info';
-    case 'stopping':
-      return 'warning';
-    case 'completed':
-      return 'success';
-    case 'failed':
-      return 'danger';
-    default:
-      return 'secondary';
+    case 'running':  return 'info';
+    case 'stopping': return 'warning';
+    case 'completed': return 'success';
+    case 'failed':   return 'danger';
+    default:         return 'secondary';
   }
 };
 
@@ -40,10 +39,21 @@ const formatBytes = (size: number): string => {
 };
 
 const AVAILABLE_MODELS = [
-  { id: 'claude-opus-4-7', label: 'Claude Opus 4.7', description: 'Most capable, slower, expensive' },
-  { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', description: 'Balanced performance and cost' },
-  { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', description: 'Fast and cost-effective' },
+  { id: 'claude-opus-4-7',           label: 'Claude Opus 4.7',   description: 'Most capable, slower, expensive' },
+  { id: 'claude-sonnet-4-6',         label: 'Claude Sonnet 4.6', description: 'Balanced performance and cost' },
+  { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5',  description: 'Fast and cost-effective' },
 ];
+
+// ── helpers ──────────────────────────────────────────────────────────────────
+
+const lsGet = (key: string): string | null => {
+  try { return localStorage.getItem(key); } catch { return null; }
+};
+const lsSet = (key: string, value: string): void => {
+  try { localStorage.setItem(key, value); } catch { /* ignore */ }
+};
+
+// ── component ────────────────────────────────────────────────────────────────
 
 const Scenarios: React.FC = () => {
   const [scenarios, setScenarios] = useState<ScenarioSummary[]>([]);
@@ -57,9 +67,19 @@ const Scenarios: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [selectedConfig, setSelectedConfig] = useState<string>('');
-  const [selectedScenario, setSelectedScenario] = useState<string>('');
-  const [days, setDays] = useState<number>(5);
+
+  // ── persisted selections ─────────────────────────────────────────────────
+  const [selectedConfig, setSelectedConfigRaw] = useState<string>(lsGet(LS_CONFIG) ?? '');
+  const [selectedScenario, setSelectedScenarioRaw] = useState<string>(lsGet(LS_SCENARIO) ?? '');
+  const [days, setDaysRaw] = useState<number>(() => {
+    const v = lsGet(LS_DAYS);
+    return v ? (Number(v) || 5) : 5;
+  });
+
+  const setSelectedConfig = (v: string) => { lsSet(LS_CONFIG, v); setSelectedConfigRaw(v); };
+  const setSelectedScenario = (v: string) => { lsSet(LS_SCENARIO, v); setSelectedScenarioRaw(v); };
+  const setDays = (v: number) => { lsSet(LS_DAYS, String(v)); setDaysRaw(v); };
+
   const [autoFollow, setAutoFollow] = useState(true);
   const [selectedModel, setSelectedModel] = useState<string>('claude-haiku-4-5-20251001');
   const [thinkingEnabled, setThinkingEnabled] = useState<boolean>(false);
@@ -78,28 +98,35 @@ const Scenarios: React.FC = () => {
       setScenarios(scenariosRes.data.scenarios);
       setConfigs(scenariosRes.data.configs);
       setCurrentConfig(configRes.data);
-      if (!selectedConfig && scenariosRes.data.configs.length) {
+
+      // Only set defaults when localStorage has no saved value
+      setSelectedConfigRaw((prev) => {
+        if (prev) return prev;
         const stub = scenariosRes.data.configs.find((c) => c.name === 'sim-stub.json');
-        setSelectedConfig((stub ?? scenariosRes.data.configs[0]).name);
-      }
-      if (!selectedScenario && scenariosRes.data.scenarios.length) {
+        const next = (stub ?? scenariosRes.data.configs[0])?.name ?? '';
+        lsSet(LS_CONFIG, next);
+        return next;
+      });
+      setSelectedScenarioRaw((prev) => {
+        if (prev) return prev;
         const smoke = scenariosRes.data.scenarios.find((s) => s.name === 'smoke-test.json');
-        setSelectedScenario((smoke ?? scenariosRes.data.scenarios[0]).name);
-      }
+        const next = (smoke ?? scenariosRes.data.scenarios[0])?.name ?? '';
+        lsSet(LS_SCENARIO, next);
+        return next;
+      });
       setError(null);
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to load scenarios.'));
     } finally {
       setLoadingList(false);
     }
-  }, [selectedConfig, selectedScenario]);
+  }, []);
 
   const loadStatus = useCallback(async () => {
     try {
       const response = await scenariosAPI.status();
       setRun(response.data.run);
     } catch (err) {
-      // surface but keep polling
       setError(getErrorMessage(err, 'Failed to load run status.'));
     }
   }, []);
@@ -113,7 +140,7 @@ const Scenarios: React.FC = () => {
         setSelectedLog((agent ?? response.data.files[0]).name);
       }
     } catch {
-      // non-fatal — log directory may be empty
+      // non-fatal
     }
   }, [selectedLog]);
 
@@ -131,7 +158,7 @@ const Scenarios: React.FC = () => {
       const response = await scenariosAPI.metrics(200);
       setMetrics(response.data.snapshots);
     } catch {
-      // non-fatal — file may not exist yet
+      // non-fatal
     }
   }, []);
 
@@ -141,7 +168,7 @@ const Scenarios: React.FC = () => {
     void loadStatus();
     void loadLogFiles();
     void loadMetrics();
-  }, [loadLibraries, loadStatus, loadLogFiles, loadMetrics]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Polling while a run is active ────────────────────────────────────────
   useEffect(() => {
@@ -225,6 +252,16 @@ const Scenarios: React.FC = () => {
     }
   };
 
+  const handleDownloadLogs = () => {
+    // Trigger a browser download by navigating to the streaming endpoint
+    const a = document.createElement('a');
+    a.href = '/api/scenarios/logs/download';
+    a.download = '';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
   // ── Derived data ─────────────────────────────────────────────────────────
 
   const stdoutTail = useMemo(() => {
@@ -244,7 +281,6 @@ const Scenarios: React.FC = () => {
     [scenarios, selectedScenario],
   );
 
-
   const configDetail = useMemo(
     () => configs.find((c) => c.name === selectedConfig) ?? null,
     [configs, selectedConfig],
@@ -252,7 +288,7 @@ const Scenarios: React.FC = () => {
 
   const inventoryChart = useMemo(() => {
     if (!metrics.length) return null;
-    const days = metrics.map((m) => `D${m.day}`);
+    const dayLabels = metrics.map((m) => `D${m.day}`);
     const mfg = metrics.map((m) => Object.values(m.manufacturer.inventory ?? {}).reduce((a, b) => a + Number(b || 0), 0));
     const retailStock = metrics.map((m) =>
       m.retailers.reduce((acc, r) => acc + Object.values(r.stock ?? {}).reduce((a, b) => a + Number(b || 0), 0), 0),
@@ -260,12 +296,12 @@ const Scenarios: React.FC = () => {
     const providerStock = metrics.map((m) =>
       m.providers.reduce((acc, p) => acc + Object.values(p.stock ?? {}).reduce((a, b) => a + Number(b || 0), 0), 0),
     );
-    return { days, mfg, retailStock, providerStock };
+    return { days: dayLabels, mfg, retailStock, providerStock };
   }, [metrics]);
 
   const demandChart = useMemo(() => {
     if (!metrics.length) return null;
-    const days = metrics.map((m) => `D${m.day}`);
+    const dayLabels = metrics.map((m) => `D${m.day}`);
     const placed = metrics.map((m) =>
       m.retailers.reduce((acc, r) => acc + (r.customer_orders?.placed_today ?? 0), 0),
     );
@@ -275,26 +311,142 @@ const Scenarios: React.FC = () => {
     const backordered = metrics.map((m) =>
       m.retailers.reduce((acc, r) => acc + (r.customer_orders?.backordered_today ?? 0), 0),
     );
-    return { days, placed, fulfilled, backordered };
+    return { days: dayLabels, placed, fulfilled, backordered };
   }, [metrics]);
 
   const capacityChart = useMemo(() => {
     if (!metrics.length) return null;
-    const days: string[] = metrics.map((m) => `D${m.day}`);
+    const dayLabels: string[] = metrics.map((m) => `D${m.day}`);
     const lines: number[] = metrics.map((m) => m.manufacturer?.capacity?.assembly_lines ?? 1);
     const workers: number[] = metrics.map((m) => m.manufacturer?.capacity?.workers_per_line ?? 1);
     const dailyHours: number[] = metrics.map((m) => m.manufacturer?.capacity?.daily_assembly_hours ?? 8.0);
-    return { days, lines, workers, dailyHours };
+    return { days: dayLabels, lines, workers, dailyHours };
   }, [metrics]);
 
   const financialChart = useMemo(() => {
     if (!metrics.length) return null;
-    const days: string[] = metrics.map((m) => `D${m.day}`);
+    const dayLabels: string[] = metrics.map((m) => `D${m.day}`);
     const costs: number[] = metrics.map((m) => m.manufacturer?.financials?.total_costs ?? 0);
     const revenue: number[] = metrics.map((m) => m.manufacturer?.financials?.total_revenue ?? 0);
     const profit: number[] = metrics.map((m) => m.manufacturer?.financials?.net_profit ?? 0);
-    return { days, costs, revenue, profit };
+    return { days: dayLabels, costs, revenue, profit };
   }, [metrics]);
+
+  // ── Price chart: provider (cheapest tier), manufacturer wholesale, retailer retail ──
+  const priceChart = useMemo(() => {
+    if (!metrics.length) return null;
+    const dayLabels = metrics.map((m) => `D${m.day}`);
+
+    // Collect all product names across all layers
+    const productNames = new Set<string>();
+    metrics.forEach((m) => {
+      Object.keys(m.manufacturer?.prices ?? {}).forEach((k) => productNames.add(k));
+      m.retailers.forEach((r) => Object.keys(r.prices ?? {}).forEach((k) => productNames.add(k)));
+    });
+    const providerProductNames = new Set<string>();
+    metrics.forEach((m) =>
+      m.providers.forEach((p) => Object.keys(p.prices ?? {}).forEach((k) => providerProductNames.add(k))),
+    );
+
+    const traces: Data[] = [];
+
+    // Manufacturer wholesale prices
+    productNames.forEach((product) => {
+      const vals = metrics.map((m) => {
+        const p = m.manufacturer?.prices?.[product];
+        return p != null ? Number(p) : null;
+      });
+      if (vals.some((v) => v != null)) {
+        traces.push({
+          x: dayLabels, y: vals as number[], type: 'scatter', mode: 'lines+markers',
+          name: `Mfr: ${product}`, line: { dash: 'solid' },
+          connectgaps: true,
+        } as Data);
+      }
+    });
+
+    // Retailer retail prices
+    metrics[0]?.retailers.forEach((retailer, ri) => {
+      const retailerName = retailer.name;
+      const rProductNames = new Set<string>();
+      metrics.forEach((m) => Object.keys(m.retailers[ri]?.prices ?? {}).forEach((k) => rProductNames.add(k)));
+      rProductNames.forEach((product) => {
+        const vals = metrics.map((m) => {
+          const p = m.retailers[ri]?.prices?.[product];
+          return p != null ? Number(p) : null;
+        });
+        if (vals.some((v) => v != null)) {
+          traces.push({
+            x: dayLabels, y: vals as number[], type: 'scatter', mode: 'lines+markers',
+            name: `${retailerName}: ${product}`, line: { dash: 'dot' },
+            connectgaps: true,
+          } as Data);
+        }
+      });
+    });
+
+    // Provider prices — cheapest tier per product
+    metrics[0]?.providers.forEach((provider, pi) => {
+      const providerName = provider.name;
+      providerProductNames.forEach((product) => {
+        const vals = metrics.map((m) => {
+          const tiers = m.providers[pi]?.prices?.[product];
+          if (!tiers || typeof tiers !== 'object') return null;
+          const tierVals = Object.values(tiers).map(Number).filter((v) => !isNaN(v));
+          return tierVals.length ? Math.min(...tierVals) : null;
+        });
+        if (vals.some((v) => v != null)) {
+          traces.push({
+            x: dayLabels, y: vals as number[], type: 'scatter', mode: 'lines+markers',
+            name: `${providerName}: ${product}`, line: { dash: 'dashdot' },
+            connectgaps: true,
+          } as Data);
+        }
+      });
+    });
+
+    return traces.length ? { days: dayLabels, traces } : null;
+  }, [metrics]);
+
+  // ── Events overlay: horizontal bars per scenario event ───────────────────
+  const eventsOverlay = useMemo(() => {
+    const events = scenarioDetail?.events;
+    if (!events?.length || !metrics.length) return null;
+
+    const maxDay = Math.max(...metrics.map((m) => m.day));
+
+    // One trace per event as a horizontal bar (using scatter with fill)
+    // We'll use shapes via layout.shapes — returned as layout config for the caller
+    const shapes: Partial<Shape>[] = events
+      .filter((ev) => ev.start_day != null && ev.end_day != null)
+      .map((ev, i) => ({
+        type: 'rect' as const,
+        xref: 'x' as const,
+        yref: 'y' as const,
+        x0: `D${ev.start_day}`,
+        x1: `D${Math.min(ev.end_day ?? maxDay, maxDay)}`,
+        y0: i - 0.4,
+        y1: i + 0.4,
+        fillcolor: `hsl(${(i * 67) % 360}, 60%, 55%)`,
+        opacity: 0.75,
+        line: { width: 0 },
+      }));
+
+    const annotations: Partial<Annotations>[] = events
+      .filter((ev) => ev.start_day != null)
+      .map((ev, i) => ({
+        x: `D${ev.start_day}`,
+        y: i,
+        text: ev.name ?? `event ${i + 1}`,
+        xanchor: 'left' as const,
+        showarrow: false,
+        font: { color: '#fff', size: 11 },
+      }));
+
+    const yLabels = events.map((ev, i) => ev.name ?? `event ${i + 1}`);
+
+    return { shapes, annotations, yLabels, eventCount: events.length };
+  }, [scenarioDetail, metrics]);
 
   // ── Render ───────────────────────────────────────────────────────────────
 
@@ -341,6 +493,10 @@ const Scenarios: React.FC = () => {
           <Button variant="outline-secondary" onClick={() => void loadStatus()}>
             <FaSyncAlt className="me-2" />
             Refresh
+          </Button>
+          <Button variant="outline-primary" onClick={handleDownloadLogs} disabled={!logFiles.length}>
+            <FaDownload className="me-2" />
+            Download logs
           </Button>
           <Button variant="outline-danger" onClick={() => void handleClearLogs()}>
             <FaTrash className="me-2" />
@@ -401,14 +557,12 @@ const Scenarios: React.FC = () => {
           </div>
 
           <div className="surface-panel card-body">
-            <div className="section-title"><h4>Choose model & config</h4></div>
+            <div className="section-title"><h4>Choose model &amp; config</h4></div>
             <Form.Group>
               <Form.Label>Claude model</Form.Label>
               <Form.Select value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)}>
                 {AVAILABLE_MODELS.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
-                  </option>
+                  <option key={m.id} value={m.id}>{m.label}</option>
                 ))}
               </Form.Select>
               {AVAILABLE_MODELS.find((m) => m.id === selectedModel) && (
@@ -487,9 +641,9 @@ const Scenarios: React.FC = () => {
                     <div className="flex-shrink-0">
                       {(() => {
                         const isSame = !!(currentConfig &&
-                          currentConfig.assembly_lines === scenarioDetail.recommended_assembly.assembly_lines &&
-                          currentConfig.workers_per_line === scenarioDetail.recommended_assembly.workers_per_line &&
-                          currentConfig.shift_hours === scenarioDetail.recommended_assembly.shift_hours);
+                          currentConfig.assembly_lines === scenarioDetail.recommended_assembly!.assembly_lines &&
+                          currentConfig.workers_per_line === scenarioDetail.recommended_assembly!.workers_per_line &&
+                          currentConfig.shift_hours === scenarioDetail.recommended_assembly!.shift_hours);
                         return (
                           <Button
                             variant="primary"
@@ -531,9 +685,9 @@ const Scenarios: React.FC = () => {
                     <div className="flex-shrink-0">
                       {(() => {
                         const isSame = !!(currentConfig &&
-                          currentConfig.cost_per_assembly_line === scenarioDetail.recommended_costs.cost_per_assembly_line &&
-                          currentConfig.cost_per_worker_per_hour === scenarioDetail.recommended_costs.cost_per_worker_per_hour &&
-                          currentConfig.max_workers_per_line === scenarioDetail.recommended_costs.max_workers_per_line);
+                          currentConfig.cost_per_assembly_line === scenarioDetail.recommended_costs!.cost_per_assembly_line &&
+                          currentConfig.cost_per_worker_per_hour === scenarioDetail.recommended_costs!.cost_per_worker_per_hour &&
+                          currentConfig.max_workers_per_line === scenarioDetail.recommended_costs!.max_workers_per_line);
                         return (
                           <Button
                             variant="primary"
@@ -658,6 +812,7 @@ const Scenarios: React.FC = () => {
         </div>
       </div>
 
+      {/* ── Inventory + Demand charts ─── */}
       <div className="data-grid mt-3">
         <div className="chart-container">
           {inventoryChart ? (
@@ -702,6 +857,7 @@ const Scenarios: React.FC = () => {
         </div>
       </div>
 
+      {/* ── Capacity charts ─── */}
       <div className="data-grid mt-3">
         <div className="chart-container">
           {capacityChart ? (
@@ -742,6 +898,7 @@ const Scenarios: React.FC = () => {
         </div>
       </div>
 
+      {/* ── Financial charts ─── */}
       <div className="data-grid mt-3">
         <div className="chart-container">
           {financialChart ? (
@@ -766,7 +923,7 @@ const Scenarios: React.FC = () => {
           {financialChart ? (
             <ResponsivePlot
               data={[
-                { x: financialChart.days, y: financialChart.profit, type: 'scatter', mode: 'lines+markers', name: 'Net profit', marker: { color: financialChart.profit.some(p => p < 0) ? '#ffc107' : '#0dcaf0' } },
+                { x: financialChart.days, y: financialChart.profit, type: 'scatter', mode: 'lines+markers', name: 'Net profit', marker: { color: financialChart.profit.some((p) => p < 0) ? '#ffc107' : '#0dcaf0' } },
               ]}
               layout={{
                 title: { text: 'Net profit evolution' },
@@ -778,6 +935,63 @@ const Scenarios: React.FC = () => {
             />
           ) : (
             <div className="empty-state">Profit chart waits for the first metrics snapshot.</div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Price chart + Events overlay ─── */}
+      <div className="data-grid mt-3">
+        <div className="chart-container">
+          {priceChart ? (
+            <ResponsivePlot
+              data={priceChart.traces}
+              layout={{
+                title: { text: 'Product prices over time' },
+                xaxis: { title: { text: 'Simulated day' } },
+                yaxis: { title: { text: 'Price ($)' } },
+                legend: { orientation: 'h', y: -0.25 },
+                margin: { t: 56, r: 24, b: 80, l: 56 },
+              }}
+              minHeight={320}
+            />
+          ) : (
+            <div className="empty-state">Price chart shows provider / manufacturer / retailer prices after the first day completes.</div>
+          )}
+        </div>
+        <div className="chart-container">
+          {eventsOverlay ? (
+            <ResponsivePlot
+              data={[
+                {
+                  // invisible scatter just to set up the axis range
+                  x: priceChart?.days ?? metrics.map((m) => `D${m.day}`),
+                  y: Array(metrics.length).fill(0),
+                  type: 'scatter',
+                  mode: 'none',
+                  showlegend: false,
+                },
+              ]}
+              layout={{
+                title: { text: 'Scenario events timeline' },
+                xaxis: { title: { text: 'Simulated day' } },
+                yaxis: {
+                  title: { text: '' },
+                  tickvals: eventsOverlay.yLabels.map((_, i) => i),
+                  ticktext: eventsOverlay.yLabels,
+                  range: [-0.6, eventsOverlay.eventCount - 0.4],
+                },
+                shapes: eventsOverlay.shapes,
+                annotations: eventsOverlay.annotations,
+                margin: { t: 56, r: 24, b: 56, l: 120 },
+                plot_bgcolor: '#f8f9fa',
+              }}
+              minHeight={Math.max(200, eventsOverlay.eventCount * 50 + 80)}
+            />
+          ) : (
+            <div className="empty-state">
+              Events overlay shows scenario event windows once a run has metrics.
+              {!scenarioDetail?.events?.length ? ' The selected scenario has no named events.' : ''}
+            </div>
           )}
         </div>
       </div>

@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import io
+import zipfile
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.services.scenario_runner import scenario_runner
+from app.services.scenario_runner import LOGS_DIR, scenario_runner
 
 
 router = APIRouter()
@@ -87,3 +91,22 @@ def get_metrics(limit: int = Query(100, ge=1, le=1000)) -> dict[str, Any]:
 @router.post("/logs/clear")
 def clear_logs() -> dict[str, Any]:
     return scenario_runner.clear_logs()
+
+
+@router.get("/logs/download")
+def download_logs() -> StreamingResponse:
+    """Stream all log files as a ZIP archive."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        if LOGS_DIR.exists():
+            for entry in sorted(LOGS_DIR.iterdir()):
+                if entry.is_file():
+                    zf.write(entry, arcname=entry.name)
+    buf.seek(0)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    filename = f"simulation-logs-{ts}.zip"
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

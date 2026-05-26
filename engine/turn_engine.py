@@ -42,7 +42,8 @@ from engine.agent_runner import build_prompt, run_agent
 from engine.metrics import append_metrics, snapshot_metrics, summarize_metrics
 
 
-DEFAULT_TIMEOUT = 10.0  # seconds for routine API calls
+DEFAULT_TIMEOUT = 10.0    # seconds for routine API calls
+ADVANCE_TIMEOUT = 180.0   # day advance may trigger downstream HTTP polls; doubled for safety
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -445,14 +446,28 @@ def advance_app(app_url: str, app_name: str, logger: ApiLogger | None = None) ->
     """
 
     try:
-        result = _post(f"{app_url}/api/day/advance", {}, logger=logger)
+        with httpx.Client(timeout=ADVANCE_TIMEOUT) as client:
+            r = client.post(f"{app_url}/api/day/advance", json={})
+            try:
+                result = r.json() if r.content else {}
+            except Exception:
+                result = {}
+            if logger:
+                logger.log("POST", f"{app_url}/api/day/advance", {}, r.status_code, result)
+            r.raise_for_status()
+        result = dict(result) if result else {}
         print(f"  [{app_name}] day advanced → {result}")
         return result
     except httpx.HTTPError as exc:
         response = getattr(exc, "response", None)
         if response is not None and response.status_code == 404:
             try:
-                result = _post(f"{app_url}/api/simulation/advance-day", {}, logger=logger)
+                with httpx.Client(timeout=ADVANCE_TIMEOUT) as fc:
+                    fr = fc.post(f"{app_url}/api/simulation/advance-day", json={})
+                    result = dict(fr.json()) if fr.content else {}
+                    if logger:
+                        logger.log("POST", f"{app_url}/api/simulation/advance-day", {}, fr.status_code, result)
+                    fr.raise_for_status()
                 print(f"  [{app_name}] day advanced → {result}")
                 return result
             except httpx.HTTPError as fallback_exc:

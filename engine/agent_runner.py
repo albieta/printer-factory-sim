@@ -33,7 +33,7 @@ from engine.bash_logger import BashLogger
 
 
 LOGS_DIR = Path("logs")
-DEFAULT_TIMEOUT = 90  # reduced from 180 — with state pre-fetched agents need fewer tool calls
+DEFAULT_TIMEOUT = 180  # LLM agents may need multiple tool calls; 180s gives headroom
 
 
 def _log_path(day: int, role: str) -> Path:
@@ -97,6 +97,7 @@ def run_agent(
             [
                 "claude",
                 "--print",
+                "--verbose",
                 "--output-format",
                 "stream-json",
                 "--permission-mode",

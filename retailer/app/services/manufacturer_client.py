@@ -23,7 +23,7 @@ from typing import Any, Optional
 import httpx
 
 
-DEFAULT_TIMEOUT_SECONDS = 10.0
+DEFAULT_TIMEOUT_SECONDS = 30.0
 
 
 class ManufacturerError(RuntimeError):
