@@ -242,6 +242,8 @@ def _fetch_manufacturer_state(mfr_url: str, logger: ApiLogger | None = None) -> 
         return state
 
     try:
+        prices_resp = _get(f"{mfr_url}/api/prices", logger=logger)
+        prices_dict = prices_resp.get("prices", {}) if isinstance(prices_resp, dict) else {}
         return {
             "day": _get(f"{mfr_url}/api/day/current", logger=logger),
             "capacity": _get(f"{mfr_url}/api/capacity", logger=logger),
@@ -249,7 +251,7 @@ def _fetch_manufacturer_state(mfr_url: str, logger: ApiLogger | None = None) -> 
             "sales_orders": _get(f"{mfr_url}/api/sales/orders?status=PENDING", logger=logger),
             "purchase_orders": _get(f"{mfr_url}/api/purchases", logger=logger),
             "production_status": _get(f"{mfr_url}/api/production/status", logger=logger),
-            "prices": _get(f"{mfr_url}/api/prices", logger=logger),
+            "prices": prices_dict,
         }
     except httpx.HTTPError as exc:
         return {"error": str(exc)}
