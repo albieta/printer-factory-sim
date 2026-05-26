@@ -9,6 +9,7 @@ from typing import Any, Optional
 from sqlalchemy import (
     DECIMAL,
     JSON,
+    Boolean,
     Date,
     DateTime,
     Enum,
@@ -240,6 +241,7 @@ class SimulationConfig(Base):
     shift_hours: Mapped[float] = mapped_column(Float, nullable=False, default=8.0)
     demand_distribution_mean: Mapped[float] = mapped_column(Float, nullable=False, default=5.0)
     demand_distribution_variance: Mapped[float] = mapped_column(Float, nullable=False, default=2.0)
+    internal_demand_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     sim_date: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
     sim_day: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     cost_per_assembly_line: Mapped[float] = mapped_column(Float, nullable=False, default=50000.0)

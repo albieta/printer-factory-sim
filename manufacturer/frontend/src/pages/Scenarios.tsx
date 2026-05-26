@@ -84,6 +84,7 @@ const Scenarios: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState<string>('claude-haiku-4-5-20251001');
   const [thinkingEnabled, setThinkingEnabled] = useState<boolean>(false);
   const [fastMode, setFastMode] = useState<boolean>(false);
+  const [parallelAgents, setParallelAgents] = useState<boolean>(false);
   const [currentConfig, setCurrentConfig] = useState<SimulationConfig | null>(null);
   const logBoxRef = useRef<HTMLPreElement | null>(null);
 
@@ -218,6 +219,7 @@ const Scenarios: React.FC = () => {
         model: selectedModel,
         thinking_enabled: thinkingEnabled,
         fast_mode: fastMode,
+        parallel_agents: parallelAgents,
       });
       setRun(response.data);
       setNotice(`Started ${response.data.run_id} (${response.data.scenario} / ${response.data.config}).`);
@@ -601,6 +603,20 @@ const Scenarios: React.FC = () => {
                   : 'Fast mode OFF — Claude LLM agents make real decisions (slower, uses API tokens)'}
               </div>
             </Form.Group>
+            <Form.Group className="mt-3">
+              <Form.Check
+                type="switch"
+                id="parallel-agents-switch"
+                label="Parallel agents"
+                checked={parallelAgents}
+                onChange={(e) => setParallelAgents(e.target.checked)}
+              />
+              <div className="text-muted small mt-1">
+                {parallelAgents
+                  ? 'Parallel ON — all agents run at the same time (faster, but each acts on pre-fetched state and may miss same-turn peer writes)'
+                  : 'Parallel OFF — agents run sequentially: retailer → manufacturer → provider (correct causal ordering, manufacturer sees retailer orders placed this turn)'}
+              </div>
+            </Form.Group>
             <div className="metric-list compact-list mt-3">
               <div className="metric-item stat-row">
                 <span>Selected model</span>
@@ -613,6 +629,10 @@ const Scenarios: React.FC = () => {
               <div className="metric-item stat-row">
                 <span>Fast mode</span>
                 <strong>{fastMode ? 'ON — scripted agents' : 'OFF — LLM agents'}</strong>
+              </div>
+              <div className="metric-item stat-row">
+                <span>Agent execution</span>
+                <strong>{parallelAgents ? 'Parallel' : 'Sequential (retailer → mfr → provider)'}</strong>
               </div>
             </div>
           </div>

@@ -243,6 +243,7 @@ class SimulationConfigBase(BaseModel):
     shift_hours: float = 8.0
     demand_distribution_mean: float = 5.0
     demand_distribution_variance: float = 2.0
+    internal_demand_enabled: bool = False
     cost_per_assembly_line: float = 50000.0
     cost_per_assembly_line_per_day: float = 100.0
     cost_per_worker_per_hour: float = 50.0

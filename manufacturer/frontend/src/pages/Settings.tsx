@@ -27,6 +27,7 @@ const Settings: React.FC = () => {
     shift_hours: '8',
     demand_distribution_mean: '5',
     demand_distribution_variance: '2',
+    internal_demand_enabled: false,
     cost_per_assembly_line: '50000',
     cost_per_worker_per_hour: '50',
     max_workers_per_line: '10',
@@ -55,6 +56,7 @@ const Settings: React.FC = () => {
         shift_hours: String(configRes.data.shift_hours),
         demand_distribution_mean: String(configRes.data.demand_distribution_mean),
         demand_distribution_variance: String(configRes.data.demand_distribution_variance),
+        internal_demand_enabled: configRes.data.internal_demand_enabled ?? true,
         cost_per_assembly_line: String(configRes.data.cost_per_assembly_line),
         cost_per_worker_per_hour: String(configRes.data.cost_per_worker_per_hour),
         max_workers_per_line: String(configRes.data.max_workers_per_line),
@@ -97,6 +99,7 @@ const Settings: React.FC = () => {
       shift_hours: String(config.shift_hours),
       demand_distribution_mean: String(config.demand_distribution_mean),
       demand_distribution_variance: String(config.demand_distribution_variance),
+      internal_demand_enabled: config.internal_demand_enabled ?? true,
       cost_per_assembly_line: String(config.cost_per_assembly_line),
       cost_per_worker_per_hour: String(config.cost_per_worker_per_hour),
       max_workers_per_line: String(config.max_workers_per_line),
@@ -113,6 +116,7 @@ const Settings: React.FC = () => {
         shift_hours: Number(formData.shift_hours),
         demand_distribution_mean: Number(formData.demand_distribution_mean),
         demand_distribution_variance: Number(formData.demand_distribution_variance),
+        internal_demand_enabled: formData.internal_demand_enabled,
         cost_per_assembly_line: Number(formData.cost_per_assembly_line),
         cost_per_worker_per_hour: Number(formData.cost_per_worker_per_hour),
         max_workers_per_line: Number(formData.max_workers_per_line),
@@ -314,6 +318,22 @@ const Settings: React.FC = () => {
               <Form.Label>Demand variance</Form.Label>
               <Form.Control type="number" step="0.5" value={formData.demand_distribution_variance} onChange={(event) => setFormData({ ...formData, demand_distribution_variance: event.target.value })} />
               <Form.Text>How much daily demand fluctuates around the mean.</Form.Text>
+            </Form.Group>
+            <Form.Group className="mb-3 d-flex flex-column justify-content-start">
+              <Form.Label>Internal demand generator</Form.Label>
+              <Form.Check
+                type="switch"
+                id="internal-demand-switch"
+                label={formData.internal_demand_enabled ? 'Enabled' : 'Disabled'}
+                checked={formData.internal_demand_enabled}
+                onChange={(e) => setFormData({ ...formData, internal_demand_enabled: e.target.checked })}
+              />
+              <Form.Text>
+                When enabled, the simulator generates random internal ManufacturingOrders each day based on
+                the demand mean and variance above. Useful for standalone manual operation. Keep off during
+                multi-agent scenarios — the turn engine injects demand through the retailer instead, and
+                internal orders would compete for production capacity without producing revenue.
+              </Form.Text>
             </Form.Group>
             <Form.Group className="mb-3">
               <Form.Label>Cost per assembly line ($)</Form.Label>

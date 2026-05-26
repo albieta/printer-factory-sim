@@ -95,6 +95,7 @@ class ScenarioRunner:
         workers_per_line: int = 1,
         shift_hours: float = 8.0,
         fast_mode: bool = False,
+        parallel_agents: bool = False,
     ) -> dict[str, Any]:
         """Launch a scenario run in the background.
 
@@ -152,6 +153,7 @@ class ScenarioRunner:
             env["WORKERS_PER_LINE"] = str(workers_per_line)
             env["SHIFT_HOURS"] = str(shift_hours)
             env["FAST_MODE"] = "true" if fast_mode else "false"
+            env["PARALLEL_AGENTS"] = "true" if parallel_agents else "false"
 
             self._process = subprocess.Popen(
                 cmd,

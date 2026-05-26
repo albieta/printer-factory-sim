@@ -165,6 +165,7 @@ export interface SimulationConfig {
   effective_daily_assembly_hours: number;
   demand_distribution_mean: number;
   demand_distribution_variance: number;
+  internal_demand_enabled: boolean;
   sim_date?: string;
   cost_per_assembly_line: number;
   cost_per_worker_per_hour: number;
@@ -339,6 +340,7 @@ export interface ScenarioStartRequest {
   workers_per_line?: number;
   shift_hours?: number;
   fast_mode?: boolean;
+  parallel_agents?: boolean;
 }
 
 export interface LogFile {

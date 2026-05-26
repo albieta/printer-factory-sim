@@ -27,6 +27,7 @@ class ScenarioStartRequest(BaseModel):
     workers_per_line: int = Field(default=1, ge=1, le=20, description="Workers per assembly line")
     shift_hours: float = Field(default=8.0, ge=1.0, le=24.0, description="Hours worked per shift")
     fast_mode: bool = Field(default=False, description="Replace LLM agents with scripted deterministic logic (~60x faster, no API cost)")
+    parallel_agents: bool = Field(default=False, description="Run all role agents in parallel instead of sequentially (faster but agents act on stale state)")
 
 
 @router.get("/")
@@ -56,6 +57,7 @@ def start_scenario(payload: ScenarioStartRequest) -> dict[str, Any]:
             workers_per_line=payload.workers_per_line,
             shift_hours=payload.shift_hours,
             fast_mode=payload.fast_mode,
+            parallel_agents=payload.parallel_agents,
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))

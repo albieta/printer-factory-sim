@@ -24,6 +24,10 @@ placed by the retailer during its turn.
 
 Fast mode (FAST_MODE=true env var): scripted deterministic agents run instead
 of claude subprocesses — no LLM tokens, ~60× faster per day.
+
+The manufacturer's internal demand generator (Settings → "Internal demand
+generator") is controlled entirely by the operator. The engine reads it at
+startup and warns if it is on, but never overrides it.
 """
 
 from __future__ import annotations
@@ -652,59 +656,45 @@ def advance_app(app_url: str, app_name: str, logger: ApiLogger | None = None) ->
 # ── run initialisation ───────────────────────────────────────────────────────
 
 
-def _initialize_run(config: dict[str, Any], scenario: dict[str, Any]) -> None:
-    """One-time setup called once before the day loop.
+def _initialize_run(config: dict[str, Any]) -> None:
+    """One-time checks before the day loop.
 
-    Disables the manufacturer's internal phantom demand generator, which
-    creates ManufacturingOrders on every advance_day() tick. In turn-engine
-    mode all demand is injected via inject_customer_demand(), so the legacy
-    generator only adds noise and competes for production capacity.
+    Reads the manufacturer's current configuration and warns about any
+    conditions that would produce misleading results (missing prices,
+    unexpected demand generator state). Does NOT modify any settings —
+    those are the operator's responsibility.
     """
     mfr_url = config.get("manufacturer", {}).get("url")
     if not mfr_url:
         return
 
-    print("  [init] configuring manufacturer for turn-engine mode…")
+    try:
+        cfg = _get(f"{mfr_url}/api/config")
+    except httpx.HTTPError as exc:
+        print(f"  [init] WARNING: could not reach manufacturer config: {exc}")
+        return
 
-    # Apply scenario recommended assembly/cost settings (only for fields at defaults).
-    applied = apply_scenario_config(mfr_url, scenario)
-    if applied:
+    if cfg.get("internal_demand_enabled"):
         print(
-            f"  [init] capacity: {applied.get('assembly_lines')}L × "
-            f"{applied.get('workers_per_line')}W × {applied.get('shift_hours')}h | "
-            f"wage: ${applied.get('cost_per_worker_per_hour')}/hr"
+            "  [init] WARNING: internal demand generator is ON — "
+            "the manufacturer will create random ManufacturingOrders each day "
+            "alongside retailer SalesOrders. Disable it in Settings if unintended."
         )
 
-    # Disable phantom demand generator (legacy Week 5 internal orders).
-    try:
-        with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
-            r = client.put(
-                f"{mfr_url}/api/config",
-                json={"demand_distribution_mean": 0.0, "demand_distribution_variance": 0.0},
-            )
-        if r.is_success:
-            print("  [init] phantom demand generator disabled (mean=0, variance=0)")
-        else:
-            print(f"  [init] WARNING: could not disable demand generator: {r.status_code}")
-    except httpx.HTTPError as exc:
-        print(f"  [init] WARNING: could not reach manufacturer to disable demand: {exc}")
-
-    # Warn about missing or zero wholesale prices — orders created before
-    # prices are set will record $0 revenue at delivery time (the delivery
-    # fallback already handles this, but it's worth surfacing early).
+    prices_data: dict[str, Any] = {}
     try:
         prices_data = _get(f"{mfr_url}/api/prices")
-        prices = prices_data.get("prices", {})
-        if not prices:
-            print("  [init] WARNING: no wholesale prices configured — revenue will be $0")
-        else:
-            zero = [k for k, v in prices.items() if float(v or 0) == 0]
-            if zero:
-                print(f"  [init] WARNING: $0 wholesale price for: {', '.join(zero)}")
-            else:
-                print(f"  [init] prices OK: {', '.join(f'{k}=${v}' for k, v in prices.items())}")
     except httpx.HTTPError as exc:
         print(f"  [init] WARNING: could not check wholesale prices: {exc}")
+    prices = prices_data.get("prices", {})
+    if not prices:
+        print("  [init] WARNING: no wholesale prices configured — revenue will be $0")
+    else:
+        zero = [k for k, v in prices.items() if float(v or 0) == 0]
+        if zero:
+            print(f"  [init] WARNING: $0 wholesale price for: {', '.join(zero)}")
+        else:
+            print(f"  [init] prices OK: {', '.join(f'{k}=${v}' for k, v in prices.items())}")
 
 
 # ── main turn ─────────────────────────────────────────────────────────────────
@@ -816,44 +806,74 @@ def run_day(
     print("  [engine] pre-fetching state for all roles…")
     state_map = _prefetch_all_state(retailers, mfr, providers, api_logger)
 
-    # ── 3. Run role agents sequentially: retailer → manufacturer → provider ───
-    # Sequential order ensures each actor sees the decisions made upstream:
-    # the manufacturer sees SalesOrders placed by the retailer, and the
-    # provider sees purchase orders placed by the manufacturer.
+    # ── 3. Run role agents ─────────────────────────────────────────────────────
+    # Default: sequential (retailer → manufacturer → provider).
+    # Override via PARALLEL_AGENTS env var (set by the UI) or the scenario
+    # JSON field "parallel_agents": true. Env var takes precedence.
+    # Parallel is faster but agents act on pre-fetched state and don't see
+    # each other's writes within the same turn.
+    env_parallel = os.environ.get("PARALLEL_AGENTS", "").lower()
+    if env_parallel in ("1", "true", "yes"):
+        parallel_agents: bool = True
+    elif env_parallel in ("0", "false", "no"):
+        parallel_agents = False
+    else:
+        parallel_agents = bool(scenario.get("parallel_agents", False))
     agent_outputs: dict[str, str] = {}
 
-    # 3a. Retailer agents first
-    for r_cfg in retailers:
-        role_name = r_cfg.get("name", "retailer")
-        _, ctx = state_map.get(role_name, ({}, ""))
-        output = run_role_agent(role_name, r_cfg, day, signal, state_context=ctx, fast_mode=fast_mode)
-        agent_outputs[role_name] = output
-        print(f"  [{role_name}] agent: {output.strip()[:80]}")
+    if parallel_agents:
+        print("  [engine] running agents in parallel (parallel_agents=true in scenario)")
+        all_roles: list[tuple[str, dict[str, Any]]] = (
+            [(r_cfg.get("name", "retailer"), r_cfg) for r_cfg in retailers]
+            + [(mfr_name, mfr)]
+            + [(p_cfg.get("name", "provider"), p_cfg) for p_cfg in providers]
+        )
+        def _run_one(role: str, role_cfg: dict[str, Any]) -> tuple[str, str]:
+            _, ctx = state_map.get(role, ({}, ""))
+            out = run_role_agent(role, role_cfg, day, signal, state_context=ctx, fast_mode=fast_mode)
+            return role, out
 
-    # 3b. Re-fetch manufacturer state so it includes SalesOrders placed by
-    #     the retailer agent during its turn (purchase orders → sales orders).
-    if retailers and mfr.get("url"):
-        print("  [engine] re-fetching manufacturer state after retailer actions…")
-        try:
-            fresh_mfr_state = _fetch_manufacturer_state(mfr["url"], logger=api_logger)
-            fresh_mfr_ctx = _format_state_for_prompt(fresh_mfr_state, role="manufacturer")
-            state_map[mfr_name] = (fresh_mfr_state, fresh_mfr_ctx)
-        except Exception as exc:
-            print(f"  [engine] WARNING: manufacturer state re-fetch failed: {exc}")
+        with ThreadPoolExecutor(max_workers=len(all_roles) or 1) as ex:
+            for fut in as_completed([ex.submit(_run_one, n, c) for n, c in all_roles]):
+                role_name, output = fut.result()
+                agent_outputs[role_name] = output
+                print(f"  [{role_name}] agent: {output.strip()[:80]}")
+    else:
+        # Sequential: retailer → manufacturer (with state refresh) → provider.
+        # Each actor sees decisions made upstream before it acts.
 
-    # 3c. Manufacturer agent
-    _, mfr_ctx = state_map.get(mfr_name, ({}, ""))
-    mfr_output = run_role_agent(mfr_name, mfr, day, signal, state_context=mfr_ctx, fast_mode=fast_mode)
-    agent_outputs[mfr_name] = mfr_output
-    print(f"  [{mfr_name}] agent: {mfr_output.strip()[:80]}")
+        # 3a. Retailer agents first
+        for r_cfg in retailers:
+            role_name = r_cfg.get("name", "retailer")
+            _, ctx = state_map.get(role_name, ({}, ""))
+            output = run_role_agent(role_name, r_cfg, day, signal, state_context=ctx, fast_mode=fast_mode)
+            agent_outputs[role_name] = output
+            print(f"  [{role_name}] agent: {output.strip()[:80]}")
 
-    # 3d. Provider agents last (see purchase orders placed by manufacturer)
-    for p_cfg in providers:
-        role_name = p_cfg.get("name", "provider")
-        _, ctx = state_map.get(role_name, ({}, ""))
-        output = run_role_agent(role_name, p_cfg, day, signal, state_context=ctx, fast_mode=fast_mode)
-        agent_outputs[role_name] = output
-        print(f"  [{role_name}] agent: {output.strip()[:80]}")
+        # 3b. Re-fetch manufacturer state so it includes SalesOrders placed by
+        #     the retailer agent during its turn (purchase orders → sales orders).
+        if retailers and mfr.get("url"):
+            print("  [engine] re-fetching manufacturer state after retailer actions…")
+            try:
+                fresh_mfr_state = _fetch_manufacturer_state(mfr["url"], logger=api_logger)
+                fresh_mfr_ctx = _format_state_for_prompt(fresh_mfr_state, role="manufacturer")
+                state_map[mfr_name] = (fresh_mfr_state, fresh_mfr_ctx)
+            except Exception as exc:
+                print(f"  [engine] WARNING: manufacturer state re-fetch failed: {exc}")
+
+        # 3c. Manufacturer agent
+        _, mfr_ctx = state_map.get(mfr_name, ({}, ""))
+        mfr_output = run_role_agent(mfr_name, mfr, day, signal, state_context=mfr_ctx, fast_mode=fast_mode)
+        agent_outputs[mfr_name] = mfr_output
+        print(f"  [{mfr_name}] agent: {mfr_output.strip()[:80]}")
+
+        # 3d. Provider agents last (see purchase orders placed by manufacturer)
+        for p_cfg in providers:
+            role_name = p_cfg.get("name", "provider")
+            _, ctx = state_map.get(role_name, ({}, ""))
+            output = run_role_agent(role_name, p_cfg, day, signal, state_context=ctx, fast_mode=fast_mode)
+            agent_outputs[role_name] = output
+            print(f"  [{role_name}] agent: {output.strip()[:80]}")
 
     summary["agent_outputs"] = {k: v[:200] for k, v in agent_outputs.items()}
 
@@ -911,7 +931,7 @@ def main(argv: list[str]) -> int:
     print(f"Turn engine — scenario: {scenario.get('scenario_name', 'unnamed')}")
     print(f"Running {num_days} day(s).")
 
-    _initialize_run(config, scenario)
+    _initialize_run(config)
 
     for day in range(1, num_days + 1):
         run_day(config, scenario, day)

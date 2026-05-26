@@ -81,6 +81,9 @@ class SimulationService:
 
     def generate_daily_demand(self, sim_date: date) -> int:
         config = self.config_service.get_config()
+        if not config.internal_demand_enabled:
+            return 0
+
         printer_models = self.db.query(Product).filter(Product.type == ProductType.PRINTER).all()
         if not printer_models:
             return 0

@@ -11,6 +11,7 @@ STARTER_CONFIG: dict[str, Any] = {
     "daily_assembly_hours": 8.0,
     "demand_distribution_mean": 5.0,
     "demand_distribution_variance": 2.0,
+    "internal_demand_enabled": False,
     "sim_day": 0,
     "cost_per_assembly_line": 50000.0,
     "cost_per_worker_per_hour": 50.0,
