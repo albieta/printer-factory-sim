@@ -35,10 +35,12 @@ bin/manufacturer-cli fire-worker
 bin/manufacturer-cli close-assembly-line
 ```
 Financial Costs (operator-configured, you cannot change):
-- Assembly line: cost per new line (setup) + daily maintenance cost
-- Worker per hour: hourly wage (applied daily, calculated per worker per shift-hours)
-- Max workers per line: limit per assembly line
-- Materials: varies by supplier and quantity
+- **Assembly line**: one-time setup cost when opening + daily maintenance per line
+- **Workers**: `hire-worker` adds 1 worker to EVERY line (not just one).
+  Daily wage cost = cost_per_worker_per_hour × shift_hours × workers_per_line × assembly_lines
+  Example: 2 lines × 3 workers/line × $50/hr × 8h = $2,400/day in wages
+- **Max workers per line**: hard limit per line
+- **Materials**: varies by supplier and quantity (check tier pricing — bulk saves cost)
 - Daily costs are automatically deducted each day advance
 - Check actual costs with `bin/manufacturer-cli financial summary`
 
@@ -74,7 +76,11 @@ Follow these steps:
    - Batch release command: `bin/manufacturer-cli production release ORDER_ID1 ORDER_ID2 ORDER_ID3 ...`
    - Example: `bin/manufacturer-cli production release SO-0001-025 SO-0001-026 SO-0001-027 SO-0001-028`
 
-3. **Order**: For materials below 50 units not already inbound:
+3. **Order**: Act in advance — order BEFORE a shortage, not when it happens.
+   - Order if: `Stock - Needed ≤ lead_time_days × expected_daily_consumption` and nothing inbound.
+   - Consider bulk tiers: buying 300 units may cost less per unit than buying 100.
+   - Check warehouse free space: `Stock + Ordered-inbound + New-order ≤ warehouse_capacity`.
+     Do NOT order more than the warehouse can fit.
    - Batch purchase commands (one per material):
      ```bash
      bin/manufacturer-cli purchase create --supplier "ChipSupply Co" --product "LCD Screen" --qty 100
@@ -83,18 +89,17 @@ Follow these steps:
 
 4. **Scale** (optional): Adapt capacity based on demand signals:
    
-   **Expand capacity** if demand is consistently high and warehouse capacity is adequate:
-   - Batch expand: `bin/manufacturer-cli open-assembly-line && bin/manufacturer-cli hire-worker`
-   - Or separate:
+   **Expand capacity** if demand is consistently high:
+   - Only expand if PENDING orders > daily capacity AND you can afford it (revenue > costs)
+   - Remember: `hire-worker` increases workers on ALL lines. 2 lines × +1 worker = 2 more workers total.
+   - Each new assembly line has a one-time setup cost (shown in Financial screen).
      ```bash
      bin/manufacturer-cli open-assembly-line
      bin/manufacturer-cli hire-worker
-     bin/manufacturer-cli hire-worker
      ```
-   - Only expand if PENDING orders > daily capacity and you can afford it
    
    **Reduce capacity** if demand is low and costs are unsustainable:
-   - Batch reduce: `bin/manufacturer-cli fire-worker && bin/manufacturer-cli close-assembly-line`
+   - `bin/manufacturer-cli fire-worker && bin/manufacturer-cli close-assembly-line`
 
 5. **Adjust**: Price changes based on demand_modifier (use prices from provided state):
    - If demand_modifier > 1.5: increase prices 10%

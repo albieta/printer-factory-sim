@@ -102,9 +102,12 @@ const Suppliers: React.FC = () => {
 
           try {
             const stockRes = await providersAPI.getProviderStock(provider.name);
-            if (stockRes.data && stockRes.data.items) {
-              stockMap.set(provider.name, stockRes.data.items);
-            }
+            // Provider /api/stock returns a list directly; the manufacturer proxy
+            // may wrap it in {items:[...]} or pass the list through unchanged.
+            const raw = stockRes.data;
+            const items: Array<{product_name: string; quantity: number}> =
+              Array.isArray(raw) ? raw : (raw?.items ?? []);
+            if (items.length > 0) stockMap.set(provider.name, items);
           } catch {
             // Stock data unavailable
           }

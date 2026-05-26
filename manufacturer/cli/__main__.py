@@ -346,15 +346,17 @@ def capacity() -> None:
 
 @app.command()
 def open_assembly_line() -> None:
-    """Open a new parallel assembly line."""
+    """Open a new parallel assembly line (records setup cost in financials)."""
     from app.schemas.schemas import SimulationConfigUpdate
+    from app.services.financial_service import FinancialService
 
     with _session() as db:
         cfg = ConfigService(db).get_config()
         new_lines = cfg.assembly_lines + 1
         updated = ConfigService(db).update_config(SimulationConfigUpdate(assembly_lines=new_lines))
+        FinancialService(db).record_assembly_line_opened(cfg.sim_day)
         typer.echo(
-            f"Assembly line opened. "
+            f"Assembly line opened (cost recorded). "
             f"Total lines: {updated.assembly_lines}, "
             f"Daily capacity: {updated.daily_assembly_hours:.1f} hours"
         )
@@ -362,24 +364,37 @@ def open_assembly_line() -> None:
 
 @app.command()
 def hire_worker() -> None:
-    """Hire a worker (add to pool across all lines)."""
+    """Hire one additional worker per line (records first-day wage cost in financials).
+
+    Workers are shared across ALL assembly lines — hiring 1 worker
+    adds 1 worker to every line, increasing total workers by assembly_lines.
+    """
     from app.schemas.schemas import SimulationConfigUpdate
+    from app.services.financial_service import FinancialService
 
     with _session() as db:
         cfg = ConfigService(db).get_config()
+        if cfg.workers_per_line >= cfg.max_workers_per_line:
+            typer.echo(
+                f"Cannot hire: already at max {cfg.max_workers_per_line} workers/line.", err=True
+            )
+            raise typer.Exit(1)
         new_workers = cfg.workers_per_line + 1
         updated = ConfigService(db).update_config(SimulationConfigUpdate(workers_per_line=new_workers))
+        FinancialService(db).record_worker_hired(cfg.sim_day)
         typer.echo(
-            f"Worker hired. "
-            f"Workers per line: {updated.workers_per_line}, "
+            f"Worker hired (cost recorded). "
+            f"Workers per line: {updated.workers_per_line} × {updated.assembly_lines} lines = "
+            f"{updated.workers_per_line * updated.assembly_lines} total workers, "
             f"Daily capacity: {updated.daily_assembly_hours:.1f} hours"
         )
 
 
 @app.command()
 def fire_worker() -> None:
-    """Fire a worker (reduce pool across all lines, minimum 1 per line)."""
+    """Fire one worker per line (reduce workers/line, minimum 1)."""
     from app.schemas.schemas import SimulationConfigUpdate
+    from app.services.financial_service import FinancialService
 
     with _session() as db:
         cfg = ConfigService(db).get_config()
@@ -389,17 +404,20 @@ def fire_worker() -> None:
 
         new_workers = cfg.workers_per_line - 1
         updated = ConfigService(db).update_config(SimulationConfigUpdate(workers_per_line=new_workers))
+        FinancialService(db).record_worker_fired(cfg.sim_day)
         typer.echo(
             f"Worker fired. "
-            f"Workers per line: {updated.workers_per_line}, "
+            f"Workers per line: {updated.workers_per_line} × {updated.assembly_lines} lines = "
+            f"{updated.workers_per_line * updated.assembly_lines} total workers, "
             f"Daily capacity: {updated.daily_assembly_hours:.1f} hours"
         )
 
 
 @app.command()
 def close_assembly_line() -> None:
-    """Close an assembly line (reduce capacity, minimum 1 line)."""
+    """Close an assembly line (minimum 1 line, records closure in financials)."""
     from app.schemas.schemas import SimulationConfigUpdate
+    from app.services.financial_service import FinancialService
 
     with _session() as db:
         cfg = ConfigService(db).get_config()
@@ -409,6 +427,7 @@ def close_assembly_line() -> None:
 
         new_lines = cfg.assembly_lines - 1
         updated = ConfigService(db).update_config(SimulationConfigUpdate(assembly_lines=new_lines))
+        FinancialService(db).record_assembly_line_closed(cfg.sim_day)
         typer.echo(
             f"Assembly line closed. "
             f"Total lines: {updated.assembly_lines}, "

@@ -143,13 +143,38 @@ def _fetch_manufacturer_state(mfr_url: str, logger: ApiLogger | None = None) -> 
         pass
 
     if "error" not in state and state:
-        # Augment with detailed inventory (accepted_order_demand, pending_inbound_quantity)
+        # Augment with detailed inventory (accepted_order_demand, pending_inbound_quantity),
+        # warehouse capacity, and supplier pricing tiers for proactive ordering.
         try:
             inv_detail = _get(f"{mfr_url}/api/inventory/", logger=logger)
             if isinstance(inv_detail, list):
                 state["inventory_detail"] = inv_detail
         except httpx.HTTPError:
             pass
+        try:
+            wh_cap = _get(f"{mfr_url}/api/inventory/capacity", logger=logger)
+            if isinstance(wh_cap, dict):
+                state["warehouse_capacity"] = wh_cap
+        except httpx.HTTPError:
+            pass
+        try:
+            suppliers_raw = _get(f"{mfr_url}/api/suppliers/", logger=logger)
+            if isinstance(suppliers_raw, list):
+                state["suppliers"] = suppliers_raw
+        except httpx.HTTPError:
+            pass
+        # Also include capacity so format_state has assembly lines/workers data
+        if "capacity" not in state:
+            try:
+                state["capacity"] = _get(f"{mfr_url}/api/capacity", logger=logger)
+            except httpx.HTTPError:
+                pass
+        if "prices" not in state:
+            try:
+                prices_raw = _get(f"{mfr_url}/api/prices", logger=logger)
+                state["prices"] = prices_raw.get("prices", {}) if isinstance(prices_raw, dict) else {}
+            except httpx.HTTPError:
+                pass
         return state
 
     try:
@@ -230,13 +255,51 @@ def _format_state_for_prompt(state: dict[str, Any], role: str = "manufacturer") 
         price_lines = [f"- {model}: ${price}" for model, price in prices.items()]
         prices_text = "\n".join(price_lines)
 
+        # Warehouse capacity
+        wh = state.get("warehouse_capacity", {})
+        wh_total = wh.get("warehouse_capacity", "?")
+        wh_used = wh.get("current_usage", "?")
+        wh_avail = wh.get("available_capacity", "?")
+        wh_pct = wh.get("usage_percentage", 0)
+        wh_flag = " ⚠️ NEAR FULL" if float(wh_pct or 0) > 80 else ""
+        wh_line = f"{wh_used}/{wh_total} units used ({wh_pct:.0f}%){wh_flag} — {wh_avail} units free"
+
+        # Supplier pricing tiers for proactive bulk decisions
+        suppliers_raw = state.get("suppliers", [])
+        tier_lines: list[str] = []
+        for sup in suppliers_raw:
+            if not isinstance(sup, dict) or not sup.get("external_provider_url"):
+                continue
+            mat = sup.get("product_name") or sup.get("product_id", "?")
+            tiers = sup.get("quantity_breaks") or []
+            base = sup.get("unit_cost")
+            lead = sup.get("lead_time_days", "?")
+            if tiers:
+                tier_str = ", ".join(f"{t['qty']}+→${t['price']}" for t in sorted(tiers, key=lambda t: t["qty"]))
+                tier_lines.append(f"- {mat} ({sup.get('name', '?')}, {lead}d lead): base ${base} | tiers: {tier_str}")
+            else:
+                tier_lines.append(f"- {mat} ({sup.get('name', '?')}, {lead}d lead): ${base} flat")
+        supplier_tiers_text = "\n".join(tier_lines) if tier_lines else "No external suppliers configured."
+
+        lines_count = capacity.get('assembly_lines', capacity.get('lines', 1))
+        workers_per_line = capacity.get('workers_per_line', capacity.get('workers', 1))
+        shift_h = capacity.get('shift_hours', 8)
+        daily_h = capacity.get('daily_hours', capacity.get('daily_assembly_hours', 8))
+
         return f"""
 ## Current State (Day {day})
 
-**Production Capacity**: {capacity.get('lines', 1)} lines × {capacity.get('workers_per_line', 1)} workers × {capacity.get('shift_hours', 8)}h = **{capacity.get('daily_hours', 8)} hours/day**
+**Production Capacity**: {lines_count} lines × {workers_per_line} workers/line × {shift_h}h = **{daily_h} hours/day**
+*(hire-worker adds 1 worker to EVERY line; cost = rate × lines × shift_hours)*
+
+**Warehouse**: {wh_line}
+*(Do NOT order more than warehouse free space; check available before ordering)*
 
 **Inventory Levels**:
 {inv_table}
+
+**External Supplier Tiers** (order in advance — lead time applies):
+{supplier_tiers_text}
 
 **PENDING Sales Orders** ({pending_count} total):
 {pending_sample}
