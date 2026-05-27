@@ -239,8 +239,8 @@ class SimulationService:
             customer_orders = [o for o in orders_raw if isinstance(o, dict)] if isinstance(orders_raw, list) else []
             today_orders = [o for o in customer_orders if int(o.get("placed_day", -1)) == day]
             today_counts: dict[str, int] = dict(Counter(str(o.get("status", "?")) for o in today_orders))
-            # fulfilled_today counts orders fulfilled on this day (any placed_day), not just today's orders
-            fulfilled_today = sum(1 for o in customer_orders if int(o.get("fulfilled_day") or -1) == day)
+            # fulfilled_day is set to previous_day inside the retailer's advance_day(), so it equals day-1
+            fulfilled_today = sum(1 for o in customer_orders if int(o.get("fulfilled_day") or -1) == day - 1)
             purchase_counts: dict[str, int] = dict(Counter(str(o.get("status", "?")) for o in (purchases_raw if isinstance(purchases_raw, list) else []) if isinstance(o, dict)))
 
             return {
@@ -345,22 +345,37 @@ class SimulationService:
         except Exception:
             pass
 
-        # Per-day sales order activity.
-        # Orders are placed by the retailer agent before advance_day() runs, so their placed_day
-        # is sim_day-1 (the day number before the increment). in_progress/shipped are set
-        # inside progress_sales_orders() which runs after the increment, so they use sim_day.
+        # Per-day combined order activity (MFG orders + SalesOrders).
+        # MFG orders are created and released during advance_day() using the new sim_day date.
+        # SalesOrders are placed by the retailer agent before the advance (placed_day = sim_day-1).
         prev_day = max(0, sim_day - 1)
-        prev_date = config.sim_date - timedelta(days=1) if sim_day > 0 else config.sim_date
         sales_orders_today: dict[str, int] = {"placed": 0, "in_progress": 0, "shipped": 0, "rejected": 0}
         try:
+            mfg_created = self.db.query(ManufacturingOrder).filter(
+                ManufacturingOrder.created_date == config.sim_date
+            ).count()
+            mfg_released = self.db.query(ManufacturingOrder).filter(
+                ManufacturingOrder.released_date == config.sim_date
+            ).count()
+            mfg_blocked = self.db.query(ManufacturingOrder).filter(
+                ManufacturingOrder.created_date == config.sim_date,
+                ManufacturingOrder.status == OrderStatus.BLOCKED,
+            ).count()
+            so_placed = self.db.query(SalesOrder).filter(SalesOrder.placed_day == prev_day).count()
+            so_confirmed = self.db.query(Event).filter(
+                Event.event_type == EventType.SALES_ORDER_RELEASED,
+                Event.sim_date == config.sim_date,
+            ).count()
+            so_shipped = self.db.query(SalesOrder).filter(SalesOrder.shipped_day == sim_day).count()
+            so_rejected = self.db.query(Event).filter(
+                Event.event_type == EventType.SALES_ORDER_REJECTED,
+                Event.sim_date == config.sim_date,
+            ).count()
             sales_orders_today = {
-                "placed": self.db.query(SalesOrder).filter(SalesOrder.placed_day == prev_day).count(),
-                "in_progress": self.db.query(SalesOrder).filter(SalesOrder.in_progress_day == sim_day).count(),
-                "shipped": self.db.query(SalesOrder).filter(SalesOrder.shipped_day == sim_day).count(),
-                "rejected": self.db.query(Event).filter(
-                    Event.event_type == EventType.SALES_ORDER_REJECTED,
-                    Event.sim_date == prev_date,
-                ).count(),
+                "placed": mfg_created + so_placed,
+                "in_progress": mfg_released + so_confirmed,
+                "shipped": so_shipped,
+                "rejected": mfg_blocked + so_rejected,
             }
         except Exception:
             pass

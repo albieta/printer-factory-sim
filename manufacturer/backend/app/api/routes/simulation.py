@@ -1,6 +1,7 @@
+from datetime import timedelta
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.schemas.schemas import DayAdvanceResult, ResetConfirm, SimulationStatus
@@ -66,3 +67,55 @@ def reset_to_default_config(db: Session = Depends(get_db)):
         pass  # Network errors are non-critical for reset
 
     return ResetConfirm(success=True, message="Simulation reset to default prefilled demo configuration. All apps cleared.")
+
+
+@router.get("/orders-daily")
+def get_orders_daily(day: int = Query(..., description="Engine day number (1-based)"), db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Return combined MFG + SalesOrder activity counts for a given sim day.
+
+    Used by engine/metrics.py to populate the daily sales order activity chart.
+    """
+    from app.models.models import ManufacturingOrder, OrderStatus, Event, EventType, SalesOrder
+    from app.services.config_service import ConfigService
+
+    cfg = ConfigService(db).get_config()
+    sim_day = cfg.sim_day or 0
+    target_date = cfg.sim_date - timedelta(days=max(0, sim_day - day))
+
+    # MFG orders created today (by demand generation during advance_day)
+    mfg_created = db.query(ManufacturingOrder).filter(
+        ManufacturingOrder.created_date == target_date
+    ).count()
+
+    # MFG orders released/accepted today (planner queue or auto-release)
+    mfg_released = db.query(ManufacturingOrder).filter(
+        ManufacturingOrder.released_date == target_date
+    ).count()
+
+    # MFG orders newly blocked today (created today and currently blocked)
+    mfg_blocked = db.query(ManufacturingOrder).filter(
+        ManufacturingOrder.created_date == target_date,
+        ManufacturingOrder.status == OrderStatus.BLOCKED,
+    ).count()
+
+    # SalesOrders confirmed/accepted today via SALES_ORDER_RELEASED event
+    so_confirmed = db.query(Event).filter(
+        Event.event_type == EventType.SALES_ORDER_RELEASED,
+        Event.sim_date == target_date,
+    ).count()
+
+    # SalesOrders rejected today via SALES_ORDER_REJECTED event
+    so_rejected = db.query(Event).filter(
+        Event.event_type == EventType.SALES_ORDER_REJECTED,
+        Event.sim_date == target_date,
+    ).count()
+
+    return {
+        "sim_day": day,
+        "sim_date": target_date.isoformat(),
+        "mfg_created": mfg_created,
+        "mfg_released": mfg_released,
+        "mfg_blocked": mfg_blocked,
+        "so_confirmed": so_confirmed,
+        "so_rejected": so_rejected,
+    }

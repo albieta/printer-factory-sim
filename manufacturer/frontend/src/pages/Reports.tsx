@@ -475,12 +475,12 @@ const Reports: React.FC = () => {
           {hasMetrics && mfgOrdersChart ? (
             <ResponsivePlot
               data={[
-                { x: dayLabels, y: mfgOrdersChart.placed, type: 'bar', name: 'New orders', marker: { color: '#0066cc' } },
+                { x: dayLabels, y: mfgOrdersChart.placed, type: 'bar', name: 'New (MFG + SO)', marker: { color: '#0066cc' } },
                 { x: dayLabels, y: mfgOrdersChart.in_progress, type: 'bar', name: 'Accepted', marker: { color: '#28a745' } },
-                { x: dayLabels, y: mfgOrdersChart.shipped, type: 'bar', name: 'Released', marker: { color: '#17a2b8' } },
-                { x: dayLabels, y: mfgOrdersChart.rejected, type: 'bar', name: 'Deleted', marker: { color: '#dc3545' } },
+                { x: dayLabels, y: mfgOrdersChart.shipped, type: 'bar', name: 'Shipped', marker: { color: '#17a2b8' } },
+                { x: dayLabels, y: mfgOrdersChart.rejected, type: 'bar', name: 'Deleted/Blocked', marker: { color: '#dc3545' } },
               ]}
-              layout={{ barmode: 'group', title: { text: 'Daily sales order activity' }, xaxis: { title: { text: 'Simulated day' } }, yaxis: { title: { text: 'Orders' } }, margin: { t: 56, r: 24, b: 56, l: 56 } }}
+              layout={{ barmode: 'group', title: { text: 'Daily order activity (MFG + sales orders)' }, xaxis: { title: { text: 'Simulated day' } }, yaxis: { title: { text: 'Orders' } }, margin: { t: 56, r: 24, b: 56, l: 56 } }}
               minHeight={300}
             />
           ) : <EmptyChart label={noMetricsMsg} />}
