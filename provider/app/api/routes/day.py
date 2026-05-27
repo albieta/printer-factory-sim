@@ -46,7 +46,8 @@ def set_market_signal(
 @router.post("/reset")
 def reset_provider(db: Session = Depends(get_db)) -> dict[str, str]:
     """Reset provider database to seed data state."""
-    from app.services.admin_service import AdminService
+    import sys
+    from pathlib import Path
     from app.utils.database import engine, Base
 
     # Clear all tables and reload from seed
@@ -54,8 +55,9 @@ def reset_provider(db: Session = Depends(get_db)) -> dict[str, str]:
     Base.metadata.create_all(bind=engine)
 
     # Reload seed data
-    from app.scripts.seed_data import seed_provider
-    seed_provider(db)
-    db.commit()
+    scripts_path = Path(__file__).parent.parent.parent.parent / "scripts"
+    sys.path.insert(0, str(scripts_path))
+    from seed_data import seed_database
+    seed_database()
 
     return {"message": "Provider reset to seed data state."}

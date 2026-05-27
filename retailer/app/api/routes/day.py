@@ -35,6 +35,8 @@ def advance_day(
 @router.post("/reset")
 def reset_retailer(db: Session = Depends(get_db)) -> dict[str, str]:
     """Reset retailer database to seed data state."""
+    import sys
+    from pathlib import Path
     from app.utils.database import engine, Base
 
     # Clear all tables and reload from seed
@@ -42,8 +44,9 @@ def reset_retailer(db: Session = Depends(get_db)) -> dict[str, str]:
     Base.metadata.create_all(bind=engine)
 
     # Reload seed data
-    from app.scripts.seed_data import seed_retailer
-    seed_retailer(db)
-    db.commit()
+    scripts_path = Path(__file__).parent.parent.parent.parent / "scripts"
+    sys.path.insert(0, str(scripts_path))
+    from seed_data import seed_database
+    seed_database()
 
     return {"message": "Retailer reset to seed data state."}
