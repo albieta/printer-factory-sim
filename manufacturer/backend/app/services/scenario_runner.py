@@ -36,6 +36,37 @@ CONFIGS_DIR: Path = PROJECT_ROOT / "config"
 LOGS_DIR: Path = PROJECT_ROOT / "logs"
 METRICS_FILE: Path = LOGS_DIR / "metrics.jsonl"
 VENV_PYTHON: Path = PROJECT_ROOT / ".venv" / "bin" / "python"
+DOTENV_FILE: Path = PROJECT_ROOT / ".env"
+
+# Keys the engine subprocess reads from .env. Add new ones here as we grow
+# the set of LLM providers — keeping the list explicit avoids accidentally
+# leaking unrelated shell env (e.g. AWS keys) into a scenario run.
+_DOTENV_PASSTHROUGH = ("GOOGLE_API_KEY",)
+
+
+def _load_dotenv() -> dict[str, str]:
+    """Return ``KEY=VALUE`` pairs from the repo-root ``.env`` (if present).
+
+    A tiny parser is enough — we only need to pass an API key or two through
+    to the engine subprocess and the file is operator-managed. No quoting,
+    no exports, no shell interpolation.
+    """
+    if not DOTENV_FILE.exists():
+        return {}
+    out: dict[str, str] = {}
+    try:
+        for raw in DOTENV_FILE.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key:
+                out[key] = value
+    except OSError:
+        return {}
+    return out
 
 
 @dataclass
@@ -154,6 +185,13 @@ class ScenarioRunner:
             env["SHIFT_HOURS"] = str(shift_hours)
             env["FAST_MODE"] = "true" if fast_mode else "false"
             env["PARALLEL_AGENTS"] = "true" if parallel_agents else "false"
+
+            # Merge .env secrets (e.g. GOOGLE_API_KEY for Gemini agents).
+            # Process env wins so an operator can still override at the shell.
+            dotenv = _load_dotenv()
+            for key in _DOTENV_PASSTHROUGH:
+                if key not in env and key in dotenv and dotenv[key]:
+                    env[key] = dotenv[key]
 
             self._process = subprocess.Popen(
                 cmd,

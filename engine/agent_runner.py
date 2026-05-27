@@ -51,6 +51,11 @@ from pathlib import Path
 from typing import Any, Optional
 
 from engine.bash_logger import BashLogger
+from engine.gemini_client import (
+    extract_bash_commands,
+    get_gemini_client,
+    is_gemini_model,
+)
 
 
 LOGS_DIR = Path("logs")
@@ -117,6 +122,18 @@ def run_agent(
         output = f"[stub] {role} would decide here (day {day})\n"
         log.write_text(output, encoding="utf-8")
         return output
+
+    # ── Gemini path: single-shot generate + local bash execution ──────────────
+    if is_gemini_model(model):
+        return _run_gemini_agent(
+            role=role,
+            prompt=prompt,
+            skill_file=skill_file,
+            cwd=cwd,
+            model=model,
+            log_path=log,
+            bash_logger=bash_logger,
+        )
 
     try:
         result = subprocess.run(
@@ -192,6 +209,113 @@ def run_agent(
 
     log.write_text(log_content, encoding="utf-8")
     return final_text
+
+
+def _run_gemini_agent(
+    *,
+    role: str,
+    prompt: str,
+    skill_file: str,
+    cwd: str,
+    model: str,
+    log_path: Path,
+    bash_logger: Optional[BashLogger],
+) -> str:
+    """Execute one agent turn through Gemini, mirroring the Claude path's logs.
+
+    The skill file is uploaded once as cached content (per process), and each
+    day sends only the per-day state + market signal as the user prompt. The
+    model's reply is expected to contain a one-line decision summary, a 3–5
+    bullet recap, and one or more ```bash``` blocks listing the CLI commands
+    it wants executed (matching what the skill files already instruct).
+
+    We extract those commands and run them locally with ``bash -lc`` so the
+    behaviour is identical to Claude's Bash tool, then write the same
+    PROMPT → TOOL INVOCATIONS → RESPONSE log layout to disk.
+    """
+    skill_text = Path(skill_file).read_text(encoding="utf-8")
+
+    # The Gemini prompt has the day-specific state. The skill content lives in
+    # the cached system instruction so we don't re-bill its ~5K tokens daily.
+    system_instruction = (
+        f"You are the {role} agent in a 3D printer supply-chain simulation. "
+        f"Follow the skill instructions below exactly. When you want to run a "
+        f"CLI command, place it inside a ```bash code block — every line in "
+        f"such a block is executed as-is by the engine. Keep the decision "
+        f"summary as your first line."
+    )
+
+    try:
+        client = get_gemini_client(model)
+        result = client.generate(
+            system_instruction=system_instruction,
+            user_prompt=prompt,
+            skill_path=skill_file,
+            skill_text=skill_text,
+        )
+    except Exception as exc:  # network, quota, missing key — surface to log
+        message = f"[gemini-error] {exc}\n"
+        log_path.write_text(message, encoding="utf-8")
+        return message
+
+    response_text = result.get("text", "") or "(empty response)"
+    usage = result.get("usage", {}) or {}
+
+    commands = extract_bash_commands(response_text)
+    tool_invocations: list[dict[str, Any]] = []
+    for cmd in commands:
+        stdout, stderr, exit_code = _run_bash(cmd, cwd=cwd)
+        tool_invocations.append(
+            {"tool": "Bash", "command": cmd, "stdout": stdout, "stderr": stderr, "exit_code": exit_code}
+        )
+        if bash_logger:
+            bash_logger.log(command=cmd, stdout=stdout, stderr=stderr, exit_code=exit_code)
+
+    log_content = (
+        "=== PROMPT SENT TO GEMINI ===\n"
+        f"{prompt}\n\n"
+        f"=== BATCH TOOL INVOCATIONS ({len(tool_invocations)} total) ===\n"
+        "Commands parsed from ```bash blocks in the Gemini response and executed locally.\n"
+    )
+    for inv in tool_invocations:
+        log_content += f"\n[CALL: {inv['command']}]\n"
+        if inv.get("stdout"):
+            log_content += f"stdout: {inv['stdout']}\n"
+        if inv.get("stderr"):
+            log_content += f"stderr: {inv['stderr']}\n"
+        if inv.get("exit_code"):
+            log_content += f"exit_code: {inv['exit_code']}\n"
+
+    log_content += f"\n=== GEMINI FINAL RESPONSE ===\n{response_text}\n"
+    if usage:
+        log_content += (
+            "\n=== USAGE ===\n"
+            f"prompt_tokens={usage.get('promptTokenCount', '?')} "
+            f"cached_tokens={usage.get('cachedContentTokenCount', 0)} "
+            f"output_tokens={usage.get('candidatesTokenCount', '?')} "
+            f"total={usage.get('totalTokenCount', '?')}\n"
+        )
+
+    log_path.write_text(log_content, encoding="utf-8")
+    return response_text
+
+
+def _run_bash(command: str, cwd: str) -> tuple[str, str, int]:
+    """Execute *command* via ``bash -lc`` with the engine's tool timeout."""
+    try:
+        proc = subprocess.run(
+            ["bash", "-lc", command],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=TOOL_TIMEOUT_SECONDS,
+        )
+        return proc.stdout, proc.stderr, proc.returncode
+    except subprocess.TimeoutExpired as exc:
+        partial = (exc.stdout or b"").decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        return partial, f"[timeout] command exceeded {TOOL_TIMEOUT_SECONDS}s", 124
+    except Exception as exc:  # noqa: BLE001 — log everything that breaks
+        return "", f"[error] {exc}", 1
 
 
 def _parse_stream_json(raw_output: str) -> tuple[list[dict[str, Any]], str]:

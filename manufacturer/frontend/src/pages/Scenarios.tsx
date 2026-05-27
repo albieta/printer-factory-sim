@@ -38,11 +38,21 @@ const formatBytes = (size: number): string => {
   return `${(size / 1024 / 1024).toFixed(2)} MB`;
 };
 
-const AVAILABLE_MODELS = [
-  { id: 'claude-opus-4-7',           label: 'Claude Opus 4.7',   description: 'Most capable, slower, expensive' },
-  { id: 'claude-sonnet-4-6',         label: 'Claude Sonnet 4.6', description: 'Balanced performance and cost' },
-  { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5',  description: 'Fast and cost-effective' },
+type ModelOption = {
+  id: string;
+  label: string;
+  description: string;
+  provider: 'claude' | 'gemini';
+};
+
+const AVAILABLE_MODELS: ModelOption[] = [
+  { id: 'claude-opus-4-7',           label: 'Claude Opus 4.7',          description: 'Most capable, slower, expensive',                           provider: 'claude' },
+  { id: 'claude-sonnet-4-6',         label: 'Claude Sonnet 4.6',        description: 'Balanced performance and cost',                             provider: 'claude' },
+  { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5',         description: 'Fast and cost-effective',                                   provider: 'claude' },
+  { id: 'gemini-3.1-flash-lite',     label: 'Gemini 3.1 Flash Lite',    description: 'Google free tier: 15 RPM / 250K TPM / 500 RPD — skills cached', provider: 'gemini' },
 ];
+
+const isGeminiModel = (id: string): boolean => id.toLowerCase().startsWith('gemini');
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -559,16 +569,31 @@ const Scenarios: React.FC = () => {
           <div className="surface-panel card-body">
             <div className="section-title"><h4>Choose model &amp; config</h4></div>
             <Form.Group>
-              <Form.Label>Claude model</Form.Label>
+              <Form.Label>Agent model</Form.Label>
               <Form.Select value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)}>
-                {AVAILABLE_MODELS.map((m) => (
-                  <option key={m.id} value={m.id}>{m.label}</option>
-                ))}
+                <optgroup label="Anthropic Claude (via local CLI)">
+                  {AVAILABLE_MODELS.filter((m) => m.provider === 'claude').map((m) => (
+                    <option key={m.id} value={m.id}>{m.label}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="Google Gemini (free-tier API)">
+                  {AVAILABLE_MODELS.filter((m) => m.provider === 'gemini').map((m) => (
+                    <option key={m.id} value={m.id}>{m.label}</option>
+                  ))}
+                </optgroup>
               </Form.Select>
               {AVAILABLE_MODELS.find((m) => m.id === selectedModel) && (
                 <div className="text-muted small mt-1">
                   {AVAILABLE_MODELS.find((m) => m.id === selectedModel)?.description}
                 </div>
+              )}
+              {isGeminiModel(selectedModel) && (
+                <Alert variant="info" className="small mt-2 mb-0 py-2 px-3">
+                  Gemini agents read <code>GOOGLE_API_KEY</code> from <code>.env</code> at the
+                  repo root. Skill files are uploaded as cached content so they only count
+                  toward token cost once per process. Free-tier caps (15 RPM / 500 RPD) are
+                  enforced engine-side — the engine will block briefly if a window fills up.
+                </Alert>
               )}
             </Form.Group>
             <Form.Group className="mt-3">
@@ -576,14 +601,16 @@ const Scenarios: React.FC = () => {
                 type="switch"
                 id="thinking-switch"
                 label="Enable extended thinking"
-                checked={thinkingEnabled}
-                disabled={fastMode}
+                checked={thinkingEnabled && !isGeminiModel(selectedModel)}
+                disabled={fastMode || isGeminiModel(selectedModel)}
                 onChange={(e) => setThinkingEnabled(e.target.checked)}
               />
               <div className="text-muted small mt-1">
-                {thinkingEnabled
-                  ? 'Extended thinking enabled — agents will spend more time reasoning'
-                  : 'Extended thinking disabled — faster execution'}
+                {isGeminiModel(selectedModel)
+                  ? 'Extended thinking is a Claude-only setting (Gemini agents always run single-shot)'
+                  : thinkingEnabled
+                    ? 'Extended thinking enabled — agents will spend more time reasoning'
+                    : 'Extended thinking disabled — faster execution'}
               </div>
             </Form.Group>
             <Form.Group className="mt-3">
@@ -623,8 +650,22 @@ const Scenarios: React.FC = () => {
                 <strong className="mono">{fastMode ? 'scripted (no LLM)' : selectedModel}</strong>
               </div>
               <div className="metric-item stat-row">
+                <span>Provider</span>
+                <strong>
+                  {fastMode
+                    ? 'None (scripted)'
+                    : isGeminiModel(selectedModel)
+                      ? 'Google Gemini'
+                      : 'Anthropic Claude'}
+                </strong>
+              </div>
+              <div className="metric-item stat-row">
                 <span>Thinking mode</span>
-                <strong>{fastMode ? 'N/A' : thinkingEnabled ? 'Enabled' : 'Disabled'}</strong>
+                <strong>
+                  {fastMode || isGeminiModel(selectedModel)
+                    ? 'N/A'
+                    : thinkingEnabled ? 'Enabled' : 'Disabled'}
+                </strong>
               </div>
               <div className="metric-item stat-row">
                 <span>Fast mode</span>
