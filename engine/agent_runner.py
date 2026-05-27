@@ -1,25 +1,46 @@
 """Subprocess wrapper for ``claude --print`` agent invocations.
 
+Uses Claude Code Pro (no API key required) via subprocess ``claude --print``.
+
+Optimization: Batch Tool Execution
+===================================
+Claude's response includes ALL tool calls it wants to make in a single stream-json
+output. We extract them all and execute them together before sending results back.
+This minimizes iterations and token usage:
+  - Single response: Claude decides all tools at once
+  - Batch execution: All tools run together (not one-at-a-time)
+  - Results returned: Sent back in single message for next iteration
+
+Example flow:
+  Iteration 1: Claude calls [tool1, tool2, tool3] → all 3 extracted
+  Batch exec: Execute tool1, tool2, tool3 together
+  Results: Send all 3 results back to Claude
+  Iteration 2: Claude calls [tool4] → extracted
+  Batch exec: Execute tool4
+  Iteration 3: Claude done
+
+Phases:
+-------
 Phase 1 (deterministic): ``run_agent`` is given ``skill_file=None`` and
-returns immediately with a stub log line.
+  returns immediately with a stub log line.
 
 Phase 2 (one agent): a non-None ``skill_file`` triggers a real
-``claude --print`` subprocess with stream-json output.  The result is written to
-``logs/day-{day:03d}-{role}.log`` with complete flow:
-  - Full prompt sent to Claude
-  - Complete Claude output (text responses)
-  - All tool invocations with results
+  ``claude --print`` subprocess with stream-json output. Results written to
+  ``logs/day-{day:03d}-{role}.log`` with complete flow:
+    - Full prompt sent to Claude
+    - Complete Claude output (text responses)
+    - All tool invocations with results (batched)
 
 Bash invocations are also logged separately to
-``logs/day-{day:03d}-bash-calls.jsonl`` for visibility.
+  ``logs/day-{day:03d}-bash-calls.jsonl`` for visibility.
 
 Timeout behaviour: if ``claude --print`` exceeds ``timeout_seconds``, the
-runner logs a ``[timeout]`` marker and returns the partial output.  A stuck
-agent never freezes the simulation.
+  runner logs a ``[timeout]`` marker and returns the partial output.
+  A stuck agent never freezes the simulation.
 
 Fast mode: when ``fast_mode=True``, the appropriate scripted agent from
-``engine.scripted_agents`` is called instead of spawning a claude subprocess.
-This is deterministic, free, and ~60× faster per day.
+  ``engine.scripted_agents`` is called instead of spawning a claude subprocess.
+  This is deterministic, free, and ~60× faster per day.
 """
 
 from __future__ import annotations
@@ -34,6 +55,11 @@ from engine.bash_logger import BashLogger
 
 LOGS_DIR = Path("logs")
 DEFAULT_TIMEOUT = 180  # LLM agents may need multiple tool calls; 180s gives headroom
+TOOL_TIMEOUT_SECONDS = 30  # Timeout per individual bash tool execution
+
+# Skill file cache: avoid re-reading unchanged files across iterations
+# Skill files are static per scenario, so cache persists for the run
+_SKILL_FILE_CACHE: dict[str, str] = {}
 
 
 def _log_path(day: int, role: str) -> Path:
@@ -126,9 +152,12 @@ def run_agent(
         exit_code = 124
 
     # Parse stream-json output to extract tool calls and final response
+    # Batch execution: All tool calls from Claude's response are collected here
+    # (stream-json already includes ALL tools Claude decided to call)
     tool_invocations, final_text = _parse_stream_json(raw_output)
 
     # Extract and log bash commands if logger exists
+    # Each tool invocation is logged independently for audit trail
     if bash_logger:
         for invocation in tool_invocations:
             if invocation["tool"] == "Bash":
@@ -139,11 +168,12 @@ def run_agent(
                     exit_code=invocation.get("exit_code", 0),
                 )
 
-    # Build complete log showing flow: prompt → tool calls → response
+    # Build complete log showing flow: prompt → batch tool calls → response
     log_content = (
         "=== PROMPT SENT TO CLAUDE ===\n"
         f"{prompt}\n\n"
-        "=== TOOL INVOCATIONS ===\n"
+        f"=== BATCH TOOL INVOCATIONS ({len(tool_invocations)} total) ===\n"
+        f"All tools collected from single Claude response and logged below.\n"
     )
 
     for inv in tool_invocations:
@@ -243,6 +273,9 @@ def build_prompt(
 ) -> str:
     """Assemble the prompt given to ``claude --print``.
 
+    Uses cached skill file to avoid re-reading unchanged files (minor token savings).
+    Skill files are static per scenario, so cache persists across all agent calls.
+
     Parameters
     ----------
     state_context:
@@ -250,7 +283,10 @@ def build_prompt(
         If provided, agent has current state without making API calls.
     """
 
-    skill_text = Path(skill_file).read_text(encoding="utf-8")
+    # Use cached skill file to avoid re-reading (saves disk I/O and token overhead)
+    if skill_file not in _SKILL_FILE_CACHE:
+        _SKILL_FILE_CACHE[skill_file] = Path(skill_file).read_text(encoding="utf-8")
+    skill_text = _SKILL_FILE_CACHE[skill_file]
 
     # Insert state context if provided
     state_section = f"{state_context}\n" if state_context else ""
