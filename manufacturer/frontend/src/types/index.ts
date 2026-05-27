@@ -206,6 +206,9 @@ export interface DayAdvanceResult {
   purchase_orders_delivered: number;
 }
 
+export type AdvanceAllServiceResult = { error?: string; sim_day?: number; sim_date?: string; [key: string]: unknown };
+export type AdvanceAllResult = Record<string, AdvanceAllServiceResult | undefined>;
+
 export interface BOMRequirements {
   product_id: string;
   product_name: string;

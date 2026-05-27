@@ -1,9 +1,12 @@
 from __future__ import annotations
-from typing import Any
 
+import os
 import random
 from datetime import date
 from decimal import Decimal
+from typing import Any
+
+import httpx
 
 from sqlalchemy.orm import Session
 
@@ -78,6 +81,51 @@ class SimulationService:
             "sales_orders_shipped": so_counts["shipped"],
             "sales_orders_delivered": so_counts["delivered"],
         }
+
+    def advance_all_services(self) -> dict[str, Any]:
+        """Advance retailer → manufacturer → each provider in turn-engine order.
+
+        Returns a per-service result dict so the UI can show what each app did.
+        Services that are offline are skipped and reported as errors rather than
+        aborting the whole advance.
+        """
+        retailer_url = os.getenv("RETAILER_BASE_URL", "http://localhost:8003")
+        from app.utils.app_config import get_configured_providers
+
+        results: dict[str, Any] = {}
+
+        def _post_advance(url: str, name: str) -> dict[str, Any]:
+            try:
+                with httpx.Client(timeout=15.0) as client:
+                    r = client.post(f"{url}/api/day/advance", json={})
+                    r.raise_for_status()
+                    body: dict[str, Any] = r.json()
+                    return body
+            except httpx.HTTPStatusError as exc:
+                return {"error": f"HTTP {exc.response.status_code}"}
+            except httpx.HTTPError as exc:
+                return {"error": str(exc)}
+
+        # 1. Retailer
+        results["retailer"] = _post_advance(retailer_url, "retailer")
+
+        # 2. Manufacturer (this instance)
+        results["manufacturer"] = self.advance_day()
+
+        # 3. Each provider
+        from app.models.models import SimulationConfig
+        sim_cfg = self.db.query(SimulationConfig).first()
+        provider_url_overrides: dict[str, str] = {}
+        if sim_cfg and sim_cfg.provider_urls:
+            provider_url_overrides = sim_cfg.provider_urls
+
+        for p in get_configured_providers():
+            name = str(p.get("name", "provider"))
+            url = str(provider_url_overrides.get(name) or p.get("url", ""))
+            if url:
+                results[name] = _post_advance(url, name)
+
+        return results
 
     def generate_daily_demand(self, sim_date: date) -> int:
         config = self.config_service.get_config()

@@ -1,5 +1,6 @@
 import axios from 'axios';
 import type {
+  AdvanceAllResult,
   SimulationConfig,
   SimulationStatus,
   DayAdvanceResult,
@@ -150,6 +151,7 @@ export const purchaseOrdersAPI = {
 export const simulationAPI = {
   getStatus: () => api.get<SimulationStatus>('/simulation/status/'),
   advanceDay: () => api.post<DayAdvanceResult>('/simulation/advance-day/'),
+  advanceAll: () => api.post<AdvanceAllResult>('/simulation/advance-all'),
   reset: () => api.post<{ success: boolean; message: string }>('/simulation/reset/'),
   resetToEmpty: () => api.post<{ success: boolean; message: string }>('/simulation/reset-empty/'),
   resetToDefaultConfig: () => api.post<{ success: boolean; message: string }>('/simulation/reset-default-config/'),

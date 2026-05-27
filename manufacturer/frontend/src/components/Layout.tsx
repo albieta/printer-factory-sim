@@ -17,8 +17,8 @@ import {
   FaTimes,
   FaTruck,
 } from 'react-icons/fa';
-import { getErrorMessage, simulationAPI } from '../services/api';
-import type { SimulationStatus } from '../types';
+import { getErrorMessage, scenariosAPI, simulationAPI } from '../services/api';
+import type { AdvanceAllResult, SimulationStatus } from '../types';
 import { announceSimulationUpdate, onSimulationUpdate } from '../utils/simulationEvents';
 
 interface LayoutProps {
@@ -45,14 +45,20 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [advanceNotice, setAdvanceNotice] = useState<string | null>(null);
   const [advanceError, setAdvanceError] = useState<string | null>(null);
   const [advancing, setAdvancing] = useState(false);
+  const [scenarioRunning, setScenarioRunning] = useState(false);
   const [workflowOpen, setWorkflowOpen] = useState(false);
   const location = useLocation();
 
   const loadStatus = async () => {
     try {
-      const response = await simulationAPI.getStatus();
-      setStatus(response.data);
+      const [statusRes, scenarioRes] = await Promise.all([
+        simulationAPI.getStatus(),
+        scenariosAPI.status().catch(() => null),
+      ]);
+      setStatus(statusRes.data);
       setStatusError(null);
+      const run = scenarioRes?.data?.run;
+      setScenarioRunning(run?.status === 'running' || run?.status === 'stopping');
     } catch (error) {
       setStatusError(getErrorMessage(error, 'Unable to load the workflow summary.'));
     }
@@ -81,10 +87,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const handleAdvanceDay = async () => {
     try {
       setAdvancing(true);
-      const result = await simulationAPI.advanceDay();
-      setAdvanceNotice(
-        `Simulation advanced to ${result.data.sim_date}. Created ${result.data.orders_created} new demand orders, completed ${result.data.orders_completed} manufacturing orders, and received ${result.data.purchase_orders_delivered} purchase orders.`
-      );
+      const result = await simulationAPI.advanceAll();
+      setAdvanceNotice(_summariseAdvanceAll(result.data));
       setAdvanceError(null);
       announceSimulationUpdate();
       await loadStatus();
@@ -94,6 +98,24 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       setAdvancing(false);
     }
   };
+
+  function _summariseAdvanceAll(data: AdvanceAllResult): string {
+    const parts: string[] = [];
+    for (const [service, result] of Object.entries(data)) {
+      if (!result) continue;
+      if (result.error) {
+        parts.push(`${service}: offline (${String(result.error)})`);
+      } else if (service === 'manufacturer' && 'sim_date' in result) {
+        const mfr = result as { sim_date: string; orders_created: number; orders_completed: number };
+        parts.push(`manufacturer → day ${mfr.sim_date}, ${mfr.orders_created} demand orders, ${mfr.orders_completed} completed`);
+      } else if ('sim_day' in result) {
+        parts.push(`${service} → day ${String(result.sim_day)}`);
+      } else {
+        parts.push(`${service} → advanced`);
+      }
+    }
+    return parts.length ? `All services advanced. ${parts.join(' | ')}` : 'All services advanced.';
+  }
 
   return (
     <div className="app-shell">
@@ -168,10 +190,20 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 </div>
               </div>
             ) : null}
-            <Button variant="primary" onClick={() => void handleAdvanceDay()} disabled={advancing}>
-              <FaPlayCircle className="me-2" />
-              {advancing ? 'Advancing...' : 'Advance Day'}
-            </Button>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
+              <Button
+                variant={scenarioRunning ? 'secondary' : 'primary'}
+                onClick={() => void handleAdvanceDay()}
+                disabled={advancing || scenarioRunning}
+                title={scenarioRunning ? 'A scenario run is active — the turn engine advances days automatically.' : 'Advance all services one day: retailer → manufacturer → providers'}
+              >
+                <FaPlayCircle className="me-2" />
+                {advancing ? 'Advancing...' : 'Advance Day'}
+              </Button>
+              {scenarioRunning && (
+                <span style={{ fontSize: '0.7rem', color: '#888' }}>turn engine active</span>
+              )}
+            </div>
           </div>
         </header>
 

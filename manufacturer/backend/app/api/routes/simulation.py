@@ -1,3 +1,5 @@
+from typing import Any
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -16,6 +18,12 @@ def get_simulation_status(db: Session = Depends(get_db)):
 @router.post("/advance-day", response_model=DayAdvanceResult)
 def advance_day(db: Session = Depends(get_db)):
     return SimulationService(db).advance_day()
+
+
+@router.post("/advance-all")
+def advance_all(db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Advance all three services (retailer → manufacturer → providers) in order."""
+    return SimulationService(db).advance_all_services()
 
 
 @router.post("/reset/", response_model=ResetConfirm)
