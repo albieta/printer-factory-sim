@@ -505,6 +505,45 @@ def _format_state_for_prompt(state: dict[str, Any], role: str = "manufacturer") 
     return "\n"
 
 
+def _build_provider_stock_section(
+    providers: list[dict[str, Any]],
+    api_logger: ApiLogger | None,
+) -> str:
+    """Return a prompt section listing each provider's current available stock.
+
+    The manufacturer agent must see these quantities so it cannot accidentally
+    place a purchase order that exceeds the supplier's actual inventory.
+    Provider orders for more than available stock are auto-rejected by the
+    provider service, causing waste and delays.
+    """
+    lines: list[str] = []
+    for p_cfg in providers:
+        pname = p_cfg.get("name", "provider")
+        try:
+            state = _fetch_provider_state(p_cfg["url"], logger=api_logger)
+            stock_list = state.get("stock", [])
+            if isinstance(stock_list, list):
+                for s in stock_list:
+                    if not isinstance(s, dict):
+                        continue
+                    qty = int(s.get("quantity", 0))
+                    mat = s.get("product_name", "?")
+                    flag = " ⚠️ LOW" if qty < 100 else ""
+                    lines.append(f"- {mat} ({pname}): **{qty} units**{flag}")
+        except Exception:
+            pass
+
+    if not lines:
+        return ""
+
+    return (
+        "\n**Provider Available Stock** "
+        "(hard limit — never order more than this; excess is auto-rejected):\n"
+        + "\n".join(lines)
+        + "\n\n---\n"
+    )
+
+
 # ── per-turn steps ────────────────────────────────────────────────────────────
 
 
@@ -735,6 +774,7 @@ def _prefetch_all_state(
         try:
             state = _fetch_manufacturer_state(mfr["url"], logger=api_logger)
             ctx = _format_state_for_prompt(state, role="manufacturer")
+            ctx += _build_provider_stock_section(providers, api_logger)
         except Exception as exc:
             state = {"error": str(exc)}
             ctx = f"\n⚠️ State fetch failed: {exc}\n"
@@ -894,6 +934,8 @@ def run_day(
             try:
                 mfr_state = _fetch_manufacturer_state(mfr["url"], logger=api_logger)
                 mfr_ctx = _format_state_for_prompt(mfr_state, role="manufacturer")
+                # Append live provider stock so the agent never over-orders.
+                mfr_ctx += _build_provider_stock_section(providers, api_logger)
             except Exception as exc:
                 print(f"  [engine] WARNING: manufacturer state fetch failed: {exc}")
                 mfr_state = {"error": str(exc)}

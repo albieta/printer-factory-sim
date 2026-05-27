@@ -174,7 +174,10 @@ def _retailer_snapshot(
         }
 
     customer_orders = [row for row in orders_data if isinstance(row, dict)] if isinstance(orders_data, list) else []
-    today_orders = [row for row in customer_orders if _to_int(row.get("placed_day"), -1) == day]
+    # Orders are injected before advance_app, so the retailer's sim_day at placement
+    # time is always (engine_day - 1).  Snapshot runs after the advance.
+    order_day = day - 1
+    today_orders = [row for row in customer_orders if _to_int(row.get("placed_day"), -1) == order_day]
     today_counts = _status_counts(today_orders)
     purchase_orders = [row for row in purchases_data if isinstance(row, dict)] if isinstance(purchases_data, list) else []
 
@@ -259,6 +262,5 @@ def summarize_metrics(snapshot: dict[str, Any]) -> str:
 
     return (
         f"Day {snapshot.get('day')}: {placed} customer orders / "
-        f"{fulfilled} fulfilled / {backordered} backordered / "
-        f"{backordered} stockout(s); events={event_text}"
+        f"{fulfilled} fulfilled / {backordered} backordered; events={event_text}"
     )
