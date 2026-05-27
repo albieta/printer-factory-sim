@@ -42,32 +42,69 @@ Use these as normal stock targets unless the live `catalog` or `stock` output sh
 - ABS Filament: 800
 - LCD Screen: 200
 
-## Decision Framework
+## Batch Execution Optimization
 
-**⚡ Batch your commands** to reduce API calls: combine state checks and actions with `&&`.
+**⚡ CRITICAL: Batch all your commands in ONE response.** You already have state above—make decisions, then execute everything together.
+
+**How to batch multiple restocks AND price changes:**
+```bash
+# All restocks chained together
+bin/provider-cli restock "Control Board" 200 && \
+bin/provider-cli restock "PLA Filament" 300 && \
+bin/provider-cli restock "LCD Screen" 100
+
+# Or restock + pricing in one batch
+bin/provider-cli restock "Control Board" 200 && \
+bin/provider-cli price set "Control Board" 100 45 && \
+bin/provider-cli restock "LCD Screen" 100 && \
+bin/provider-cli price set "LCD Screen" 50 35
+```
+
+**Why batch matters:**
+- Without batching: Assess → restock → check results → adjust pricing = multiple iterations
+- With batching: Assess → decide all restock + pricing → execute all at once = 1 iteration
+
+You're given state upfront. Use it. Decide what to do. Execute all commands together.
+
+## Decision Framework
 
 Follow these steps, running the appropriate CLI commands:
 
-1. **Assess** (batch state checks)
+
+
+1. **Assess State** (you have it above):
+   - Current stock levels (by product)
+   - Starting stock targets (reference above)
+   - Pending manufacturer orders (demand pressure)
+   - Rejected orders (if any)
+   
+   NO NEED to run state-check commands—use provided data.
+
+2. **Restock + Pricing in ONE Batch:**
+   
+   Decide what to restock based on:
+   - Below 50% of starting stock? → restock up to starting level
+   - `demand_modifier > 1.5`? → restock below 75% (prepare for high demand)
+   - `supply_modifier < 0.7`? → restock conservatively, prioritize low stock
+   
+   Decide pricing:
+   - Stock < 30% of target? → raise 5-10% (scarcity premium)
+   - Stock > 150% of target and low demand? → lower 5-10% (move excess)
+   - Keep changes within 15% daily
+   
+   Execute all together:
    ```bash
-   bin/provider-cli day current && bin/provider-cli catalog && bin/provider-cli stock && bin/provider-cli orders list
+   bin/provider-cli restock "Control Board" 200 && \
+   bin/provider-cli restock "LCD Screen" 100 && \
+   bin/provider-cli price set "Control Board" 500 48 && \
+   bin/provider-cli price set "LCD Screen" 200 38
    ```
-   - Print one `LOG: assess - ...` line naming the tightest stock item and any pending/rejected order pressure.
-
-2. **Restock** (batch restock commands)
-   - If a product is below 50% of its starting stock, restock up to about the starting stock.
-   - If `demand_modifier > 1.5`, restock products below 75% of starting stock so the manufacturer can react to demand.
-   - If `supply_modifier < 0.7`, restock conservatively but protect products already below 30% first.
-   - Batch restock: `bin/provider-cli restock "Product1" 100 && bin/provider-cli restock "Product2" 200`
-   - Print one `LOG: restock - ...` line explaining what changed or why no restock was needed.
-
-3. **Adjust Prices** (batch price changes)
-   - Use the tiers shown by `catalog`; the second argument to `price set` is the tier's `min_quantity`.
-   - If stock is below 30% of starting stock, raise the top tier for that product 5-10%.
-   - If stock is above 150% of starting stock and demand is not high, lower the top tier 5-10%.
-   - Keep every daily price move within 15%.
-   - Batch pricing: `bin/provider-cli price set "Product1" 100 50 && bin/provider-cli price set "Product2" 50 55`
-   - Print one `LOG: pricing - ...` line naming each price change or saying none.
+   
+   Or if no restocking needed, still batch any pricing:
+   ```bash
+   bin/provider-cli price set "Control Board" 500 50 && \
+   bin/provider-cli price set "Stepper Motor" 100 42
+   ```
 
 4. **Summarize**
    - Print 3-5 bullets with counts and reasons.

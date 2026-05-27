@@ -45,48 +45,90 @@ Maintain these minimums ON HAND (not counting inbound) at all times:
 
 These are floors, not ceilings. When backordered demand exists, order enough to clear it PLUS restore safety stock.
 
+## Batch Execution Optimization
+
+**⚡ CRITICAL: Batch all your commands in ONE response.** You have complete state above—make decisions upfront, then execute everything together.
+
+**How to batch fulfill/backorder + reorders + pricing:**
+```bash
+# Customer actions + reorders all together
+bin/retailer-cli fulfill ORDER_1 && \
+bin/retailer-cli backorder ORDER_2 && \
+bin/retailer-cli purchase create "Basic300" 50 && \
+bin/retailer-cli purchase create "Elite700" 20 && \
+bin/retailer-cli price set "Basic300" 445 && \
+bin/retailer-cli price set "Pro450" 925
+```
+
+**Why batch matters:**
+- Without batching: Assess → fulfill 1 → check stock → order → adjust price = 5+ iterations
+- With batching: Assess → decide all fulfills/orders/prices → execute all = 1 iteration
+
+Iterate only if you genuinely need to reassess after seeing results. Most days, one batch covers everything.
+
 ## Decision Framework
 
-**⚡ Batch your commands** to reduce API calls: combine state checks and actions with `&&`.
+Follow these steps (using state provided above):
 
-Follow these steps, running the appropriate CLI commands:
 
-1. **Assess** (batch state checks)
+
+1. **Assess State** (you have it above):
+   - Current stock by model (Basic300, Pro450, Elite700)
+   - Customer orders (PENDING, BACKORDERED)
+   - Backorder count and risk
+   - Inbound manufacturer orders (pending)
+   
+   NO NEED to run state-check commands—use provided data.
+
+2. **Fulfill + Backorder + Reorder + Price in ONE Batch:**
+   
+   **Fulfill/backorder decisions:**
+   - BACKORDERED with stock now available? → fulfill
+   - PENDING with no stock? → backorder
+   - Chain all together:
    ```bash
-   bin/retailer-cli day current && bin/retailer-cli catalog && bin/retailer-cli stock && bin/retailer-cli customers orders && bin/retailer-cli purchase list
+   bin/retailer-cli fulfill ORDER_1 && \
+   bin/retailer-cli fulfill ORDER_2 && \
+   bin/retailer-cli backorder ORDER_3
    ```
-   - Print one `LOG: assess - ...` line naming demand/backorder pressure and the lowest-stock model.
+   
+   **Then add reorders (see formulas below):**
+   ```bash
+   bin/retailer-cli fulfill ORDER_1 && \
+   bin/retailer-cli backorder ORDER_3 && \
+   bin/retailer-cli purchase create "Basic300" 60 && \
+   bin/retailer-cli purchase create "Elite700" 25
+   ```
+   
+   **Then add pricing:**
+   ```bash
+   bin/retailer-cli fulfill ORDER_1 && \
+   bin/retailer-cli purchase create "Basic300" 60 && \
+   bin/retailer-cli price set "Basic300" 445 && \
+   bin/retailer-cli price set "Pro450" 925
+   ```
+   
+   **Execute everything in one call.** Then summarize.
 
-2. **Customer Orders** (batch fulfill/backorder commands)
-   - For any BACKORDERED order that now has enough stock, run `bin/retailer-cli fulfill ORDER_ID`.
-   - For any PENDING order with insufficient stock, run `bin/retailer-cli backorder ORDER_ID`.
-   - Batch multiple: `bin/retailer-cli fulfill O1 && bin/retailer-cli fulfill O2 && bin/retailer-cli backorder O3`
-   - Print one `LOG: customers - ...` line with fulfilled/backordered counts or "no manual customer action".
+3. **Reorder Calculations** (reference—commands go in batch above):
+   Order quantities using this logic:
+   - Use **Still Short** column (backordered units not covered by stock + inbound)
+   - Formula: `order_qty = still_short + safety_stock_target - already_inbound`
+   - Simplified: if Still Short > 0, order at least `still_short + safety_stock_target`
+   - If no backlog: order `safety_stock_target - on_hand - inbound`
+   - Daily demand: ~5 Basic300, ~3 Pro450, ~2 Elite700
+   - `demand_modifier > 1.5`: boost order by 50% + buffer
+   - `demand_modifier < 0.8`: order only to clear backlog/restore safety stock
+   - Don't order if total (on_hand + inbound) > `backlog + 2× safety_stock_target`
 
-3. **Reorder From Manufacturer**
-   - Use the **Still Short** column from the state above: it shows how many units are backordered and not yet covered by current stock + inbound.
-   - **Order quantity formula per model**:
-     ```
-     order_qty = max(0, still_short + safety_stock_target - already_inbound_covering_safety)
-     ```
-     Simplified: if Still Short > 0, order at least `still_short + safety_stock_target`.
-     If on_hand + inbound < safety_stock_target (no backlog), order `safety_stock_target - on_hand - inbound`.
-   - Normal daily demand estimates: ~5 Basic300/day, ~3 Pro450/day, ~2 Elite700/day.
-   - `demand_modifier > 1.5`: increase order by 50% and add 5 days of demand as buffer.
-   - `demand_modifier < 0.8`: order only to clear backorders or restore safety stock.
-   - Do NOT order a model if total (on_hand + inbound) already exceeds `backlog + 2× safety_stock_target`.
-   - Use `bin/retailer-cli purchase create "MODEL_NAME" QUANTITY`.
-   - Print one `LOG: purchasing - ...` line naming each purchase or saying none.
-
-4. **Price**
-   - Use `catalog` for current retail prices.
-   - If stock is low relative to demand and `price_sensitivity` is not `high`, raise price about 5%.
-   - If stock is piling up or `demand_modifier < 0.8`, lower price about 5% while respecting the markup floor.
-   - During `price_sensitivity: high`, avoid increases unless the model is at stockout risk.
-   - Print one `LOG: pricing - ...` line naming each price change or saying none.
+4. **Pricing** (batched with purchases above):
+   - Low stock + normal price_sensitivity? → raise ~5%
+   - Excess stock or `demand_modifier < 0.8`? → lower ~5%
+   - `price_sensitivity: high`? → avoid raises unless at stockout risk
 
 5. **Summarize**
    - Print 3-5 bullets with counts and reasons.
+   - Example: "- Customer actions: 2 fulfilled / 1 backordered. - Purchases: Basic300 ×60, Elite700 ×25. - Price: Basic300 up 5%."
 
 ## Market Signals
 - `demand_modifier > 1.5`: demand spike incoming; place larger replenishment orders early and avoid deep discounts.

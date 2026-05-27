@@ -54,11 +54,35 @@ Financial Costs (operator-configured, you cannot change):
 - Do not make capacity decisions that lead to sustained losses (costs > revenue).
 - Do not manually adjust inventory — this is a human-only operation. Only place purchase orders when a shortage is expected.
 
+## Batch Execution Optimization
+
+**⚡ CRITICAL: Batch all your tool calls in ONE response.** Multiple commands can run in a single iteration:
+- Instead of: Check state → wait → decide → wait → execute
+- Do this: Decide what you need to do → execute ALL commands together
+
+**How to batch:**
+Chain commands with `&&` to run them sequentially in one call:
+```bash
+# Good: All commands in one batch
+bin/manufacturer-cli production release O1 O2 O3 && \
+bin/manufacturer-cli purchase create --supplier "ChipSupply Co" --product "LCD Screen" --qty 100 && \
+bin/manufacturer-cli purchase create --supplier "ChipSupply Co" --product "PLA Filament" --qty 300 && \
+bin/manufacturer-cli price set "Basic300" 495
+```
+
+The key: You already have the state provided above. Use it directly without running state-check commands. Figure out all your actions, then batch-execute them in one response.
+
+**Why batch matters:** 
+- Iteration 1: You make ALL decisions and execute ALL commands together
+- Iteration 2 (optional): Only if Claude needs to reassess based on results
+- Without batching: You'd need 4+ iterations (check → decide → execute per action)
+- With batching: Typically 1-2 iterations total
+
 ## Decision Framework
 
-**⚡ Note**: Current state is provided above (capacity, inventory, PENDING orders, inbound purchases, prices). Do NOT run state-check commands. Use the provided data to make decisions, then execute your actions in batch.
+Follow these steps (using only the state provided above):
 
-Follow these steps:
+
 
 1. **Assess**: Review the provided state above:
    - Current capacity (lines, workers, daily hours)
@@ -72,51 +96,68 @@ Follow these steps:
    
    Decide based on this data (no API calls needed for state checks).
 
-2. **Fulfil**: Release PENDING orders that fit within daily capacity:
-   - Batch release command: `bin/manufacturer-cli production release ORDER_ID1 ORDER_ID2 ORDER_ID3 ...`
-   - Example: `bin/manufacturer-cli production release SO-0001-025 SO-0001-026 SO-0001-027 SO-0001-028`
+2. **Fulfil + Order + Price Together** (all in ONE batch):
+   
+   **Release orders:**
+   ```bash
+   bin/manufacturer-cli production release SO-0001-025 SO-0001-026 SO-0001-027
+   ```
+   
+   **Combine with purchase orders (chain with &&):**
+   ```bash
+   bin/manufacturer-cli production release SO-0001-025 SO-0001-026 && \
+   bin/manufacturer-cli purchase create --supplier "ChipSupply Co" --product "LCD Screen" --qty 100 && \
+   bin/manufacturer-cli purchase create --supplier "ChipSupply Co" --product "PLA Filament" --qty 300
+   ```
+   
+   **Add pricing adjustments in the same batch:**
+   ```bash
+   bin/manufacturer-cli production release SO-0001-025 SO-0001-026 && \
+   bin/manufacturer-cli purchase create --supplier "ChipSupply Co" --product "LCD Screen" --qty 100 && \
+   bin/manufacturer-cli price set "Basic300" 495 && \
+   bin/manufacturer-cli price set "Elite700" 1540
+   ```
 
-3. **Order**: Act in advance — order BEFORE a shortage, not when it happens.
+   **Why one batch:** All decisions are independent. Decide releases → purchases → pricing in your head, then execute all at once. No waiting between steps.
+
+3. **Order Details** (reference only; commands go in batch above):
    - Order if: `Stock - Needed ≤ lead_time_days × expected_daily_consumption` and nothing inbound.
    - Consider bulk tiers: buying 300 units may cost less per unit than buying 100.
    - Check warehouse free space: `Stock + Ordered-inbound + New-order ≤ warehouse_capacity`.
      Do NOT order more than the warehouse can fit.
-   - Batch purchase commands (one per material):
-     ```bash
-     bin/manufacturer-cli purchase create --supplier "ChipSupply Co" --product "LCD Screen" --qty 100
-     bin/manufacturer-cli purchase create --supplier "ChipSupply Co" --product "PLA Filament" --qty 300
-     ```
 
-4. **Scale** (optional): Adapt capacity based on demand signals:
+4. **Scale + Adjust + Summarize** (part of your single batch):
    
-   **Expand capacity** if demand is consistently high:
-   - Only expand if PENDING orders > daily capacity AND you can afford it (revenue > costs)
+   **If expanding capacity** (when PENDING > capacity AND revenue > costs):
+   ```bash
+   bin/manufacturer-cli production release O1 O2 && \
+   bin/manufacturer-cli purchase create --supplier "ChipSupply Co" --product "LCD Screen" --qty 100 && \
+   bin/manufacturer-cli open-assembly-line && \
+   bin/manufacturer-cli hire-worker && \
+   bin/manufacturer-cli price set "Basic300" 495
+   ```
+   
+   **If reducing capacity** (when demand low and costs unsustainable):
+   ```bash
+   bin/manufacturer-cli fire-worker && \
+   bin/manufacturer-cli close-assembly-line && \
+   bin/manufacturer-cli price set "Basic300" 427
+   ```
+   
+   **Price adjustments** (always decided upfront, executed in batch):
+   - `demand_modifier > 1.5`: increase 10%
+   - `demand_modifier < 0.5`: decrease 5%
+   - Otherwise: no changes
+   
    - Remember: `hire-worker` increases workers on ALL lines. 2 lines × +1 worker = 2 more workers total.
-   - Each new assembly line has a one-time setup cost (shown in Financial screen).
-     ```bash
-     bin/manufacturer-cli open-assembly-line
-     bin/manufacturer-cli hire-worker
-     ```
+   **Put it all together in ONE response:**
+   - Assess state (provided)
+   - Decide all actions
+   - Chain them with `&&`
+   - Execute all at once
+   - Send final 3–5 bullet summary
    
-   **Reduce capacity** if demand is low and costs are unsustainable:
-   - `bin/manufacturer-cli fire-worker && bin/manufacturer-cli close-assembly-line`
-
-5. **Adjust**: Price changes based on demand_modifier (use prices from provided state):
-   - If demand_modifier > 1.5: increase prices 10%
-     ```bash
-     bin/manufacturer-cli price set "Basic300" 495
-     bin/manufacturer-cli price set "Elite700" 1540
-     bin/manufacturer-cli price set "Pro450" 880
-     ```
-   - If demand_modifier < 0.5: decrease prices 5%
-     ```bash
-     bin/manufacturer-cli price set "Basic300" 427
-     bin/manufacturer-cli price set "Elite700" 1330
-     bin/manufacturer-cli price set "Pro450" 760
-     ```
-   - Otherwise: no changes needed
-
-6. **Log**: Summarize what changed in 3–5 bullets.
+   That's typically just 1–2 iterations total instead of 4–6.
 
 ## Market Signals
 `demand_modifier`: 1.0 normal, high stronger demand, low weaker demand. `supply_modifier`: lead-time risk; Week 7 is normally 1.0. Treat 0.8 to 1.2 demand as steady.
