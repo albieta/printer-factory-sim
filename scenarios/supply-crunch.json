@@ -1,7 +1,7 @@
 {
   "scenario_name": "supply-crunch-stress-test",
   "base_demand": {
-    "mean": 5,
+    "mean": 10,
     "variance": 2
   },
   "base_price": 400,
@@ -13,7 +13,7 @@
   "recommended_costs": {
     "cost_per_assembly_line": 50000,
     "cost_per_worker_per_hour": 30,
-    "max_workers_per_line": 10
+    "max_workers_per_line": 4
   },
   "events": [
     {
