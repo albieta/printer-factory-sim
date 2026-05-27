@@ -164,10 +164,11 @@ Follow these steps (using only the state provided above):
 
 ## When Done
 
-**START your response with ONE-LINE DECISION SUMMARY (so the engine log sees it first):**
+**START your response with a ONE-LINE DECISION SUMMARY — no title, just the decision itself:**
 ```
 Released N orders + ordered M materials (NNN units) + price actions → focus on XXXX
 ```
+(That's it for the first line. No "Decision Summary:" label — just the content.)
 
 Then provide your reasoning/details below that summary.
 

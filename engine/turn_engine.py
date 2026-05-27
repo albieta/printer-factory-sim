@@ -771,36 +771,17 @@ def _prefetch_all_state(
     return results
 
 
-def _summarize_agent_output(output: str, max_length: int = 120) -> str:
-    """Extract a brief summary from agent output for stdout display.
+def _summarize_agent_output(output: str, max_length: int = 300) -> str:
+    """Extract the first line of agent output, limit to max_length characters.
 
-    Looks for a concise decision line (marked with ``` or containing action keywords),
-    or falls back to the first non-empty line.
+    Agents follow the skill instruction to start with a one-line decision summary,
+    so we just take the first non-empty line.
     """
     lines = [line.strip() for line in output.strip().split('\n') if line.strip()]
     if not lines:
         return "(no output)"
 
-    # Look for decision summary markers or action-containing lines
-    decision_keywords = ("released", "ordered", "placed", "restocked", "price", "fulfilled",
-                         "backordered", "actions:", "summary:", "day complete")
-    for line in lines:
-        line_lower = line.lower()
-        # Find lines with decisions (contain keywords but not markdown headers)
-        if any(kw in line_lower for kw in decision_keywords):
-            if not line.startswith("#") and not line.startswith(">"):
-                summary = line
-                if len(summary) > max_length:
-                    summary = summary[:max_length].rstrip() + "…"
-                return summary
-
-    # Fallback: first non-empty line
     summary = lines[0]
-    # Remove markdown headers/quotes
-    while summary.startswith(("#", ">")) and len(lines) > 1:
-        lines = lines[1:]
-        summary = lines[0].strip()
-
     if len(summary) > max_length:
         summary = summary[:max_length].rstrip() + "…"
     return summary

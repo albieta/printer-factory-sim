@@ -138,10 +138,11 @@ Follow these steps (using state provided above):
 
 ## When Done
 
-**START your response with ONE-LINE DECISION SUMMARY (so the engine log sees it first):**
+**START your response with a ONE-LINE DECISION SUMMARY — no title, just the decision itself:**
 ```
 Fulfilled/backordered N orders + ordered M units + price actions
 ```
+(That's it for the first line. No label — just the content.)
 
 Then provide your reasoning/details below that summary.
 

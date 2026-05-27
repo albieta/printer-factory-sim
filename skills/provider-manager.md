@@ -117,10 +117,11 @@ Follow these steps, running the appropriate CLI commands:
 
 ## When Done
 
-**START your response with ONE-LINE DECISION SUMMARY (so the engine log sees it first):**
+**START your response with a ONE-LINE DECISION SUMMARY — no title, just the decision itself:**
 ```
 Restocked M products + price adjustments + order decisions
 ```
+(That's it for the first line. No label — just the content.)
 
 Then provide your reasoning/details below that summary.
 
