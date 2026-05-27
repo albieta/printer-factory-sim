@@ -32,9 +32,9 @@ const navItems = [
   { path: '/suppliers', icon: <FaTruck />, label: 'Procurement' },
   { path: '/retailers', icon: <FaStore />, label: 'Retailers' },
   { path: '/production', icon: <FaIndustry />, label: 'Assembly' },
-  { path: '/reports', icon: <FaFileAlt />, label: 'Analytics' },
   { path: '/financial', icon: <FaDollarSign />, label: 'Financials' },
   { path: '/scenarios', icon: <FaBolt />, label: 'Scenarios' },
+  { path: '/reports', icon: <FaFileAlt />, label: 'Analytics' },
   { path: '/settings', icon: <FaCog />, label: 'Configuration' },
 ];
 

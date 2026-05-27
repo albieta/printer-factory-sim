@@ -24,7 +24,7 @@ class ScenarioStartRequest(BaseModel):
     model: str = Field(default="claude-haiku-4-5-20251001", description="Claude model to use for agents")
     thinking_enabled: bool = Field(default=False, description="Whether to enable extended thinking")
     assembly_lines: int = Field(default=1, ge=1, le=20, description="Number of parallel assembly lines")
-    workers_per_line: int = Field(default=1, ge=1, le=20, description="Workers per assembly line")
+    workers_per_line: int = Field(default=10, ge=1, le=20, description="Workers per assembly line")
     shift_hours: float = Field(default=8.0, ge=1.0, le=24.0, description="Hours worked per shift")
     fast_mode: bool = Field(default=False, description="Replace LLM agents with scripted deterministic logic (~60x faster, no API cost)")
     parallel_agents: bool = Field(default=False, description="Run all role agents in parallel instead of sequentially (faster but agents act on stale state)")
