@@ -22,12 +22,12 @@ bin/retailer-cli customers order ORDER_ID
 bin/retailer-cli purchase list
 ```
 
-Act:
+Act (batch operations supported):
 ```
-bin/retailer-cli fulfill ORDER_ID
-bin/retailer-cli backorder ORDER_ID
-bin/retailer-cli purchase create "MODEL_NAME" QUANTITY
-bin/retailer-cli price set "MODEL_NAME" NEW_PRICE
+bin/retailer-cli fulfill --order ORDER_ID [--order ORDER_ID ...]
+bin/retailer-cli backorder --order ORDER_ID [--order ORDER_ID ...]
+bin/retailer-cli purchase create --item "MODEL:QTY" [--item ...]
+bin/retailer-cli price set --item "MODEL:PRICE" [--item ...]
 ```
 
 ## DO NOT
@@ -36,6 +36,30 @@ bin/retailer-cli price set "MODEL_NAME" NEW_PRICE
 - Do not set a retail price below manufacturer wholesale plus the enforced markup floor; the CLI will reject unsafe prices.
 - Do not place duplicate replenishment orders for a model that already has enough pending inbound stock.
 - Do not leave a PENDING customer order unexplained. Most new orders are auto-fulfilled or auto-backordered by the app, so investigate if PENDING appears.
+
+## Command Syntax (Batch Operations)
+
+**Each act command accepts multiple items via the `--order` or `--item` flag:**
+
+Fulfill customer orders:
+```bash
+bin/retailer-cli fulfill --order 1001 --order 1002 --order 1003
+```
+
+Backorder customer orders:
+```bash
+bin/retailer-cli backorder --order 2001 --order 2002
+```
+
+Purchase from manufacturer (model:qty pairs):
+```bash
+bin/retailer-cli purchase create --item "Basic300:50" --item "Pro450:30" --item "Elite700:10"
+```
+
+Set retail prices (model:price pairs):
+```bash
+bin/retailer-cli price set --item "Basic300:445" --item "Pro450:925" --item "Elite700:1490"
+```
 
 ## Safety Stock Targets
 Maintain these minimums ON HAND (not counting inbound) at all times:
@@ -47,24 +71,34 @@ These are floors, not ceilings. When backordered demand exists, order enough to 
 
 ## Batch Execution Optimization
 
-**⚡ CRITICAL: Batch all your commands in ONE response.** You have complete state above—make decisions upfront, then execute everything together.
+**⚡ CRITICAL: Batch operations within a single command.** The CLI itself accepts multiple items:
+- Each command can process many items with repeated `--order` or `--item` flags
+- One CLI call per command type = fast, efficient, one audit trail
+- Your decisions already have state → execute all fulfill, backorder, purchase, and price actions at once
 
-**How to batch fulfill/backorder + reorders + pricing:**
+**How to batch (native CLI support):**
 ```bash
-# Customer actions + reorders all together
-bin/retailer-cli fulfill ORDER_1 && \
-bin/retailer-cli backorder ORDER_2 && \
-bin/retailer-cli purchase create "Basic300" 50 && \
-bin/retailer-cli purchase create "Elite700" 20 && \
-bin/retailer-cli price set "Basic300" 445 && \
-bin/retailer-cli price set "Pro450" 925
+# All customer fulfillments in one call
+bin/retailer-cli fulfill --order 1001 --order 1002 --order 1003 && \
+
+# All backordered actions in one call
+bin/retailer-cli backorder --order 2001 --order 2002 && \
+
+# All purchase reorders in one call
+bin/retailer-cli purchase create --item "Basic300:50" --item "Elite700:20" && \
+
+# All price changes in one call
+bin/retailer-cli price set --item "Basic300:445" --item "Pro450:925"
 ```
 
-**Why batch matters:**
-- Without batching: Assess → fulfill 1 → check stock → order → adjust price = 5+ iterations
-- With batching: Assess → decide all fulfills/orders/prices → execute all = 1 iteration
+Each command output shows success/fail for individual items, then a summary line.
 
-Iterate only if you genuinely need to reassess after seeing results. Most days, one batch covers everything.
+**Why batch matters:** 
+- Single CLI startup per action type (faster than 10 individual calls)
+- One event log entry per item (full audit trail preserved)
+- Agents can express full daily decisions in 4 CLI calls max
+- Error handling: continues on item failure, reports summary at end
+- Most days: one batch per command type covers everything
 
 ## Decision Framework
 
@@ -80,35 +114,33 @@ Follow these steps (using state provided above):
    
    NO NEED to run state-check commands—use provided data.
 
-2. **Fulfill + Backorder + Reorder + Price in ONE Batch:**
+2. **Fulfill + Backorder + Reorder + Price Together** (CLI natively supports batch):
    
    **Fulfill/backorder decisions:**
    - BACKORDERED with stock now available? → fulfill
    - PENDING with no stock? → backorder
-   - Chain all together:
+   
+   **Batch fulfill all eligible orders in one call:**
    ```bash
-   bin/retailer-cli fulfill ORDER_1 && \
-   bin/retailer-cli fulfill ORDER_2 && \
-   bin/retailer-cli backorder ORDER_3
+   bin/retailer-cli fulfill --order 1001 --order 1002 --order 1003
    ```
    
-   **Then add reorders (see formulas below):**
+   **Batch backorder all needed orders in one call:**
    ```bash
-   bin/retailer-cli fulfill ORDER_1 && \
-   bin/retailer-cli backorder ORDER_3 && \
-   bin/retailer-cli purchase create "Basic300" 60 && \
-   bin/retailer-cli purchase create "Elite700" 25
+   bin/retailer-cli backorder --order 2001 --order 2002
    ```
    
-   **Then add pricing:**
+   **Batch all reorders in one call (see formulas below):**
    ```bash
-   bin/retailer-cli fulfill ORDER_1 && \
-   bin/retailer-cli purchase create "Basic300" 60 && \
-   bin/retailer-cli price set "Basic300" 445 && \
-   bin/retailer-cli price set "Pro450" 925
+   bin/retailer-cli purchase create --item "Basic300:60" --item "Elite700:25"
    ```
    
-   **Execute everything in one call.** Then summarize.
+   **Batch all pricing in one call:**
+   ```bash
+   bin/retailer-cli price set --item "Basic300:445" --item "Pro450:925"
+   ```
+   
+   **Execute all four in sequence (chain with &&), one command per type.** Each command handles multiple items internally.
 
 3. **Reorder Calculations** (reference—commands go in batch above):
    Order quantities using this logic:

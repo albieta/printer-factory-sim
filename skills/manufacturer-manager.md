@@ -24,11 +24,11 @@ bin/manufacturer-cli suppliers catalog "SUPPLIER_NAME"
 bin/manufacturer-cli price list
 bin/manufacturer-cli financial summary
 ```
-Act:
+Act (batch operations supported):
 ```
-bin/manufacturer-cli production release ORDER_ID
-bin/manufacturer-cli purchase create --supplier "SUPPLIER_NAME" --product "PRODUCT_NAME" --qty QUANTITY
-bin/manufacturer-cli price set MODEL_NAME NEW_PRICE
+bin/manufacturer-cli production release --order ORDER_ID [--order ORDER_ID ...]
+bin/manufacturer-cli purchase create --item "SUPPLIER:PRODUCT:QTY" [--item ...]
+bin/manufacturer-cli price set --item "MODEL:PRICE" [--item ...]
 bin/manufacturer-cli open-assembly-line
 bin/manufacturer-cli hire-worker
 bin/manufacturer-cli fire-worker
@@ -54,20 +54,42 @@ Financial Costs (operator-configured, you cannot change):
 - Do not make capacity decisions that lead to sustained losses (costs > revenue).
 - Do not manually adjust inventory — this is a human-only operation. Only place purchase orders when a shortage is expected.
 
+## Command Syntax (Batch Operations)
+
+**Each act command accepts multiple items via the `--item` or `--order` flag:**
+
+Production release (one or more orders):
+```bash
+bin/manufacturer-cli production release --order SO-0001 --order SO-0002 --order SO-0003
+```
+
+Purchase creation (one or more supplier:product:qty triplets):
+```bash
+bin/manufacturer-cli purchase create --item "ChipSupply Co:Control Board:100" --item "Fastparts:Stepper Motor:50"
+```
+
+Price updates (one or more model:price pairs):
+```bash
+bin/manufacturer-cli price set --item "Basic300:450" --item "Pro450:950"
+```
+
 ## Batch Execution Optimization
 
-**⚡ CRITICAL: Batch all your tool calls in ONE response.** Multiple commands can run in a single iteration:
-- Instead of: Check state → wait → decide → wait → execute
-- Do this: Decide what you need to do → execute ALL commands together
+**⚡ CRITICAL: Batch operations within a single command.** The CLI itself accepts multiple items:
+- Each command can process many items with repeated `--item` or `--order` flags
+- One CLI call per command type = fast, efficient, one audit trail
+- Your decisions already have state → execute all production releases, purchases, and price changes at once
 
-**How to batch:**
-Chain commands with `&&` to run them sequentially in one call:
+**How to batch (native CLI support):**
 ```bash
-# Good: All commands in one batch
-bin/manufacturer-cli production release O1 O2 O3 && \
-bin/manufacturer-cli purchase create --supplier "ChipSupply Co" --product "LCD Screen" --qty 100 && \
-bin/manufacturer-cli purchase create --supplier "ChipSupply Co" --product "PLA Filament" --qty 300 && \
-bin/manufacturer-cli price set "Basic300" 495
+# All production releases in one call
+bin/manufacturer-cli production release --order SO-001 --order SO-002 --order SO-003 && \
+
+# All purchase orders in one call
+bin/manufacturer-cli purchase create --item "ChipSupply:Control Board:100" --item "FastParts:Motor:50" && \
+
+# All price changes in one call
+bin/manufacturer-cli price set --item "Basic300:450" --item "Pro450:950"
 ```
 
 The key: You already have the state provided above. Use it directly without running state-check commands. Figure out all your actions, then batch-execute them in one response.
@@ -96,26 +118,28 @@ Follow these steps (using only the state provided above):
    
    Decide based on this data (no API calls needed for state checks).
 
-2. **Fulfil + Order + Price Together** (all in ONE batch):
+2. **Release + Order + Price Together** (CLI natively supports batch):
    
-   **Release orders:**
+   **Release all PENDING orders in one call:**
    ```bash
-   bin/manufacturer-cli production release SO-0001-025 SO-0001-026 SO-0001-027
+   bin/manufacturer-cli production release --order SO-0001-025 --order SO-0001-026 --order SO-0001-027
    ```
    
-   **Combine with purchase orders (chain with &&):**
+   **Order all needed materials in one call:**
    ```bash
-   bin/manufacturer-cli production release SO-0001-025 SO-0001-026 && \
-   bin/manufacturer-cli purchase create --supplier "ChipSupply Co" --product "LCD Screen" --qty 100 && \
-   bin/manufacturer-cli purchase create --supplier "ChipSupply Co" --product "PLA Filament" --qty 300
+   bin/manufacturer-cli purchase create --item "ChipSupply Co:LCD Screen:100" --item "ChipSupply Co:PLA Filament:300"
    ```
    
-   **Add pricing adjustments in the same batch:**
+   **Adjust all prices in one call:**
    ```bash
-   bin/manufacturer-cli production release SO-0001-025 SO-0001-026 && \
-   bin/manufacturer-cli purchase create --supplier "ChipSupply Co" --product "LCD Screen" --qty 100 && \
-   bin/manufacturer-cli price set "Basic300" 495 && \
-   bin/manufacturer-cli price set "Elite700" 1540
+   bin/manufacturer-cli price set --item "Basic300:495" --item "Elite700:1540"
+   ```
+   
+   **Execute all three in sequence (if needed, chain with &&):**
+   ```bash
+   bin/manufacturer-cli production release --order O1 --order O2 --order O3 && \
+   bin/manufacturer-cli purchase create --item "Supplier:Product:Qty" --item "Supplier:Product:Qty" && \
+   bin/manufacturer-cli price set --item "Model:Price" --item "Model:Price"
    ```
 
    **Why one batch:** All decisions are independent. Decide releases → purchases → pricing in your head, then execute all at once. No waiting between steps.

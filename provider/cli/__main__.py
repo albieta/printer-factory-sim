@@ -145,25 +145,119 @@ def show_order(order_id: int) -> None:
 
 
 @price_app.command("set")
-def set_price(product: str, tier: int, price: float) -> None:
-    """Create or update a product price tier."""
+def set_price(
+    items: list[str] = typer.Option(..., "--item", help="PRODUCT:TIER:PRICE")
+) -> None:
+    """Create or update one or more product price tiers.
 
-    product_id = _product_id_for(product)
+    Example: bin/provider-cli price set --item "Control Board:100:50" --item "LCD Screen:50:35"
+    """
+    if not items:
+        typer.echo("No price items provided.", err=True)
+        raise typer.Exit(1)
+
+    succeeded, failed = [], []
     with _session() as db:
-        updated = AdminService(db).set_price(product_id, tier, Decimal(str(price)))
-        typer.echo(
-            f"Set product {product_id} tier {updated.min_quantity}+ to {updated.unit_price}"
-        )
+        for item in items:
+            parts = item.split(":")
+            if len(parts) != 3:
+                failed.append((item, "Invalid format (expected PRODUCT:TIER:PRICE)"))
+                typer.echo(f"✗ {item}: Invalid format (expected PRODUCT:TIER:PRICE)", err=True)
+                continue
+
+            product, tier_str, price_str = parts
+            try:
+                tier = int(tier_str)
+            except ValueError:
+                failed.append((item, f"Invalid tier: {tier_str!r}"))
+                typer.echo(f"✗ {item}: Invalid tier {tier_str!r}", err=True)
+                continue
+
+            try:
+                price = Decimal(price_str)
+            except (ValueError, TypeError):
+                failed.append((item, f"Invalid price: {price_str!r}"))
+                typer.echo(f"✗ {item}: Invalid price {price_str!r}", err=True)
+                continue
+
+            try:
+                product_id = _product_id_for(product)
+                updated = AdminService(db).set_price(product_id, tier, price)
+                succeeded.append((product, tier, updated.unit_price))
+                typer.echo(f"✓ {product} tier {tier}+ → {updated.unit_price}")
+            except typer.BadParameter as exc:
+                failed.append((item, str(exc)))
+                typer.echo(f"✗ {item}: {exc}", err=True)
+            except Exception as exc:
+                failed.append((item, str(exc)))
+                typer.echo(f"✗ {item}: {exc}", err=True)
+
+        db.commit()
+
+    summary = f"Set {len(succeeded)} / {len(items)} price tiers"
+    if failed:
+        summary += f" ({len(failed)} failed)"
+    typer.echo(summary)
+
+    if failed and len(failed) == len(items):
+        raise typer.Exit(1)
 
 
 @app.command()
-def restock(product: str, quantity: int) -> None:
-    """Increase stock for a product."""
+def restock(
+    items: list[str] = typer.Option(..., "--item", help="PRODUCT:QUANTITY")
+) -> None:
+    """Increase stock for one or more products.
 
-    product_id = _product_id_for(product)
+    Example: bin/provider-cli restock --item "Control Board:200" --item "LCD Screen:100" --item "Stepper Motor:150"
+    """
+    if not items:
+        typer.echo("No restock items provided.", err=True)
+        raise typer.Exit(1)
+
+    succeeded, failed = [], []
     with _session() as db:
-        stock_row = AdminService(db).restock(product_id, quantity)
-        typer.echo(f"Stock for product {product_id} is now {stock_row.quantity}")
+        for item in items:
+            parts = item.split(":")
+            if len(parts) != 2:
+                failed.append((item, "Invalid format (expected PRODUCT:QUANTITY)"))
+                typer.echo(f"✗ {item}: Invalid format (expected PRODUCT:QUANTITY)", err=True)
+                continue
+
+            product, qty_str = parts
+            try:
+                quantity = int(qty_str)
+            except ValueError:
+                failed.append((item, f"Invalid quantity: {qty_str!r}"))
+                typer.echo(f"✗ {item}: Invalid quantity {qty_str!r}", err=True)
+                continue
+
+            if quantity <= 0:
+                failed.append((item, "Quantity must be positive"))
+                typer.echo(f"✗ {item}: Quantity must be positive", err=True)
+                continue
+
+            try:
+                product_id = _product_id_for(product)
+                stock_row = AdminService(db).restock(product_id, quantity)
+                succeeded.append((product, stock_row.quantity))
+                typer.echo(f"✓ {product} → {stock_row.quantity} units")
+            except typer.BadParameter as exc:
+                failed.append((item, str(exc)))
+                typer.echo(f"✗ {item}: {exc}", err=True)
+            except Exception as exc:
+                failed.append((item, str(exc)))
+                typer.echo(f"✗ {item}: {exc}", err=True)
+
+        db.commit()
+
+    summary = f"Restocked {len(succeeded)} / {len(items)} products"
+    if failed:
+        summary += f" ({len(failed)} failed)"
+    typer.echo(summary)
+
+    if failed and len(failed) == len(items):
+        raise typer.Exit(1)
 
 
 @day_app.command("advance")

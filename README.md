@@ -188,6 +188,8 @@ curl "http://localhost:8002/api/scenarios/metrics?limit=25"         # metrics.js
 
 Advance apps in **downstream-first** order: retailer → manufacturer → provider.
 
+**Manufacturer example (batch operations):**
+
 ```bash
 # Inspect state
 bin/manufacturer-cli day current
@@ -198,38 +200,72 @@ bin/manufacturer-cli production status
 bin/manufacturer-cli purchase list
 bin/manufacturer-cli price list
 
-# Release a sales order to production
-bin/manufacturer-cli production release <ORDER_ID>
+# Release multiple sales orders to production in one call
+bin/manufacturer-cli production release --order SO-001 --order SO-002 --order SO-003
 
-# Place a purchase order with the provider
+# Place multiple purchase orders in one call
 bin/manufacturer-cli purchase create \
-  --supplier "ChipSupply Co" \
-  --product "Control Board" \
-  --qty 50
+  --item "ChipSupply Co:Control Board:100" \
+  --item "Fastparts:Stepper Motor:50"
 
-# Advance the clock (retailer first, then manufacturer, then provider)
-bin/retailer-cli day advance
+# Adjust multiple wholesale prices in one call
+bin/manufacturer-cli price set \
+  --item "Basic300:450" \
+  --item "Pro450:950"
+
+# Advance the clock
 bin/manufacturer-cli day advance
-bin/provider-cli day advance
 ```
 
-Useful retailer commands:
+**Retailer example (batch operations):**
 
 ```bash
 bin/retailer-cli catalog
 bin/retailer-cli stock
 bin/retailer-cli customers orders
-bin/retailer-cli purchase list
-bin/retailer-cli day current
+
+# Fulfill multiple customer orders
+bin/retailer-cli fulfill --order 1001 --order 1002
+
+# Backorder multiple orders
+bin/retailer-cli backorder --order 2001 --order 2002
+
+# Place multiple purchase orders
+bin/retailer-cli purchase create --item "Basic300:50" --item "Elite700:20"
+
+# Adjust multiple retail prices
+bin/retailer-cli price set --item "Basic300:445" --item "Elite700:1490"
+
+bin/retailer-cli day advance
 ```
 
-Useful provider commands:
+**Provider example (batch operations):**
 
 ```bash
 bin/provider-cli catalog
 bin/provider-cli stock
 bin/provider-cli orders list
-bin/provider-cli day current
+
+# Restock multiple products
+bin/provider-cli restock \
+  --item "Control Board:200" \
+  --item "LCD Screen:100" \
+  --item "Stepper Motor:150"
+
+# Adjust multiple pricing tiers
+bin/provider-cli price set \
+  --item "Control Board:500:50" \
+  --item "LCD Screen:200:35"
+
+bin/provider-cli day advance
+```
+
+**Command execution order:**
+```bash
+# Advance in downstream-first order
+bin/retailer-cli day advance
+bin/manufacturer-cli day advance
+bin/provider-cli day advance
 ```
 
 ## Project Layout
@@ -365,13 +401,13 @@ All three apps serve interactive Swagger docs at `/docs`.
 
 ## Skill Files
 
-Three Markdown skills teach Claude Code how to play each role. Each one specifies the CLI commands the role may use, a short decision framework, and explicit *DO NOT* rules (most importantly: never call `day advance` — the engine owns the clock).
+Three Markdown skills teach Claude Code how to play each role. Each one specifies the CLI commands the role may use, a short decision framework, and explicit *DO NOT* rules (most importantly: never call `day advance` — the engine owns the clock). **All action commands support batch operations** — agents supply multiple items to a single CLI call.
 
 | Skill | Role | Key commands |
 |---|---|---|
-| `skills/manufacturer-manager.md` | Factory manager (the manufacturer app) | `manufacturer-cli capacity / inventory / sales orders / production release / purchase create / price set` |
-| `skills/provider-manager.md`     | Parts supplier (the provider app)       | `provider-cli stock / orders list / restock / price set` |
-| `skills/retail-manager.md`       | Retail store (the retailer app)         | `retailer-cli stock / customers orders / fulfill / backorder / purchase create / price set` |
+| `skills/manufacturer-manager.md` | Factory manager (the manufacturer app) | `production release --order ID ...` / `purchase create --item SUPPLIER:PRODUCT:QTY ...` / `price set --item MODEL:PRICE ...` |
+| `skills/provider-manager.md`     | Parts supplier (the provider app)       | `restock --item PRODUCT:QTY ...` / `price set --item PRODUCT:TIER:PRICE ...` |
+| `skills/retail-manager.md`       | Retail store (the retailer app)         | `fulfill --order ID ...` / `backorder --order ID ...` / `purchase create --item MODEL:QTY ...` / `price set --item MODEL:PRICE ...` |
 
 ### Where the agent's output ends up
 

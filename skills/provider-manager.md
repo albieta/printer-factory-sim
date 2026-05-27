@@ -20,10 +20,10 @@ bin/provider-cli orders list --status PENDING
 bin/provider-cli orders show ORDER_ID
 ```
 
-Act:
+Act (batch operations supported):
 ```
-bin/provider-cli restock "PRODUCT_NAME" QUANTITY
-bin/provider-cli price set "PRODUCT_NAME" MIN_QUANTITY NEW_PRICE
+bin/provider-cli restock --item "PRODUCT:QTY" [--item ...]
+bin/provider-cli price set --item "PRODUCT:TIER:PRICE" [--item ...]
 ```
 
 ## DO NOT
@@ -32,6 +32,18 @@ bin/provider-cli price set "PRODUCT_NAME" MIN_QUANTITY NEW_PRICE
 - Do not change any tier price by more than 15% in one day.
 - Do not lower prices while accepted orders are pending for that product and stock is tight.
 - Do not restock blindly: tie every restock to current stock, pending orders, or the market signal.
+
+## Command Syntax (Batch Operations)
+
+**Restock one or more products in one call (product:qty pairs):**
+```bash
+bin/provider-cli restock --item "Control Board:200" --item "LCD Screen:100" --item "Stepper Motor:150"
+```
+
+**Price one or more tiers in one call (product:tier:price triplets):**
+```bash
+bin/provider-cli price set --item "Control Board:100:50" --item "LCD Screen:50:35"
+```
 
 ## Starting Stock Reference
 Use these as normal stock targets unless the live `catalog` or `stock` output shows otherwise:
@@ -44,27 +56,28 @@ Use these as normal stock targets unless the live `catalog` or `stock` output sh
 
 ## Batch Execution Optimization
 
-**⚡ CRITICAL: Batch all your commands in ONE response.** You already have state above—make decisions, then execute everything together.
+**⚡ CRITICAL: Batch operations within a single command.** The CLI itself accepts multiple items:
+- Each command can process many items with repeated `--item` flags
+- One CLI call per command type = fast, efficient, one audit trail
+- Your decisions already have state → execute all restocks and price changes at once
 
-**How to batch multiple restocks AND price changes:**
+**How to batch (native CLI support):**
 ```bash
-# All restocks chained together
-bin/provider-cli restock "Control Board" 200 && \
-bin/provider-cli restock "PLA Filament" 300 && \
-bin/provider-cli restock "LCD Screen" 100
+# All restocks in one call
+bin/provider-cli restock --item "Control Board:200" --item "PLA Filament:300" --item "LCD Screen:100" && \
 
-# Or restock + pricing in one batch
-bin/provider-cli restock "Control Board" 200 && \
-bin/provider-cli price set "Control Board" 100 45 && \
-bin/provider-cli restock "LCD Screen" 100 && \
-bin/provider-cli price set "LCD Screen" 50 35
+# All price changes in one call
+bin/provider-cli price set --item "Control Board:100:45" --item "LCD Screen:50:35"
 ```
 
-**Why batch matters:**
-- Without batching: Assess → restock → check results → adjust pricing = multiple iterations
-- With batching: Assess → decide all restock + pricing → execute all at once = 1 iteration
+Each command output shows success/fail for individual items, then a summary line.
 
-You're given state upfront. Use it. Decide what to do. Execute all commands together.
+**Why batch matters:**
+- Single CLI startup per action type (faster than 10 individual calls)
+- One event log entry per item (full audit trail preserved)
+- Agents can express full daily decisions in 2 CLI calls max (restock + price)
+- Error handling: continues on item failure, reports summary at end
+- You're given state upfront. Use it. Decide what to do. Execute all commands together.
 
 ## Decision Framework
 
@@ -80,31 +93,35 @@ Follow these steps, running the appropriate CLI commands:
    
    NO NEED to run state-check commands—use provided data.
 
-2. **Restock + Pricing in ONE Batch:**
+2. **Restock + Pricing Together** (CLI natively supports batch):
    
-   Decide what to restock based on:
+   **Decide what to restock based on:**
    - Below 50% of starting stock? → restock up to starting level
    - `demand_modifier > 1.5`? → restock below 75% (prepare for high demand)
    - `supply_modifier < 0.7`? → restock conservatively, prioritize low stock
    
-   Decide pricing:
+   **Batch all restocks in one call (product:qty pairs):**
+   ```bash
+   bin/provider-cli restock --item "Control Board:200" --item "LCD Screen:100"
+   ```
+   
+   **Decide pricing based on:**
    - Stock < 30% of target? → raise 5-10% (scarcity premium)
    - Stock > 150% of target and low demand? → lower 5-10% (move excess)
    - Keep changes within 15% daily
    
-   Execute all together:
+   **Batch all pricing in one call (product:tier:price triplets):**
    ```bash
-   bin/provider-cli restock "Control Board" 200 && \
-   bin/provider-cli restock "LCD Screen" 100 && \
-   bin/provider-cli price set "Control Board" 500 48 && \
-   bin/provider-cli price set "LCD Screen" 200 38
+   bin/provider-cli price set --item "Control Board:500:48" --item "LCD Screen:200:38"
    ```
    
-   Or if no restocking needed, still batch any pricing:
+   **Execute both together (chain with &&):**
    ```bash
-   bin/provider-cli price set "Control Board" 500 50 && \
-   bin/provider-cli price set "Stepper Motor" 100 42
+   bin/provider-cli restock --item "Control Board:200" --item "LCD Screen:100" && \
+   bin/provider-cli price set --item "Control Board:500:48" --item "LCD Screen:200:38"
    ```
+   
+   Each command handles multiple items internally; no iteration needed.
 
 4. **Summarize**
    - Print 3-5 bullets with counts and reasons.

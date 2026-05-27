@@ -150,41 +150,79 @@ def supplier_catalog(supplier_name: str) -> None:
 
 @purchase_app.command("create")
 def create_purchase(
-    supplier: str = typer.Option(..., "--supplier"),
-    product: str = typer.Option(..., "--product"),
-    qty: int = typer.Option(..., "--qty"),
+    items: list[str] = typer.Option(..., "--item", help="SUPPLIER:PRODUCT:QTY")
 ) -> None:
-    """Create a manufacturer purchase order."""
+    """Create one or more manufacturer purchase orders.
 
-    if qty <= 0:
-        raise typer.BadParameter("qty must be positive")
+    Example: bin/manufacturer-cli purchase create --item "ChipSupply Co:Control Board:100" --item "Fastparts:Stepper Motor:50"
+    """
+    if not items:
+        typer.echo("No purchase items provided.", err=True)
+        raise typer.Exit(1)
 
+    succeeded, failed = [], []
     with _session() as db:
-        product_row = _find_product(db, product)
-        if product_row is None:
-            raise typer.BadParameter(f"Product {product!r} not found")
+        for item in items:
+            parts = item.split(":")
+            if len(parts) != 3:
+                failed.append((item, "Invalid format (expected SUPPLIER:PRODUCT:QTY)"))
+                typer.echo(f"✗ {item}: Invalid format (expected SUPPLIER:PRODUCT:QTY)", err=True)
+                continue
 
-        matching_suppliers = [
-            row
-            for row in _find_supplier(db, supplier)
-            if row.product_id == product_row.id
-        ]
-        if not matching_suppliers:
-            raise typer.BadParameter(
-                f"Supplier {supplier!r} does not sell product {product_row.name!r}"
-            )
+            supplier, product, qty_str = parts
+            try:
+                qty = int(qty_str)
+            except ValueError:
+                failed.append((item, f"Invalid quantity: {qty_str!r}"))
+                typer.echo(f"✗ {item}: Invalid quantity {qty_str!r}", err=True)
+                continue
 
-        sim_date = ConfigService(db).get_sim_date()
-        order = PurchaseOrderService(db).create_purchase_order(
-            PurchaseOrderCreate(
-                supplier_id=matching_suppliers[0].id,
-                product_id=product_row.id,
-                quantity=qty,
-            ),
-            sim_date,
-        )
-        payload = PurchaseOrderService(db).serialize_purchase_order(order)
-        typer.echo(json.dumps(payload, indent=2, default=str))
+            if qty <= 0:
+                failed.append((item, "Quantity must be positive"))
+                typer.echo(f"✗ {item}: Quantity must be positive", err=True)
+                continue
+
+            product_row = _find_product(db, product)
+            if product_row is None:
+                failed.append((item, f"Product {product!r} not found"))
+                typer.echo(f"✗ {item}: Product {product!r} not found", err=True)
+                continue
+
+            matching_suppliers = [
+                row
+                for row in _find_supplier(db, supplier)
+                if row.product_id == product_row.id
+            ]
+            if not matching_suppliers:
+                failed.append((item, f"Supplier {supplier!r} does not sell {product_row.name!r}"))
+                typer.echo(f"✗ {item}: Supplier {supplier!r} does not sell {product_row.name!r}", err=True)
+                continue
+
+            try:
+                sim_date = ConfigService(db).get_sim_date()
+                order = PurchaseOrderService(db).create_purchase_order(
+                    PurchaseOrderCreate(
+                        supplier_id=matching_suppliers[0].id,
+                        product_id=product_row.id,
+                        quantity=qty,
+                    ),
+                    sim_date,
+                )
+                succeeded.append(order.reference_code)
+                typer.echo(f"✓ {order.reference_code}: {product} ×{qty}")
+            except Exception as exc:
+                failed.append((item, str(exc)))
+                typer.echo(f"✗ {item}: {exc}", err=True)
+
+        db.commit()
+
+    summary = f"Created {len(succeeded)} / {len(items)} purchase orders"
+    if failed:
+        summary += f" ({len(failed)} failed)"
+    typer.echo(summary)
+
+    if failed and len(failed) == len(items):
+        raise typer.Exit(1)
 
 
 @purchase_app.command("list")
@@ -282,19 +320,35 @@ def sales_order(order_id: str) -> None:
 # ── production ────────────────────────────────────────────────────────────────
 
 @production_app.command("release")
-def production_release(order_id: str) -> None:
-    """Release a PENDING sales order to production."""
+def production_release(order_ids: list[str] = typer.Option(..., "--order", help="Sales order IDs to release")) -> None:
+    """Release one or more PENDING sales orders to production.
+
+    Example: bin/manufacturer-cli production release --order SO-001 --order SO-002 --order SO-003
+    """
+    if not order_ids:
+        typer.echo("No order IDs provided.", err=True)
+        raise typer.Exit(1)
+
+    succeeded, failed = [], []
     with _session() as db:
-        result = SalesOrderService(db).release_to_production(order_id)
-        if not result["success"]:
-            typer.echo(f"Error: {result.get('error')}", err=True)
-            raise typer.Exit(1)
+        for order_id in order_ids:
+            result = SalesOrderService(db).release_to_production(order_id)
+            if not result["success"]:
+                failed.append((order_id, result.get('error', 'Unknown error')))
+                typer.echo(f"✗ {order_id}: {result.get('error')}", err=True)
+            else:
+                order = result["order"]
+                succeeded.append(order_id)
+                typer.echo(f"✓ {order_id} → {order.status.value}")
         db.commit()
-        order = result["order"]
-        typer.echo(
-            f"Released: {order.reference_code} → {order.status.value} "
-            f"(mfg order {result['mfg_order_id']})"
-        )
+
+    summary = f"Released {len(succeeded)} / {len(order_ids)} orders"
+    if failed:
+        summary += f" ({len(failed)} failed)"
+    typer.echo(summary)
+
+    if failed and len(failed) == len(order_ids):
+        raise typer.Exit(1)
 
 
 @production_app.command("status")
@@ -447,29 +501,52 @@ def price_list() -> None:
 
 @price_app.command("set")
 def price_set(
-    model: str = typer.Argument(..., help="Printer model name"),
-    price: str = typer.Argument(..., help="New wholesale price"),
+    items: list[str] = typer.Option(..., "--item", help="MODEL:PRICE")
 ) -> None:
-    """Set the wholesale price for a printer model."""
+    """Set wholesale prices for one or more printer models.
+
+    Example: bin/manufacturer-cli price set --item Basic300:450 --item Pro450:950 --item Elite700:1540
+    """
     from decimal import Decimal, InvalidOperation
 
-    try:
-        new_price = Decimal(price)
-    except InvalidOperation:
-        typer.echo(f"Invalid price: {price!r}", err=True)
+    if not items:
+        typer.echo("No price items provided.", err=True)
         raise typer.Exit(1)
 
+    succeeded, failed = [], []
     with _session() as db:
-        try:
-            result = WholesalePriceService(db).set_price(model, new_price)
-            db.commit()
-        except ValueError as exc:
-            typer.echo(f"Error: {exc}", err=True)
-            raise typer.Exit(1) from exc
-        typer.echo(
-            f"Wholesale price for {model} set to {result['price']} "
-            f"(was {result['previous_price'] or 'unset'})."
-        )
+        for item in items:
+            parts = item.split(":")
+            if len(parts) != 2:
+                failed.append((item, "Invalid format (expected MODEL:PRICE)"))
+                typer.echo(f"✗ {item}: Invalid format (expected MODEL:PRICE)", err=True)
+                continue
+
+            model, price_str = parts
+            try:
+                new_price = Decimal(price_str)
+            except (InvalidOperation, ValueError):
+                failed.append((item, f"Invalid price: {price_str!r}"))
+                typer.echo(f"✗ {item}: Invalid price {price_str!r}", err=True)
+                continue
+
+            try:
+                result = WholesalePriceService(db).set_price(model, new_price)
+                succeeded.append((model, result['price']))
+                typer.echo(f"✓ {model} → {result['price']}")
+            except ValueError as exc:
+                failed.append((item, str(exc)))
+                typer.echo(f"✗ {item}: {exc}", err=True)
+
+        db.commit()
+
+    summary = f"Set {len(succeeded)} / {len(items)} prices"
+    if failed:
+        summary += f" ({len(failed)} failed)"
+    typer.echo(summary)
+
+    if failed and len(failed) == len(items):
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":

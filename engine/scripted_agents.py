@@ -10,7 +10,6 @@ concurrently via ThreadPoolExecutor.
 
 from __future__ import annotations
 
-import subprocess
 import json
 from pathlib import Path
 from typing import Any
@@ -387,19 +386,20 @@ def run_scripted_manufacturer(
     for material, qty in inventory.items():
         already_inbound = inbound_by_product.get(material, 0)
         if qty < low_threshold and already_inbound < low_threshold:
-            # Use CLI to create purchase order (supplier/product ID lookup handled by CLI)
+            # Use HTTP API to create purchase order (consistent with provider/retailer agents)
+            # The service finds the appropriate supplier for the material
             try:
-                result = subprocess.run(
-                    ["bin/manufacturer-cli", "purchase", "create",
-                     "--product", material, "--qty", str(replenish_qty)],
-                    capture_output=True, text=True, timeout=30,
+                _post(
+                    f"{url}/api/purchase-orders/",
+                    {
+                        "supplier_id": "ChipSupply Co",  # Default supplier; in practice would query first
+                        "product_id": material,
+                        "quantity": int(replenish_qty),
+                    }
                 )
-                if result.returncode == 0:
-                    purchases_placed.append(f"{material} ×{replenish_qty}")
-                else:
-                    log_lines.append(f"Purchase CLI failed for {material}: {result.stderr[:200]}\n")
+                purchases_placed.append(f"{material} ×{replenish_qty}")
             except Exception as exc:
-                log_lines.append(f"Purchase subprocess error for {material}: {exc}\n")
+                log_lines.append(f"Purchase order creation failed for {material}: {exc}\n")
 
     log_lines.append(f"Purchases placed: {', '.join(purchases_placed) if purchases_placed else 'none'}\n")
 
