@@ -47,6 +47,11 @@ MIGRATIONS: dict[str, list[tuple[str, str]]] = {
         ("provider_urls", "ALTER TABLE simulation_config ADD COLUMN provider_urls JSON"),
         ("cost_per_assembly_line_per_day", "ALTER TABLE simulation_config ADD COLUMN cost_per_assembly_line_per_day FLOAT NOT NULL DEFAULT 100.0"),
         ("internal_demand_enabled", "ALTER TABLE simulation_config ADD COLUMN internal_demand_enabled BOOLEAN NOT NULL DEFAULT 0"),
+        ("retailer_demand_enabled", "ALTER TABLE simulation_config ADD COLUMN retailer_demand_enabled BOOLEAN NOT NULL DEFAULT 0"),
+        ("retailer_demand_mean", "ALTER TABLE simulation_config ADD COLUMN retailer_demand_mean FLOAT NOT NULL DEFAULT 8.0"),
+        ("retailer_demand_variance", "ALTER TABLE simulation_config ADD COLUMN retailer_demand_variance FLOAT NOT NULL DEFAULT 2.0"),
+        ("retailer_demand_modifier", "ALTER TABLE simulation_config ADD COLUMN retailer_demand_modifier FLOAT NOT NULL DEFAULT 1.0"),
+        ("retailer_demand_base_price", "ALTER TABLE simulation_config ADD COLUMN retailer_demand_base_price FLOAT NOT NULL DEFAULT 400.0"),
     ],
     "sales_orders": [
         ("in_progress_day", "ALTER TABLE sales_orders ADD COLUMN in_progress_day INTEGER"),

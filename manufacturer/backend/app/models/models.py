@@ -251,6 +251,11 @@ class SimulationConfig(Base):
     total_costs: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     total_revenue: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     provider_urls: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True, default=None)
+    retailer_demand_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    retailer_demand_mean: Mapped[float] = mapped_column(Float, nullable=False, default=8.0)
+    retailer_demand_variance: Mapped[float] = mapped_column(Float, nullable=False, default=2.0)
+    retailer_demand_modifier: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    retailer_demand_base_price: Mapped[float] = mapped_column(Float, nullable=False, default=400.0)
 
 
 class SalesOrderStatus(PyEnum):

@@ -248,6 +248,11 @@ class SimulationConfigBase(BaseModel):
     cost_per_assembly_line_per_day: float = 100.0
     cost_per_worker_per_hour: float = 50.0
     max_workers_per_line: int = 10
+    retailer_demand_enabled: bool = False
+    retailer_demand_mean: float = 8.0
+    retailer_demand_variance: float = 2.0
+    retailer_demand_modifier: float = 1.0
+    retailer_demand_base_price: float = 400.0
 
 
 class SimulationConfigUpdate(SimulationConfigBase):

@@ -173,6 +173,11 @@ export interface SimulationConfig {
   total_costs: number;
   total_revenue: number;
   sim_day: number;
+  retailer_demand_enabled: boolean;
+  retailer_demand_mean: number;
+  retailer_demand_variance: number;
+  retailer_demand_modifier: number;
+  retailer_demand_base_price: number;
 }
 
 export interface SimulationStatus {

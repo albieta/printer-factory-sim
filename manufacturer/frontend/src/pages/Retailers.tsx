@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Badge, Card, Table } from 'react-bootstrap';
+import { Alert, Badge, Button, Card, Form, Table } from 'react-bootstrap';
 import PageGuide from '../components/PageGuide';
-import { getErrorMessage, retailerAPI, scenariosAPI } from '../services/api';
+import { configAPI, getErrorMessage, retailerAPI, scenariosAPI } from '../services/api';
 import type { RetailerCustomerOrder, RetailerPurchaseOrder, RetailerStockItem, ScenarioSummary } from '../types';
-import { onSimulationUpdate } from '../utils/simulationEvents';
+import { announceSimulationUpdate, onSimulationUpdate } from '../utils/simulationEvents';
 import { formatCurrency } from '../utils/formatters';
 import LoadingSpinner from '../components/LoadingSpinner';
 
@@ -20,11 +20,20 @@ const Retailers: React.FC = () => {
   const [purchaseOrders, setPurchaseOrders] = useState<RetailerPurchaseOrder[]>([]);
   const [activeScenario, setActiveScenario] = useState<ScenarioSummary | null>(null);
   const [activeRunDay, setActiveRunDay] = useState<number | null>(null);
+  const [demandForm, setDemandForm] = useState({
+    retailer_demand_enabled: false,
+    retailer_demand_mean: '8',
+    retailer_demand_variance: '2',
+    retailer_demand_modifier: '1',
+    retailer_demand_base_price: '400',
+  });
+  const [demandSaving, setDemandSaving] = useState(false);
+  const [demandMessage, setDemandMessage] = useState<string | null>(null);
 
   const loadData = async () => {
     try {
       setLoading(true);
-      const [summaryRes, stockRes, ordersRes, purchasesRes, scenarioListRes, scenarioStatusRes] =
+      const [summaryRes, stockRes, ordersRes, purchasesRes, scenarioListRes, scenarioStatusRes, configRes] =
         await Promise.all([
           retailerAPI.getSummary(),
           retailerAPI.getStock(),
@@ -32,6 +41,7 @@ const Retailers: React.FC = () => {
           retailerAPI.getPurchases(),
           scenariosAPI.list().catch(() => null),
           scenariosAPI.status().catch(() => null),
+          configAPI.getConfig().catch(() => null),
         ]);
 
       const summary = summaryRes.data;
@@ -44,6 +54,18 @@ const Retailers: React.FC = () => {
       setStockItems(stockRes.data.items ?? []);
       setCustomerOrders(ordersRes.data.orders ?? []);
       setPurchaseOrders(purchasesRes.data.purchases ?? []);
+
+      // Sync manual demand form from saved config.
+      if (configRes) {
+        const cfg = configRes.data;
+        setDemandForm({
+          retailer_demand_enabled: cfg.retailer_demand_enabled ?? false,
+          retailer_demand_mean: String(cfg.retailer_demand_mean ?? 8),
+          retailer_demand_variance: String(cfg.retailer_demand_variance ?? 2),
+          retailer_demand_modifier: String(cfg.retailer_demand_modifier ?? 1),
+          retailer_demand_base_price: String(cfg.retailer_demand_base_price ?? 400),
+        });
+      }
 
       // Resolve active scenario from status + list.
       const run = scenarioStatusRes?.data?.run ?? null;
@@ -63,6 +85,25 @@ const Retailers: React.FC = () => {
       setError(getErrorMessage(err, 'Failed to load retailer data.'));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const saveDemandConfig = async () => {
+    try {
+      setDemandSaving(true);
+      await configAPI.updateConfig({
+        retailer_demand_enabled: demandForm.retailer_demand_enabled,
+        retailer_demand_mean: Number(demandForm.retailer_demand_mean),
+        retailer_demand_variance: Number(demandForm.retailer_demand_variance),
+        retailer_demand_modifier: Number(demandForm.retailer_demand_modifier),
+        retailer_demand_base_price: Number(demandForm.retailer_demand_base_price),
+      } as Parameters<typeof configAPI.updateConfig>[0]);
+      setDemandMessage('Manual demand settings saved.');
+      announceSimulationUpdate();
+    } catch (err) {
+      setDemandMessage(getErrorMessage(err, 'Failed to save demand settings.'));
+    } finally {
+      setDemandSaving(false);
     }
   };
 
@@ -245,6 +286,92 @@ price_factor = max(0.2, 1 − (retail_price − base_price) / base_price)`}
               <a href="/scenarios">Scenarios</a> tab to see demand configuration here.
             </p>
           )}
+        </Card.Body>
+      </Card>
+
+      {/* ── Manual demand configuration ── */}
+      <Card className="mb-4">
+        <Card.Header>
+          <strong>Manual Demand Configuration</strong>
+          <span className="text-muted ms-2" style={{ fontSize: '0.85rem' }}>
+            — applies when Advance Day is clicked without a running scenario
+          </span>
+        </Card.Header>
+        <Card.Body>
+          {demandMessage && (
+            <Alert variant={demandMessage.startsWith('Failed') ? 'danger' : 'success'} dismissible onClose={() => setDemandMessage(null)}>
+              {demandMessage}
+            </Alert>
+          )}
+          <Form.Group className="mb-3 d-flex align-items-center gap-3">
+            <Form.Check
+              type="switch"
+              id="retailer-demand-switch"
+              label={demandForm.retailer_demand_enabled ? 'Inject customer orders on every manual Advance Day' : 'Customer order injection disabled'}
+              checked={demandForm.retailer_demand_enabled}
+              onChange={(e) => setDemandForm({ ...demandForm, retailer_demand_enabled: e.target.checked })}
+            />
+          </Form.Group>
+          <div className="two-column">
+            <Form.Group className="mb-3">
+              <Form.Label>Mean orders per model per day</Form.Label>
+              <Form.Control
+                type="number" min="0" step="1"
+                value={demandForm.retailer_demand_mean}
+                disabled={!demandForm.retailer_demand_enabled}
+                onChange={(e) => setDemandForm({ ...demandForm, retailer_demand_mean: e.target.value })}
+              />
+              <Form.Text>
+                Centre of the Gaussian draw for each printer model. Corresponds to <code>base_demand.mean</code> in scenario files (current scenario default: 8–10).
+              </Form.Text>
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label>Variance</Form.Label>
+              <Form.Control
+                type="number" min="0" step="0.5"
+                value={demandForm.retailer_demand_variance}
+                disabled={!demandForm.retailer_demand_enabled}
+                onChange={(e) => setDemandForm({ ...demandForm, retailer_demand_variance: e.target.value })}
+              />
+              <Form.Text>
+                Daily noise around the mean. Standard deviation = √variance. Typical scenario value: 1–2.
+              </Form.Text>
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label>Demand modifier</Form.Label>
+              <Form.Control
+                type="number" min="0.1" step="0.1"
+                value={demandForm.retailer_demand_modifier}
+                disabled={!demandForm.retailer_demand_enabled}
+                onChange={(e) => setDemandForm({ ...demandForm, retailer_demand_modifier: e.target.value })}
+              />
+              <Form.Text>
+                Multiplies the mean. 1.0 = baseline. 2.0 = doubled demand. Equivalent to a scenario event's <code>demand_modifier</code>.
+              </Form.Text>
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label>Base price for price sensitivity (£)</Form.Label>
+              <Form.Control
+                type="number" min="0" step="50"
+                value={demandForm.retailer_demand_base_price}
+                disabled={!demandForm.retailer_demand_enabled}
+                onChange={(e) => setDemandForm({ ...demandForm, retailer_demand_base_price: e.target.value })}
+              />
+              <Form.Text>
+                Price at which demand is unaffected. If the retailer charges more than this, demand automatically decreases (floored at ×0.2). Matches <code>base_price</code> in scenario files (default: 400).
+              </Form.Text>
+            </Form.Group>
+          </div>
+          <div className="d-flex align-items-center gap-3 mt-2">
+            <Button variant="primary" onClick={() => void saveDemandConfig()} disabled={demandSaving}>
+              {demandSaving ? 'Saving…' : 'Save demand settings'}
+            </Button>
+            {demandForm.retailer_demand_enabled && (
+              <span className="text-muted" style={{ fontSize: '0.85rem' }}>
+                Expected: ~{(Number(demandForm.retailer_demand_mean) * Number(demandForm.retailer_demand_modifier)).toFixed(1)} orders/model/day (before price factor)
+              </span>
+            )}
+          </div>
         </Card.Body>
       </Card>
 

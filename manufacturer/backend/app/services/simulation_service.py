@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 import random
 from datetime import date
@@ -112,7 +113,7 @@ class SimulationService:
         # 2. Manufacturer (this instance)
         results["manufacturer"] = self.advance_day()
 
-        # 3. Each provider
+        # 3. Each provider — and 4. optional retailer demand injection
         from app.models.models import SimulationConfig
         sim_cfg = self.db.query(SimulationConfig).first()
         provider_url_overrides: dict[str, str] = {}
@@ -125,7 +126,73 @@ class SimulationService:
             if url:
                 results[name] = _post_advance(url, name)
 
+        # 4. Inject synthetic customer demand into the retailer (if enabled).
+        if sim_cfg and sim_cfg.retailer_demand_enabled:
+            results["retailer_demand"] = self._inject_retailer_demand(
+                retailer_url, sim_cfg
+            )
+
         return results
+
+    def _inject_retailer_demand(
+        self, retailer_url: str, cfg: Any
+    ) -> dict[str, Any]:
+        """POST one synthetic customer order per draw into the retailer.
+
+        Mirrors the demand formula used by the turn engine:
+            n = max(0, gauss(mean * modifier * price_factor, sqrt(variance)))
+        where price_factor = max(0.2, 1 - (retail_price - base_price) / base_price).
+        Seeded with the current sim_day for reproducibility.
+        """
+
+
+        random.seed(cfg.sim_day)
+        mean = float(cfg.retailer_demand_mean) * float(cfg.retailer_demand_modifier)
+        variance = float(cfg.retailer_demand_variance)
+        base_price = float(cfg.retailer_demand_base_price)
+
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                catalog_r = client.get(f"{retailer_url}/api/catalog")
+                catalog_r.raise_for_status()
+                catalog: dict[str, Any] = catalog_r.json()
+        except httpx.HTTPError as exc:
+            return {"orders_injected": 0, "error": str(exc)}
+
+        entries = catalog.get("entries", [])
+        day = cfg.sim_day
+        injected = 0
+        errors = 0
+
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            model = str(entry.get("product_name", ""))
+            retail_price = float(entry.get("retail_price", base_price))
+            price_factor = max(0.2, 1.0 - (retail_price - base_price) / base_price) if base_price > 0 else 1.0
+            n = max(0, int(random.gauss(mean * price_factor, math.sqrt(variance))))
+            for i in range(n):
+                try:
+                    with httpx.Client(timeout=10.0) as client:
+                        r = client.post(
+                            f"{retailer_url}/api/orders",
+                            json={
+                                "customer": f"manual-day-{day:03d}-{model}-{i + 1:03d}",
+                                "product_name": model,
+                                "quantity": 1,
+                            },
+                        )
+                        if r.is_success:
+                            injected += 1
+                        else:
+                            errors += 1
+                except httpx.HTTPError:
+                    errors += 1
+
+        result: dict[str, Any] = {"orders_injected": injected}
+        if errors:
+            result["errors"] = errors
+        return result
 
     def generate_daily_demand(self, sim_date: date) -> int:
         config = self.config_service.get_config()

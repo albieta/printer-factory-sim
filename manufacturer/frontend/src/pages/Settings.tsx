@@ -310,14 +310,14 @@ const Settings: React.FC = () => {
               <Form.Text>Hours worked per day by each worker.</Form.Text>
             </Form.Group>
             <Form.Group className="mb-3">
-              <Form.Label>Demand mean</Form.Label>
+              <Form.Label>Internal demand mean</Form.Label>
               <Form.Control type="number" step="0.5" value={formData.demand_distribution_mean} onChange={(event) => setFormData({ ...formData, demand_distribution_mean: event.target.value })} />
-              <Form.Text>Average new order quantity generated per simulation day.</Form.Text>
+              <Form.Text>Average ManufacturingOrders generated internally per day (standalone mode only).</Form.Text>
             </Form.Group>
             <Form.Group className="mb-3">
-              <Form.Label>Demand variance</Form.Label>
+              <Form.Label>Internal demand variance</Form.Label>
               <Form.Control type="number" step="0.5" value={formData.demand_distribution_variance} onChange={(event) => setFormData({ ...formData, demand_distribution_variance: event.target.value })} />
-              <Form.Text>How much daily demand fluctuates around the mean.</Form.Text>
+              <Form.Text>How much internal daily demand fluctuates around the mean.</Form.Text>
             </Form.Group>
             <Form.Group className="mb-3 d-flex flex-column justify-content-start">
               <Form.Label>Internal demand generator</Form.Label>
@@ -329,10 +329,10 @@ const Settings: React.FC = () => {
                 onChange={(e) => setFormData({ ...formData, internal_demand_enabled: e.target.checked })}
               />
               <Form.Text>
-                When enabled, the simulator generates random internal ManufacturingOrders each day based on
-                the demand mean and variance above. Useful for standalone manual operation. Keep off during
-                multi-agent scenarios — the turn engine injects demand through the retailer instead, and
-                internal orders would compete for production capacity without producing revenue.
+                Generates random <strong>ManufacturingOrders</strong> directly inside the manufacturer each day
+                (standalone/Week 5 mode). Keep off in multi-service mode — demand enters through the retailer
+                instead. To configure customer orders injected into the retailer on manual advances, use the
+                <strong> Retailers</strong> page.
               </Form.Text>
             </Form.Group>
             <Form.Group className="mb-3">
