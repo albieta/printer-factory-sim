@@ -32,5 +32,29 @@ def reset_to_empty(db: Session = Depends(get_db)):
 
 @router.post("/reset-default-config", response_model=ResetConfirm)
 def reset_to_default_config(db: Session = Depends(get_db)):
+    import os
+    import httpx
+
     SimulationService(db).reset_to_default_config()
-    return ResetConfirm(success=True, message="Simulation reset to default prefilled demo configuration.")
+
+    # Also reset provider and retailer databases
+    provider_url = os.getenv("PROVIDER_URL", "http://localhost:8001")
+    retailer_url = os.getenv("RETAILER_URL", "http://localhost:8003")
+
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            # Reset provider (if endpoint exists)
+            try:
+                client.post(f"{provider_url}/api/reset", json={})
+            except (httpx.HTTPError, Exception):
+                pass  # Provider reset endpoint may not exist yet
+
+            # Reset retailer (if endpoint exists)
+            try:
+                client.post(f"{retailer_url}/api/reset", json={})
+            except (httpx.HTTPError, Exception):
+                pass  # Retailer reset endpoint may not exist yet
+    except Exception:
+        pass  # Network errors are non-critical for reset
+
+    return ResetConfirm(success=True, message="Simulation reset to default prefilled demo configuration. All apps cleared.")

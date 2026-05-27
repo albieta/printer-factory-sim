@@ -244,10 +244,20 @@ def _fetch_manufacturer_state(mfr_url: str, logger: ApiLogger | None = None) -> 
     try:
         prices_resp = _get(f"{mfr_url}/api/prices", logger=logger)
         prices_dict = prices_resp.get("prices", {}) if isinstance(prices_resp, dict) else {}
+        inv_list = _get(f"{mfr_url}/api/inventory", logger=logger)
+        # Convert inventory list to dict {material_name: quantity}
+        inventory_dict = {}
+        if isinstance(inv_list, list):
+            for item in inv_list:
+                if isinstance(item, dict):
+                    name = item.get("product_name", item.get("name", ""))
+                    qty = item.get("quantity", 0)
+                    if name:
+                        inventory_dict[name] = qty
         return {
             "day": _get(f"{mfr_url}/api/day/current", logger=logger),
             "capacity": _get(f"{mfr_url}/api/capacity", logger=logger),
-            "inventory": _get(f"{mfr_url}/api/inventory", logger=logger),
+            "inventory": inventory_dict,
             "sales_orders": _get(f"{mfr_url}/api/sales/orders?status=PENDING", logger=logger),
             "purchase_orders": _get(f"{mfr_url}/api/purchases", logger=logger),
             "production_status": _get(f"{mfr_url}/api/production/status", logger=logger),
@@ -671,7 +681,7 @@ def _initialize_run(config: dict[str, Any]) -> None:
         return
 
     try:
-        cfg = _get(f"{mfr_url}/api/config")
+        cfg = _get(f"{mfr_url}/api/config/")
     except httpx.HTTPError as exc:
         print(f"  [init] WARNING: could not reach manufacturer config: {exc}")
         return

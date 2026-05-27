@@ -41,3 +41,21 @@ def set_market_signal(
         supply_modifier=payload.supply_modifier,
         lead_time_modifier=service.get_lead_time_modifier(),
     )
+
+
+@router.post("/reset")
+def reset_provider(db: Session = Depends(get_db)) -> dict[str, str]:
+    """Reset provider database to seed data state."""
+    from app.services.admin_service import AdminService
+    from app.utils.database import engine, Base
+
+    # Clear all tables and reload from seed
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    # Reload seed data
+    from app.scripts.seed_data import seed_provider
+    seed_provider(db)
+    db.commit()
+
+    return {"message": "Provider reset to seed data state."}
