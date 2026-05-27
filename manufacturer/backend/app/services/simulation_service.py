@@ -47,9 +47,6 @@ class SimulationService:
         orders_created = self.generate_daily_demand(sim_date)
         self.order_service.recheck_blocked_orders(sim_date)
 
-        from app.services.sales_order_service import SalesOrderService
-        SalesOrderService(self.db).auto_release_pending_orders(sim_date)
-
         production_results = self.production_service.execute_production(sim_date)
         orders_completed = sum(1 for result in production_results if result["status"] == "completed")
 
@@ -175,12 +172,13 @@ class SimulationService:
             for i in range(n):
                 try:
                     with httpx.Client(timeout=10.0) as client:
+                        qty = random.choices([1, 2, 3], weights=[85, 12, 3])[0]
                         r = client.post(
                             f"{retailer_url}/api/orders",
                             json={
                                 "customer": f"manual-day-{day:03d}-{model}-{i + 1:03d}",
                                 "product_name": model,
-                                "quantity": 1,
+                                "quantity": qty,
                             },
                         )
                         if r.is_success:

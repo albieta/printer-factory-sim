@@ -55,6 +55,10 @@ export const configAPI = {
   deletePrinterModel: (id: string) => api.delete(`/config/printer-models/${id}/`),
   applyScenarioAssembly: (assembly: any) => api.post<SimulationConfig>('/config/apply-scenario-assembly', assembly),
   applyScenarioCosts: (costs: any) => api.post<SimulationConfig>('/config/apply-scenario-costs', costs),
+  openLine: () => api.post<SimulationConfig>('/config/assembly/open-line'),
+  closeLine: () => api.post<SimulationConfig>('/config/assembly/close-line'),
+  hireWorker: () => api.post<SimulationConfig>('/config/assembly/hire-worker'),
+  fireWorker: () => api.post<SimulationConfig>('/config/assembly/fire-worker'),
 };
 
 export const materialsAPI = {
@@ -99,7 +103,7 @@ export interface RetailerStock {
 export interface RetailerOrder {
   id: number;
   customer?: string;
-  product?: string;
+  product_name?: string;
   quantity: number;
   status: string;
   placed_day?: number;
@@ -142,6 +146,29 @@ export const ordersAPI = {
   getOrderRequirements: (id: string) => api.get<BOMRequirements>(`/orders/mfg/${id}/requirements/`),
   releaseOrders: (request: ReleaseRequest) => api.post<BatchReleaseResponse>('/orders/mfg/release', request),
   rejectOrders: (request: ReleaseRequest) => api.post<BatchReleaseResponse>('/orders/mfg/reject', request),
+};
+
+export interface SalesOrder {
+  id: string;
+  reference_code: string;
+  retailer: string;
+  model: string | null;
+  quantity: number;
+  unit_price: string;
+  total_price: string;
+  placed_day: number;
+  expected_ship_day: number | null;
+  status: string;
+  status_reason: string | null;
+}
+
+export const salesOrdersAPI = {
+  list: (status?: string) =>
+    api.get<SalesOrder[]>('/sales/orders', { params: status ? { status } : {} }),
+  release: (id: string) =>
+    api.post<{ schema_version: number; order: SalesOrder }>(`/sales/orders/${id}/release`),
+  reject: (id: string, reason = '') =>
+    api.post<{ schema_version: number; order: SalesOrder }>(`/sales/orders/${id}/reject`, { reason }),
 };
 
 export const purchaseOrdersAPI = {

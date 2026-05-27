@@ -497,7 +497,7 @@ price_factor = max(0.2, 1 − (retail_price − base_price) / base_price)`}
                 {customerOrders.map((order) => (
                   <tr key={order.id}>
                     <td><span className="mono">{order.id}</span></td>
-                    <td>{order.product ?? '—'}</td>
+                    <td>{order.product_name ?? '—'}</td>
                     <td>{order.quantity}</td>
                     <td>
                       <span

@@ -320,7 +320,7 @@ export interface RetailerStockItem {
 export interface RetailerCustomerOrder {
   id: number;
   customer?: string;
-  product?: string;
+  product_name?: string;
   quantity: number;
   status: string;
   placed_day?: number;

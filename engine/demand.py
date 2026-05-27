@@ -24,7 +24,7 @@ def generate_customer_demand(
     retail_prices: dict[str, float],
     base_prices: dict[str, float],
 ) -> list[tuple[str, int]]:
-    """Return a list of (model_name, quantity=1) customer order tuples.
+    """Return a list of (model_name, quantity) customer order tuples.
 
     Parameters
     ----------
@@ -53,7 +53,9 @@ def generate_customer_demand(
         # Demand falls as retail price exceeds the base; floor prevents collapse.
         price_factor = max(0.2, 1.0 - (price - bp) / bp) if bp > 0 else 1.0
         n = max(0, int(random.gauss(mean_orders * price_factor, variance**0.5)))
-        orders.extend([(model, 1)] * n)
+        for _ in range(n):
+            qty = random.choices([1, 2, 3], weights=[85, 12, 3])[0]
+            orders.append((model, qty))
 
     return orders
 

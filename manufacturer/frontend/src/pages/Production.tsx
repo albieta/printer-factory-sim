@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Table } from 'react-bootstrap';
+import { Alert, Button, Card, Table } from 'react-bootstrap';
+import { FaMinus, FaPlus, FaUserMinus, FaUserPlus } from 'react-icons/fa';
 import PageGuide from '../components/PageGuide';
 import { configAPI, getErrorMessage, ordersAPI } from '../services/api';
 import type { ManufacturingOrder, Product, SimulationConfig } from '../types';
 import LoadingSpinner from '../components/LoadingSpinner';
-import { onSimulationUpdate } from '../utils/simulationEvents';
+import { announceSimulationUpdate, onSimulationUpdate } from '../utils/simulationEvents';
 
 const Production: React.FC = () => {
   const [releasedOrders, setReleasedOrders] = useState<ManufacturingOrder[]>([]);
@@ -13,6 +14,8 @@ const Production: React.FC = () => {
   const [config, setConfig] = useState<SimulationConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [assemblyActionLoading, setAssemblyActionLoading] = useState(false);
 
   const loadProduction = async () => {
     try {
@@ -44,6 +47,21 @@ const Production: React.FC = () => {
     return clear;
   }, []);
 
+  const runAssemblyAction = async (action: () => Promise<unknown>, label: string) => {
+    try {
+      setAssemblyActionLoading(true);
+      setError(null);
+      await action();
+      setMessage(`${label} — configuration updated.`);
+      announceSimulationUpdate();
+      await loadProduction();
+    } catch (err) {
+      setError(getErrorMessage(err, `Failed: ${label}`));
+    } finally {
+      setAssemblyActionLoading(false);
+    }
+  };
+
   const printerMap = useMemo(() => new Map(printers.map((printer) => [printer.id, printer])), [printers]);
   const queuedHours = releasedOrders.reduce((total, order) => total + order.quantity * (printerMap.get(order.product_id)?.assembly_hours ?? 0), 0);
   const completedHours = completedOrders.reduce((total, order) => total + order.quantity * (printerMap.get(order.product_id)?.assembly_hours ?? 0), 0);
@@ -72,6 +90,7 @@ const Production: React.FC = () => {
       />
 
       {error ? <Alert variant="danger">{error}</Alert> : null}
+      {message ? <Alert variant="success" dismissible onClose={() => setMessage(null)}>{message}</Alert> : null}
 
       <div className="kpi-grid">
         <div className="kpi-card info">
@@ -144,6 +163,65 @@ const Production: React.FC = () => {
           </div>
         </div>
       </div>
+
+      <Card className="mb-4">
+        <Card.Header>Workforce actions</Card.Header>
+        <Card.Body>
+          <p className="text-muted">
+            Open or close assembly lines and hire or fire workers. Each action records a financial transaction and takes effect immediately.
+          </p>
+          <div className="two-column">
+            <div className="metric-item">
+              <strong>Assembly lines</strong>
+              <div className="text-muted mt-1">Currently: {config?.assembly_lines ?? 0}</div>
+              <div className="action-buttons mt-3">
+                <Button
+                  variant="success"
+                  size="sm"
+                  disabled={assemblyActionLoading}
+                  onClick={() => void runAssemblyAction(() => configAPI.openLine(), 'Assembly line opened')}
+                >
+                  <FaPlus className="me-1" />Open line
+                  {config?.cost_per_assembly_line ? ` — $${Number(config.cost_per_assembly_line).toLocaleString()}` : ''}
+                </Button>
+                <Button
+                  variant="outline-danger"
+                  size="sm"
+                  disabled={assemblyActionLoading || (config?.assembly_lines ?? 1) <= 1}
+                  onClick={() => void runAssemblyAction(() => configAPI.closeLine(), 'Assembly line closed')}
+                >
+                  <FaMinus className="me-1" />Close line
+                </Button>
+              </div>
+            </div>
+            <div className="metric-item">
+              <strong>Workers per line</strong>
+              <div className="text-muted mt-1">
+                Currently: {config?.workers_per_line ?? 0} / {config?.max_workers_per_line ?? 0} max
+              </div>
+              <div className="action-buttons mt-3">
+                <Button
+                  variant="success"
+                  size="sm"
+                  disabled={assemblyActionLoading || (config?.workers_per_line ?? 0) >= (config?.max_workers_per_line ?? 10)}
+                  onClick={() => void runAssemblyAction(() => configAPI.hireWorker(), 'Worker hired')}
+                >
+                  <FaUserPlus className="me-1" />Hire worker
+                  {config?.cost_per_worker_per_hour ? ` — $${Number(config.cost_per_worker_per_hour)}/hr` : ''}
+                </Button>
+                <Button
+                  variant="outline-danger"
+                  size="sm"
+                  disabled={assemblyActionLoading || (config?.workers_per_line ?? 1) <= 1}
+                  onClick={() => void runAssemblyAction(() => configAPI.fireWorker(), 'Worker fired')}
+                >
+                  <FaUserMinus className="me-1" />Fire worker
+                </Button>
+              </div>
+            </div>
+          </div>
+        </Card.Body>
+      </Card>
 
       <div className="card mb-4">
         <div className="card-header">Released manufacturing orders</div>

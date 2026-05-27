@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, Form, Table } from 'react-bootstrap';
 import { FaBan, FaClipboardCheck, FaEye } from 'react-icons/fa';
 import PageGuide from '../components/PageGuide';
-import { getErrorMessage, ordersAPI } from '../services/api';
+import { getErrorMessage, ordersAPI, salesOrdersAPI } from '../services/api';
+import type { SalesOrder } from '../services/api';
 import type { BOMRequirements, ManufacturingOrder } from '../types';
 import { OrderStatus } from '../types';
 import { announceSimulationUpdate, onSimulationUpdate } from '../utils/simulationEvents';
@@ -61,6 +62,9 @@ const Orders: React.FC = () => {
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([]);
+  const [salesOrdersLoading, setSalesOrdersLoading] = useState(true);
+
   const loadOrders = async (status?: string) => {
     try {
       setLoading(true);
@@ -74,10 +78,25 @@ const Orders: React.FC = () => {
     }
   };
 
+  const loadSalesOrders = async () => {
+    try {
+      setSalesOrdersLoading(true);
+      const res = await salesOrdersAPI.list('PENDING');
+      setSalesOrders(res.data);
+    } catch {
+      // non-critical — retailer may be offline
+      setSalesOrders([]);
+    } finally {
+      setSalesOrdersLoading(false);
+    }
+  };
+
   useEffect(() => {
     void loadOrders(filter);
+    void loadSalesOrders();
     const clear = onSimulationUpdate(() => {
       void loadOrders(filter);
+      void loadSalesOrders();
     });
 
     return clear;
@@ -180,6 +199,28 @@ const Orders: React.FC = () => {
     });
   };
 
+  const handleReleaseSalesOrder = async (id: string) => {
+    try {
+      await salesOrdersAPI.release(id);
+      setActionMessage('Retailer order accepted and queued for production.');
+      announceSimulationUpdate();
+      await Promise.all([loadOrders(filter), loadSalesOrders()]);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to release retailer order.'));
+    }
+  };
+
+  const handleRejectSalesOrder = async (id: string) => {
+    try {
+      await salesOrdersAPI.reject(id, 'Rejected by planner');
+      setActionMessage('Retailer order rejected.');
+      announceSimulationUpdate();
+      await loadSalesOrders();
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to reject retailer order.'));
+    }
+  };
+
   const getStatusBadge = (order: ManufacturingOrder) => {
     const variants: Record<OrderStatus, string> = {
       PENDING: 'badge-pending',
@@ -257,6 +298,70 @@ const Orders: React.FC = () => {
           <div className="kpi-subtext">Demand declined during review</div>
         </div>
       </div>
+
+      <Card className="mb-4">
+        <Card.Header>
+          <span>Retailer orders — awaiting decision</span>
+          {salesOrders.length > 0 && (
+            <span className="badge badge-pending ms-2">{salesOrders.length}</span>
+          )}
+        </Card.Header>
+        <Card.Body>
+          {salesOrdersLoading ? (
+            <p className="text-muted mb-0">Loading retailer orders…</p>
+          ) : salesOrders.length ? (
+            <Table responsive hover className="mb-0">
+              <thead>
+                <tr>
+                  <th>Reference</th>
+                  <th>Retailer</th>
+                  <th>Product</th>
+                  <th>Qty</th>
+                  <th>Unit price</th>
+                  <th>Total</th>
+                  <th>Placed day</th>
+                  <th>Exp. ship day</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {salesOrders.map((so) => (
+                  <tr key={so.id}>
+                    <td><span className="mono">{so.reference_code}</span></td>
+                    <td>{so.retailer}</td>
+                    <td><strong>{so.model ?? '—'}</strong></td>
+                    <td>{so.quantity}</td>
+                    <td>£{so.unit_price}</td>
+                    <td>£{so.total_price}</td>
+                    <td>{so.placed_day}</td>
+                    <td>{so.expected_ship_day ?? '—'}</td>
+                    <td>
+                      <div className="d-flex gap-2">
+                        <Button
+                          variant="success"
+                          size="sm"
+                          onClick={() => void handleReleaseSalesOrder(so.id)}
+                        >
+                          <FaClipboardCheck className="me-1" />Accept
+                        </Button>
+                        <Button
+                          variant="outline-danger"
+                          size="sm"
+                          onClick={() => void handleRejectSalesOrder(so.id)}
+                        >
+                          <FaBan className="me-1" />Reject
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          ) : (
+            <div className="empty-state">No pending retailer orders awaiting a decision.</div>
+          )}
+        </Card.Body>
+      </Card>
 
       <div className="two-column">
         <Card>

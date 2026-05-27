@@ -224,6 +224,37 @@ class SalesOrderService:
         )
         return [self.serialize_order(o) for o in active]
 
+    def reject_sales_order(self, order_id: str, reason: str) -> dict[str, Any]:
+        """Reject a PENDING SalesOrder, keeping its history visible.
+
+        Returns a result dict with `success` and optionally `error`.
+        The caller commits.
+        """
+        order = self.get_order(order_id)
+        if order is None:
+            return {"success": False, "error": f"SalesOrder {order_id!r} not found"}
+        if order.status != SalesOrderStatus.PENDING:
+            return {
+                "success": False,
+                "error": f"SalesOrder is {order.status.value}, expected PENDING",
+            }
+
+        order.status = SalesOrderStatus.REJECTED
+        order.status_reason = reason or "Rejected by planner"
+        self.db.add(
+            Event(
+                event_type=EventType.SALES_ORDER_REJECTED,
+                sim_date=self.config.get_sim_date(),
+                details={
+                    "order_id": order.id,
+                    "reference_code": order.reference_code,
+                    "reason": reason,
+                },
+            )
+        )
+        self.db.flush()
+        return {"success": True, "order": order}
+
     def auto_release_pending_orders(self, sim_date: date) -> int:
         """Auto-release all PENDING SalesOrders to production.
 

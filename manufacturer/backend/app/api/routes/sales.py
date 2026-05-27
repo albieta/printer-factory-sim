@@ -26,6 +26,10 @@ class SalesOrderResponse(BaseModel):
     order: dict[str, Any]
 
 
+class SalesOrderReject(BaseModel):
+    reason: str = ""
+
+
 @router.post("", response_model=SalesOrderResponse, status_code=201)
 def create_sales_order(
     payload: SalesOrderCreate,
@@ -66,4 +70,36 @@ def get_sales_order(order_id: str, db: Session = Depends(get_db)) -> SalesOrderR
     order = service.get_order(order_id)
     if order is None:
         raise HTTPException(status_code=404, detail="Sales order not found")
+    return SalesOrderResponse(schema_version=SCHEMA_VERSION, order=service.serialize_order(order))
+
+
+@router.post("/{order_id}/release", response_model=SalesOrderResponse)
+def release_sales_order(order_id: str, db: Session = Depends(get_db)) -> SalesOrderResponse:
+    service = SalesOrderService(db)
+    result = service.release_to_production(order_id)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Release failed"))
+    db.commit()
+    order = service.get_order(order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="Sales order not found after release")
+    db.refresh(order)
+    return SalesOrderResponse(schema_version=SCHEMA_VERSION, order=service.serialize_order(order))
+
+
+@router.post("/{order_id}/reject", response_model=SalesOrderResponse)
+def reject_sales_order(
+    order_id: str,
+    payload: SalesOrderReject,
+    db: Session = Depends(get_db),
+) -> SalesOrderResponse:
+    service = SalesOrderService(db)
+    result = service.reject_sales_order(order_id, payload.reason)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Reject failed"))
+    db.commit()
+    order = service.get_order(order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="Sales order not found after reject")
+    db.refresh(order)
     return SalesOrderResponse(schema_version=SCHEMA_VERSION, order=service.serialize_order(order))
