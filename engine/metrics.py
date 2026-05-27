@@ -93,7 +93,7 @@ def _provider_snapshot(provider_cfg: dict[str, Any], logger: ApiLogger | None) -
     }
 
 
-def _manufacturer_snapshot(mfr_cfg: dict[str, Any], logger: ApiLogger | None) -> dict[str, Any]:
+def _manufacturer_snapshot(mfr_cfg: dict[str, Any], day: int, logger: ApiLogger | None) -> dict[str, Any]:
     base_url = str(mfr_cfg["url"]).rstrip("/")
     inventory_data = _safe_get(f"{base_url}/api/inventory/", logger)
     prices_data = _safe_get(f"{base_url}/api/prices", logger)
@@ -101,6 +101,7 @@ def _manufacturer_snapshot(mfr_cfg: dict[str, Any], logger: ApiLogger | None) ->
     production_data = _safe_get(f"{base_url}/api/production/status", logger)
     capacity_data = _safe_get(f"{base_url}/api/capacity", logger)
     financial_data = _safe_get(f"{base_url}/api/financial/summary", logger)
+    transactions_data = _safe_get(f"{base_url}/api/financial/transactions?day={day}", logger)
 
     inventory: dict[str, float] = {}
     if isinstance(inventory_data, list):
@@ -117,7 +118,17 @@ def _manufacturer_snapshot(mfr_cfg: dict[str, Any], logger: ApiLogger | None) ->
             for model, price in prices_data.get("prices", {}).items()
         }
 
-    sales_orders = sales_data if isinstance(sales_data, list) else []
+    # Orders placed by the retailer agent happen before the manufacturer advance,
+    # so their placed_day is day-1. in_progress/shipped are set during the advance (day).
+    sales_orders = [row for row in sales_data if isinstance(row, dict)] if isinstance(sales_data, list) else []
+    prev_day = max(0, day - 1)
+    sales_orders_today = {
+        "placed": sum(1 for o in sales_orders if _to_int(o.get("placed_day"), -1) == prev_day),
+        "in_progress": sum(1 for o in sales_orders if _to_int(o.get("in_progress_day"), -1) == day),
+        "shipped": sum(1 for o in sales_orders if _to_int(o.get("shipped_day"), -1) == day),
+        "rejected": sum(1 for o in sales_orders if o.get("status") in ("REJECTED", "CANCELLED") and _to_int(o.get("placed_day"), -1) == prev_day),
+    }
+
     active_count = 0
     if isinstance(production_data, dict):
         active_count = _to_int(production_data.get("count"))
@@ -130,17 +141,26 @@ def _manufacturer_snapshot(mfr_cfg: dict[str, Any], logger: ApiLogger | None) ->
             "net_profit": _to_float(financial_data.get("net_profit")),
         }
 
+    daily_financials: dict[str, float] = {"revenue": 0.0, "costs": 0.0, "net_profit": 0.0}
+    if isinstance(transactions_data, list):
+        rev = sum(_to_float(t.get("amount")) for t in transactions_data if isinstance(t, dict) and t.get("type") == "PRODUCT_SOLD")
+        cost = sum(_to_float(t.get("amount")) for t in transactions_data if isinstance(t, dict) and t.get("type") != "PRODUCT_SOLD")
+        daily_financials = {"revenue": rev, "costs": cost, "net_profit": rev - cost}
+
+    all_data = (inventory_data, prices_data, sales_data, production_data, capacity_data, financial_data, transactions_data)
     return {
         "name": mfr_cfg.get("name", "manufacturer"),
         "inventory": inventory,
         "prices": prices,
-        "sales_orders": _status_counts([row for row in sales_orders if isinstance(row, dict)]),
+        "sales_orders": _status_counts(sales_orders),
         "active_production_orders": active_count,
         "capacity": capacity_data if isinstance(capacity_data, dict) else {},
         "financials": financials,
+        "sales_orders_today": sales_orders_today,
+        "daily_financials": daily_financials,
         "errors": [
             value["error"]
-            for value in (inventory_data, prices_data, sales_data, production_data, capacity_data, financial_data)
+            for value in all_data
             if isinstance(value, dict) and "error" in value
         ],
     }
@@ -179,6 +199,8 @@ def _retailer_snapshot(
     order_day = day - 1
     today_orders = [row for row in customer_orders if _to_int(row.get("placed_day"), -1) == order_day]
     today_counts = _status_counts(today_orders)
+    # fulfilled_today counts any order fulfilled on this day, regardless of when placed
+    fulfilled_today = sum(1 for row in customer_orders if _to_int(row.get("fulfilled_day"), -1) == day)
     purchase_orders = [row for row in purchases_data if isinstance(row, dict)] if isinstance(purchases_data, list) else []
 
     return {
@@ -188,7 +210,7 @@ def _retailer_snapshot(
         "customer_orders": {
             "status_counts": _status_counts(customer_orders),
             "placed_today": len(today_orders),
-            "fulfilled_today": today_counts.get("FULFILLED", 0),
+            "fulfilled_today": fulfilled_today,
             "backordered_today": today_counts.get("BACKORDERED", 0),
             "cancelled_today": today_counts.get("CANCELLED", 0),
         },
@@ -225,7 +247,7 @@ def snapshot_metrics(
         "day": day,
         "signal": signal,
         "retailers": retailers,
-        "manufacturer": _manufacturer_snapshot(config.get("manufacturer", {}), logger),
+        "manufacturer": _manufacturer_snapshot(config.get("manufacturer", {}), day, logger),
         "providers": providers,
     }
 

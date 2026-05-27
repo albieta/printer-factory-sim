@@ -217,6 +217,7 @@ const Scenarios: React.FC = () => {
         parallel_agents: parallelAgents,
       });
       setRun(response.data);
+      announceSimulationUpdate();
       setNotice(`Started ${response.data.run_id} (${response.data.scenario} / ${response.data.config}).`);
       setError(null);
       await loadLogFiles();

@@ -407,6 +407,7 @@ class SalesOrderService:
             "total_price": str(order.total_price),
             "placed_day": order.placed_day,
             "expected_ship_day": order.expected_ship_day,
+            "in_progress_day": order.in_progress_day,
             "shipped_day": order.shipped_day,
             "delivered_day": order.delivered_day,
             "status": order.status.value,

@@ -409,6 +409,17 @@ export interface MetricsSnapshot {
       total_revenue: number;
       net_profit: number;
     };
+    sales_orders_today: {
+      placed: number;
+      in_progress: number;
+      shipped: number;
+      rejected: number;
+    };
+    daily_financials: {
+      revenue: number;
+      costs: number;
+      net_profit: number;
+    };
     errors: string[];
   };
   providers: Array<{

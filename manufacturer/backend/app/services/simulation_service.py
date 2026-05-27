@@ -5,7 +5,7 @@ import math
 import os
 import random
 from collections import Counter
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -14,7 +14,7 @@ import httpx
 
 from sqlalchemy.orm import Session
 
-from app.models.models import Event, EventType, FinancialTransaction, ManufacturingOrder, OrderStatus, Product, ProductType, PurchaseOrder, PurchaseOrderStatus, BillOfMaterials, SalesOrder, Supplier, Inventory, WholesalePrice
+from app.models.models import Event, EventType, FinancialTransaction, FinancialTransactionType, ManufacturingOrder, OrderStatus, Product, ProductType, PurchaseOrder, PurchaseOrderStatus, BillOfMaterials, SalesOrder, SalesOrderStatus, Supplier, Inventory, WholesalePrice
 from app.services.config_service import ConfigService
 from app.services.financial_service import FinancialService
 from app.services.inventory_service import InventoryService
@@ -239,6 +239,8 @@ class SimulationService:
             customer_orders = [o for o in orders_raw if isinstance(o, dict)] if isinstance(orders_raw, list) else []
             today_orders = [o for o in customer_orders if int(o.get("placed_day", -1)) == day]
             today_counts: dict[str, int] = dict(Counter(str(o.get("status", "?")) for o in today_orders))
+            # fulfilled_today counts orders fulfilled on this day (any placed_day), not just today's orders
+            fulfilled_today = sum(1 for o in customer_orders if int(o.get("fulfilled_day") or -1) == day)
             purchase_counts: dict[str, int] = dict(Counter(str(o.get("status", "?")) for o in (purchases_raw if isinstance(purchases_raw, list) else []) if isinstance(o, dict)))
 
             return {
@@ -248,7 +250,7 @@ class SimulationService:
                 "customer_orders": {
                     "status_counts": dict(Counter(str(o.get("status", "?")) for o in customer_orders)),
                     "placed_today": len(today_orders),
-                    "fulfilled_today": today_counts.get("FULFILLED", 0),
+                    "fulfilled_today": fulfilled_today,
                     "backordered_today": today_counts.get("BACKORDERED", 0),
                     "cancelled_today": today_counts.get("CANCELLED", 0),
                 },
@@ -343,6 +345,37 @@ class SimulationService:
         except Exception:
             pass
 
+        # Per-day sales order activity.
+        # Orders are placed by the retailer agent before advance_day() runs, so their placed_day
+        # is sim_day-1 (the day number before the increment). in_progress/shipped are set
+        # inside progress_sales_orders() which runs after the increment, so they use sim_day.
+        prev_day = max(0, sim_day - 1)
+        prev_date = config.sim_date - timedelta(days=1) if sim_day > 0 else config.sim_date
+        sales_orders_today: dict[str, int] = {"placed": 0, "in_progress": 0, "shipped": 0, "rejected": 0}
+        try:
+            sales_orders_today = {
+                "placed": self.db.query(SalesOrder).filter(SalesOrder.placed_day == prev_day).count(),
+                "in_progress": self.db.query(SalesOrder).filter(SalesOrder.in_progress_day == sim_day).count(),
+                "shipped": self.db.query(SalesOrder).filter(SalesOrder.shipped_day == sim_day).count(),
+                "rejected": self.db.query(Event).filter(
+                    Event.event_type == EventType.SALES_ORDER_REJECTED,
+                    Event.sim_date == prev_date,
+                ).count(),
+            }
+        except Exception:
+            pass
+
+        # Per-day financial activity. Transactions are recorded with the new sim_day inside
+        # advance_day() (after the increment), so querying by sim_day gives today's totals.
+        daily_financials: dict[str, float] = {"revenue": 0.0, "costs": 0.0, "net_profit": 0.0}
+        try:
+            txns = self.db.query(FinancialTransaction).filter(FinancialTransaction.sim_day == sim_day).all()
+            rev = sum(float(t.amount) for t in txns if t.transaction_type == FinancialTransactionType.PRODUCT_SOLD)
+            cost = sum(float(t.amount) for t in txns if t.transaction_type != FinancialTransactionType.PRODUCT_SOLD)
+            daily_financials = {"revenue": rev, "costs": cost, "net_profit": rev - cost}
+        except Exception:
+            pass
+
         manufacturer_snapshot: dict[str, Any] = {
             "name": "Factory",
             "inventory": inventory,
@@ -351,6 +384,8 @@ class SimulationService:
             "active_production_orders": active_production,
             "capacity": capacity_data,
             "financials": financials,
+            "sales_orders_today": sales_orders_today,
+            "daily_financials": daily_financials,
             "errors": [],
         }
 

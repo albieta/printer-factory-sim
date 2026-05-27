@@ -1,5 +1,5 @@
 import type { Data } from 'plotly.js';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Button, Form, Table } from 'react-bootstrap';
 import { FaDownload } from 'react-icons/fa';
 import PageGuide from '../components/PageGuide';
@@ -62,14 +62,45 @@ const Reports: React.FC = () => {
     }
   }, []);
 
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const startPolling = useCallback(() => {
+    if (pollRef.current) return;
+    pollRef.current = setInterval(() => { void loadMetrics(); }, 3000);
+  }, [loadMetrics]);
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+  }, []);
+
   useEffect(() => {
     Promise.all([loadEvents(), loadMetrics(), loadScenarios()]).finally(() => setLoading(false));
     const clear = onSimulationUpdate(() => {
       void loadEvents();
       void loadMetrics();
     });
-    return clear;
+    return () => { clear(); stopPolling(); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Poll metrics while a scenario run is active; stop when it ends.
+  useEffect(() => {
+    const checkRun = async () => {
+      try {
+        const res = await scenariosAPI.status();
+        const status = res.data.run?.status;
+        if (status === 'running' || status === 'stopping') {
+          startPolling();
+        } else {
+          stopPolling();
+        }
+      } catch {
+        stopPolling();
+      }
+    };
+    void checkRun();
+    const timer = setInterval(() => { void checkRun(); }, 5000);
+    return () => clearInterval(timer);
+  }, [startPolling, stopPolling]);
 
   // ── chart derivations ─────────────────────────────────────────────────────
 
@@ -168,6 +199,29 @@ const Reports: React.FC = () => {
     const revenue = metrics.map((m) => m.manufacturer?.financials?.total_revenue ?? 0);
     const profit = metrics.map((m) => m.manufacturer?.financials?.net_profit ?? 0);
     return { costs, revenue, profit };
+  }, [metrics]);
+
+  // MANUFACTURER — daily sales order activity
+  const mfgOrdersChart = useMemo(() => {
+    if (!metrics.length) return null;
+    const sot = (m: MetricsSnapshot) => m.manufacturer?.sales_orders_today ?? {};
+    return {
+      placed: metrics.map((m) => sot(m).placed ?? 0),
+      in_progress: metrics.map((m) => sot(m).in_progress ?? 0),
+      shipped: metrics.map((m) => sot(m).shipped ?? 0),
+      rejected: metrics.map((m) => sot(m).rejected ?? 0),
+    };
+  }, [metrics]);
+
+  // MANUFACTURER — daily financials
+  const dailyFinancialsChart = useMemo(() => {
+    if (!metrics.length) return null;
+    const df = (m: MetricsSnapshot) => m.manufacturer?.daily_financials ?? {};
+    return {
+      revenue: metrics.map((m) => df(m).revenue ?? 0),
+      costs: metrics.map((m) => df(m).costs ?? 0),
+      net_profit: metrics.map((m) => df(m).net_profit ?? 0),
+    };
   }, [metrics]);
 
   // MANUFACTURER — inventory per material
@@ -410,6 +464,37 @@ const Reports: React.FC = () => {
             <ResponsivePlot
               data={[{ x: dayLabels, y: financialChart.profit, type: 'scatter', mode: 'lines+markers', name: 'Net profit', marker: { color: financialChart.profit.some((p) => p < 0) ? '#ffc107' : '#0dcaf0' } }]}
               layout={{ title: { text: 'Net profit evolution' }, xaxis: { title: { text: 'Simulated day' } }, yaxis: { title: { text: 'Profit ($)' } }, margin: { t: 56, r: 24, b: 56, l: 56 } }}
+              minHeight={300}
+            />
+          ) : <EmptyChart label={noMetricsMsg} />}
+        </div>
+      </div>
+
+      <div className="data-grid mb-3">
+        <div className="chart-container">
+          {hasMetrics && mfgOrdersChart ? (
+            <ResponsivePlot
+              data={[
+                { x: dayLabels, y: mfgOrdersChart.placed, type: 'bar', name: 'New orders', marker: { color: '#0066cc' } },
+                { x: dayLabels, y: mfgOrdersChart.in_progress, type: 'bar', name: 'Accepted', marker: { color: '#28a745' } },
+                { x: dayLabels, y: mfgOrdersChart.shipped, type: 'bar', name: 'Released', marker: { color: '#17a2b8' } },
+                { x: dayLabels, y: mfgOrdersChart.rejected, type: 'bar', name: 'Deleted', marker: { color: '#dc3545' } },
+              ]}
+              layout={{ barmode: 'group', title: { text: 'Daily sales order activity' }, xaxis: { title: { text: 'Simulated day' } }, yaxis: { title: { text: 'Orders' } }, margin: { t: 56, r: 24, b: 56, l: 56 } }}
+              minHeight={300}
+            />
+          ) : <EmptyChart label={noMetricsMsg} />}
+        </div>
+
+        <div className="chart-container">
+          {hasMetrics && dailyFinancialsChart ? (
+            <ResponsivePlot
+              data={[
+                { x: dayLabels, y: dailyFinancialsChart.revenue, type: 'bar', name: 'Income', marker: { color: '#28a745' } },
+                { x: dayLabels, y: dailyFinancialsChart.costs, type: 'bar', name: 'Costs', marker: { color: '#dc3545' } },
+                { x: dayLabels, y: dailyFinancialsChart.net_profit, type: 'bar', name: 'Net profit', marker: { color: '#0dcaf0' } },
+              ]}
+              layout={{ barmode: 'group', title: { text: 'Daily income, costs & profit' }, xaxis: { title: { text: 'Simulated day' } }, yaxis: { title: { text: 'Amount ($)' } }, margin: { t: 56, r: 24, b: 56, l: 56 } }}
               minHeight={300}
             />
           ) : <EmptyChart label={noMetricsMsg} />}
