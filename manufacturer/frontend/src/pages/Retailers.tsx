@@ -21,6 +21,7 @@ const Retailers: React.FC = () => {
   const [purchaseOrders, setPurchaseOrders] = useState<RetailerPurchaseOrder[]>([]);
   const [activeScenario, setActiveScenario] = useState<ScenarioSummary | null>(null);
   const [activeRunDay, setActiveRunDay] = useState<number | null>(null);
+  const [showOnlyPending, setShowOnlyPending] = useState(false);
   const [demandForm, setDemandForm] = useState({
     retailer_demand_enabled: false,
     retailer_demand_mean: '8',
@@ -473,7 +474,21 @@ price_factor = max(0.2, 1 − (retail_price − base_price) / base_price)`}
       </Card>
 
       {/* Section 2: Customer Orders */}
-      <h2 className="mt-5 mb-3">Customer Orders</h2>
+      <div className="d-flex align-items-center justify-content-between mt-5 mb-3">
+        <h2 className="mb-0">Customer Orders</h2>
+        <div className="d-flex align-items-center gap-2">
+          {backordered_count > 0 && (
+            <Badge bg="danger" className="me-1">{backordered_count} backordered</Badge>
+          )}
+          <Button
+            variant={showOnlyPending ? 'warning' : 'outline-secondary'}
+            size="sm"
+            onClick={() => setShowOnlyPending((v) => !v)}
+          >
+            {showOnlyPending ? 'Showing: Pending / Backordered' : 'Show all statuses'}
+          </Button>
+        </div>
+      </div>
       <p className="text-muted mb-3">
         <strong>Orders from the retailer's customers.</strong> These are the end-demand signals.
         FULFILLED means the retailer had stock. BACKORDERED means demand exceeded inventory.
@@ -494,7 +509,9 @@ price_factor = max(0.2, 1 − (retail_price − base_price) / base_price)`}
                 </tr>
               </thead>
               <tbody>
-                {customerOrders.map((order) => (
+                {customerOrders
+                  .filter((o) => !showOnlyPending || o.status === 'PENDING' || o.status === 'BACKORDERED')
+                  .map((order) => (
                   <tr key={order.id}>
                     <td><span className="mono">{order.id}</span></td>
                     <td>{order.product_name ?? '—'}</td>
@@ -521,6 +538,9 @@ price_factor = max(0.2, 1 − (retail_price − base_price) / base_price)`}
             </Table>
           ) : (
             <div className="empty-state p-4">No customer orders yet.</div>
+          )}
+          {showOnlyPending && customerOrders.filter((o) => o.status === 'PENDING' || o.status === 'BACKORDERED').length === 0 && customerOrders.length > 0 && (
+            <div className="empty-state p-4">No pending or backordered orders — all caught up.</div>
           )}
         </Card.Body>
       </Card>

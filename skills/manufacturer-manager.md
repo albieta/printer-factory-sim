@@ -169,11 +169,18 @@ Follow these steps (using only the state provided above):
    bin/manufacturer-cli close-assembly-line
    ```
    
-   **Price adjustments** (always decided upfront, executed in batch):
-   - `demand_modifier > 1.5`: increase 10%
-   - `demand_modifier < 0.5`: decrease 5%
-   - Otherwise: no changes
-   
+   **Price adjustments** — raise when supply is tight, lower when oversupplied:
+
+   | Condition | Action |
+   |-----------|--------|
+   | Backlog > 5 days OR demand_modifier > 1.5 | Raise all prices **10–15%** |
+   | Backlog > 3 days OR demand_modifier > 1.2 | Raise all prices **8%** |
+   | Backlog > 1.5 days OR demand_modifier > 1.0 | Raise all prices **5%** |
+   | demand_modifier < 0.7 AND backlog < 0.5 days | Lower all prices **5%** |
+   | demand_modifier < 0.5 | Lower all prices **8%** |
+
+   Use the backlog_days shown in the state. A saturated queue means you can charge more — production is the bottleneck, not demand.
+
    - Remember: `hire-worker` increases workers on ALL lines. 2 lines × +1 worker = 2 more workers total.
    **Put it all together in ONE response:**
    - Assess state (provided)
@@ -185,7 +192,7 @@ Follow these steps (using only the state provided above):
    That's typically just 1–2 iterations total instead of 4–6.
 
 ## Market Signals
-`demand_modifier`: 1.0 normal, high stronger demand, low weaker demand. `supply_modifier`: lead-time risk; Week 7 is normally 1.0. Treat 0.8 to 1.2 demand as steady.
+`demand_modifier`: 1.0 normal, >1.0 stronger demand, <1.0 weaker demand. Treat 0.9–1.1 as steady. Combine with backlog_days for pricing decisions — a rising backlog at demand_modifier 1.2 is a clear signal to raise prices.
 
 ## When Done
 

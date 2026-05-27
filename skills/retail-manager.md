@@ -138,18 +138,26 @@ Follow these steps (using state provided above):
    - Don't order if total (on_hand + inbound) > `backlog + 2× safety_stock_target`
 
 4. **Pricing** (batched with purchases above):
-   - Low stock + normal price_sensitivity? → raise ~5%
-   - Excess stock or `demand_modifier < 0.8`? → lower ~5%
-   - `price_sensitivity: high`? → avoid raises unless at stockout risk
+
+   | Condition | Action |
+   |-----------|--------|
+   | Still Short > 0 for any model OR demand_modifier > 1.5 | Raise that model **10%** |
+   | Still Short > 0 OR demand_modifier > 1.2 | Raise that model **5%** |
+   | demand_modifier > 1.0 and any backorder | Raise that model **3–5%** |
+   | demand_modifier < 0.7 AND on_hand > 2× safety stock | Lower that model **5%** |
+   | demand_modifier < 0.5 | Lower all prices **8%** |
+
+   Apply per-model (don't lower a backordered model). If `price_sensitivity: high`, cap raises at 5% and only when genuinely stocked out.
 
 5. **Summarize**
    - Print 3-5 bullets with counts and reasons.
    - Example: "- Customer actions: 2 fulfilled / 1 backordered. - Purchases: Basic300 ×60, Elite700 ×25. - Price: Basic300 up 5%."
 
 ## Market Signals
-- `demand_modifier > 1.5`: demand spike incoming; place larger replenishment orders early and avoid deep discounts.
-- `demand_modifier < 0.8`: soft demand; slow reorders and consider modest price cuts.
-- `price_sensitivity: high`: customers are shopping around; be cautious about raising prices.
+- `demand_modifier > 1.2`: elevated demand; raise prices early and place larger replenishment orders.
+- `demand_modifier > 1.5`: demand spike; raise prices 10% and buffer stocks.
+- `demand_modifier < 0.8`: soft demand; slow reorders, consider modest price cuts.
+- `price_sensitivity: high`: customers are shopping around; cap any raises at 5%.
 - `supply_modifier < 0.7` or `lead_time_modifier > 1.0`: upstream supply is constrained; order earlier and log the risk.
 
 ## When Done
