@@ -26,7 +26,8 @@ def get_all_state(session: Session = Depends(get_db)) -> dict[str, Any]:
     """
     try:
         from app.models.models import (
-            SimulationConfig, Inventory, SalesOrder, PurchaseOrder, Product, WholesalePrice
+            SimulationConfig, Inventory, ManufacturingOrder, OrderStatus,
+            SalesOrder, PurchaseOrder, Product, WholesalePrice
         )
 
         # Get simulation date
@@ -75,6 +76,37 @@ def get_all_state(session: Session = Depends(get_db)) -> dict[str, Any]:
         except Exception:
             pass
 
+        # Get assembly queue (released manufacturing orders)
+        assembly_queue_count = 0
+        assembly_queue_hours = 0.0
+        try:
+            released_orders = session.query(ManufacturingOrder).filter(
+                ManufacturingOrder.status == OrderStatus.RELEASED
+            ).all()
+            assembly_queue_count = len(released_orders)
+            for order in released_orders:
+                if order.product and order.product.assembly_hours:
+                    assembly_queue_hours += float(order.product.assembly_hours) * order.quantity
+        except Exception:
+            pass
+
+        # Get daily assembly capacity and cost info
+        daily_assembly_hours = 0.0
+        cost_per_worker_per_hour = 0.0
+        cost_per_assembly_line = 0.0
+        max_workers_per_line = 10
+        try:
+            if sim_config:
+                wpl = sim_config.workers_per_line or 1
+                lines = sim_config.assembly_lines or 1
+                sh = float(sim_config.shift_hours or 8)
+                daily_assembly_hours = float(lines * wpl * sh)
+                cost_per_worker_per_hour = float(sim_config.cost_per_worker_per_hour or 50)
+                cost_per_assembly_line = float(sim_config.cost_per_assembly_line or 50000)
+                max_workers_per_line = int(sim_config.max_workers_per_line or 10)
+        except Exception:
+            pass
+
         # Get inbound purchase orders
         inbound_list = []
         try:
@@ -94,9 +126,20 @@ def get_all_state(session: Session = Depends(get_db)) -> dict[str, Any]:
         except Exception:
             pass
 
+        backlog_days = (assembly_queue_hours / daily_assembly_hours) if daily_assembly_hours > 0 else 0.0
+
         return {
             "day": {"date": str(sim_date)},
             "inventory": inventory_dict,
+            "assembly_queue": {
+                "released_count": assembly_queue_count,
+                "queued_hours": round(assembly_queue_hours, 1),
+                "daily_capacity_hours": round(daily_assembly_hours, 1),
+                "backlog_days": round(backlog_days, 2),
+                "cost_per_worker_per_hour": cost_per_worker_per_hour,
+                "cost_per_assembly_line": cost_per_assembly_line,
+                "max_workers_per_line": max_workers_per_line,
+            },
             "sales_orders": {
                 "pending_count": len(pending_orders),
                 "pending": pending_orders[:20],  # Limit to first 20

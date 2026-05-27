@@ -361,12 +361,47 @@ def _format_state_for_prompt(state: dict[str, Any], role: str = "manufacturer") 
         workers_per_line = capacity.get('workers_per_line', capacity.get('workers', 1))
         shift_h = capacity.get('shift_hours', 8)
         daily_h = capacity.get('daily_hours', capacity.get('daily_assembly_hours', 8))
+        max_workers = capacity.get('max_workers_per_line', 10)
+        cost_per_worker = capacity.get('cost_per_worker_per_hour', 50)
+        cost_per_line = capacity.get('cost_per_assembly_line', 50000)
+
+        # Assembly queue from state/all
+        aq = state.get("assembly_queue", {})
+        released_count = aq.get("released_count", 0)
+        queued_hours = float(aq.get("queued_hours", 0))
+        backlog_days = float(aq.get("backlog_days", 0))
+        if not aq and daily_h:
+            # Fallback: can't compute backlog_days without assembly queue data
+            backlog_days = 0.0
+
+        if backlog_days > 5:
+            backlog_flag = f"🚨 CRITICAL — {backlog_days:.1f} days of backlog, expand capacity NOW"
+        elif backlog_days > 3:
+            backlog_flag = f"⚠️ HIGH — {backlog_days:.1f} days of backlog, consider hiring or opening a line"
+        elif backlog_days > 1.5:
+            backlog_flag = f"⚠️ ELEVATED — {backlog_days:.1f} days of backlog, monitor or hire one worker"
+        elif released_count == 0:
+            backlog_flag = "✅ Queue empty"
+        else:
+            backlog_flag = f"✅ {backlog_days:.1f} days — within capacity"
+
+        # Daily wage cost if one more worker is hired
+        extra_wage_per_day = float(cost_per_worker) * float(shift_h) * float(lines_count)
 
         return f"""
 ## Current State (Day {day})
 
 **Production Capacity**: {lines_count} lines × {workers_per_line} workers/line × {shift_h}h = **{daily_h} hours/day**
-*(hire-worker adds 1 worker to EVERY line; cost = rate × lines × shift_hours)*
+  ↳ Workers: {workers_per_line}/{max_workers} max per line | hire-worker cost: ${cost_per_worker}/hr × {shift_h}h × {lines_count} lines = **${extra_wage_per_day:.0f}/day** extra wages
+  ↳ open-assembly-line: **${cost_per_line:,.0f}** one-time setup + worker wages per new line
+
+**Assembly Queue**: {released_count} released orders | **{queued_hours:.1f}h queued** | daily capacity: {daily_h}h → {backlog_flag}
+
+**Workforce Decision Rules**:
+- Backlog > 5 days → open a line AND hire workers (if costs are sustainable)
+- Backlog > 3 days → hire one worker (cheapest capacity boost)
+- Backlog > 1.5 days → monitor; hire only if revenue > daily costs
+- Backlog < 0.5 days for 2+ turns → consider fire-worker to cut costs
 
 **Warehouse**: {wh_line}
 *(Do NOT order more than warehouse free space; check available before ordering)*
@@ -377,7 +412,7 @@ def _format_state_for_prompt(state: dict[str, Any], role: str = "manufacturer") 
 **External Supplier Tiers** (order in advance — lead time applies):
 {supplier_tiers_text}
 
-**PENDING Sales Orders** ({pending_count} total):
+**PENDING Sales Orders** ({pending_count} total awaiting planner decision):
 {pending_sample}
 
 **Inbound Purchase Orders** (arriving):

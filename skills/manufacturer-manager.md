@@ -139,21 +139,34 @@ Follow these steps (using only the state provided above):
      Do NOT order more than the warehouse can fit.
 
 4. **Scale + Adjust + Summarize** (part of your single batch):
+
+   **Assembly Queue Backlog Rules** (the state shows backlog_days — use it directly):
    
-   **If expanding capacity** (when PENDING > capacity AND revenue > costs):
+   | Backlog | Action |
+   |---------|--------|
+   | > 5 days | Open a line AND hire workers — queue is critical |
+   | > 3 days | Hire one worker immediately (cheapest throughput boost) |
+   | 1.5–3 days | Hire one worker if daily revenue > daily costs |
+   | < 0.5 days (and holding) | Consider fire-worker to cut wages |
+   | < 0.5 days for 2+ turns | Consider close-assembly-line if workers already at min |
+
+   **ROI check before hiring/opening** (always verify payback):
+   - `hire-worker` daily cost: `cost_per_worker/hr × shift_hours × assembly_lines`
+   - Revenue needed: enough SalesOrders to cover the added wage cost within a few days
+   - Do NOT hire if already at max_workers_per_line (shown in state)
+   
+   **If expanding capacity**:
    ```bash
-   bin/manufacturer-cli production release O1 O2 && \
-   bin/manufacturer-cli purchase create --supplier "ChipSupply Co" --product "LCD Screen" --qty 100 && \
-   bin/manufacturer-cli open-assembly-line && \
-   bin/manufacturer-cli hire-worker && \
-   bin/manufacturer-cli price set "Basic300" 495
+   bin/manufacturer-cli hire-worker
+   # or for critical backlog (> 5 days):
+   bin/manufacturer-cli open-assembly-line && bin/manufacturer-cli hire-worker
    ```
    
    **If reducing capacity** (when demand low and costs unsustainable):
    ```bash
-   bin/manufacturer-cli fire-worker && \
-   bin/manufacturer-cli close-assembly-line && \
-   bin/manufacturer-cli price set "Basic300" 427
+   bin/manufacturer-cli fire-worker
+   # or if workers already at min:
+   bin/manufacturer-cli close-assembly-line
    ```
    
    **Price adjustments** (always decided upfront, executed in batch):
