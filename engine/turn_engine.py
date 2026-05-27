@@ -771,6 +771,18 @@ def _prefetch_all_state(
     return results
 
 
+def _summarize_agent_output(output: str, max_length: int = 100) -> str:
+    """Extract a brief summary from agent output for stdout display."""
+    # Get first non-empty line, limit length
+    lines = [line.strip() for line in output.strip().split('\n') if line.strip()]
+    if not lines:
+        return "(no output)"
+    summary = lines[0]
+    if len(summary) > max_length:
+        summary = summary[:max_length].rstrip() + "…"
+    return summary
+
+
 def run_day(
     config: dict[str, Any],
     scenario: dict[str, Any],
@@ -871,7 +883,7 @@ def run_day(
                 ctx = f"\n⚠️ State fetch failed: {exc}\n"
             output = run_role_agent(role_name, r_cfg, day, signal, state_context=ctx, fast_mode=fast_mode)
             agent_outputs[role_name] = output
-            print(f"  [{role_name}] agent: {output.strip()}")
+            print(f"  [{role_name}] agent: {_summarize_agent_output(output)}")
 
         # Manufacturer agent (fetch fresh state after retailer actions)
         if mfr.get("url"):
