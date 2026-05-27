@@ -10,7 +10,8 @@
 Run one parts-supplier day for ChipSupply Co. Review incoming manufacturer purchase orders, keep part stock healthy, adjust quantity-tier prices only when stock pressure justifies it, and explain each action so the daily log is auditable. The turn engine advances days.
 
 ## Available Commands
-State:
+
+State (try to avoid unless necessary — state is provided in prompt):
 ```
 bin/provider-cli day current
 bin/provider-cli catalog
@@ -28,6 +29,7 @@ bin/provider-cli price set --item "PRODUCT:TIER:PRICE" [--item ...]
 
 ## DO NOT
 - Do not call `day advance`.
+- Try to avoid state-check commands when you have the data in the prompt; they waste iterations.
 - Do not invent product names, tier quantities, order IDs, or flags.
 - Do not change any tier price by more than 15% in one day.
 - Do not lower prices while accepted orders are pending for that product and stock is tight.
@@ -56,28 +58,14 @@ Use these as normal stock targets unless the live `catalog` or `stock` output sh
 
 ## Batch Execution Optimization
 
-**⚡ CRITICAL: Batch operations within a single command.** The CLI itself accepts multiple items:
-- Each command can process many items with repeated `--item` flags
-- One CLI call per command type = fast, efficient, one audit trail
-- Your decisions already have state → execute all restocks and price changes at once
-
-**How to batch (native CLI support):**
+**⚡ Prefer batching operations within a single Bash invocation.** The CLI natively supports multiple items:
 ```bash
-# All restocks in one call
-bin/provider-cli restock --item "Control Board:200" --item "PLA Filament:300" --item "LCD Screen:100" && \
-
-# All price changes in one call
+# Single invocation with all actions chained:
+bin/provider-cli restock --item "Control Board:200" --item "LCD Screen:100" && \
 bin/provider-cli price set --item "Control Board:100:45" --item "LCD Screen:50:35"
 ```
 
-Each command output shows success/fail for individual items, then a summary line.
-
-**Why batch matters:**
-- Single CLI startup per action type (faster than 10 individual calls)
-- One event log entry per item (full audit trail preserved)
-- Agents can express full daily decisions in 2 CLI calls max (restock + price)
-- Error handling: continues on item failure, reports summary at end
-- You're given state upfront. Use it. Decide what to do. Execute all commands together.
+Best practice: Read the provided state once, decide all restocks and price changes, then chain them together. This minimizes iterations and keeps the log clean.
 
 ## Decision Framework
 

@@ -10,7 +10,8 @@
 Run one factory day: review retailer orders, check materials/capacity, release production, order low parts, and change wholesale prices only when the signal calls for it. The engine advances days.
 
 ## Available Commands
-State:
+
+State (try to avoid unless necessary — state is provided in prompt):
 ```
 bin/manufacturer-cli day current
 bin/manufacturer-cli capacity
@@ -24,6 +25,7 @@ bin/manufacturer-cli suppliers catalog "SUPPLIER_NAME"
 bin/manufacturer-cli price list
 bin/manufacturer-cli financial summary
 ```
+
 Act (batch operations supported):
 ```
 bin/manufacturer-cli production release --order ORDER_ID [--order ORDER_ID ...]
@@ -46,8 +48,9 @@ Financial Costs (operator-configured, you cannot change):
 
 ## DO NOT
 - Do not call `day advance`.
-- Do not release beyond daily capacity shown by `capacity`.
-- Do not order parts already inbound as PENDING in `purchase list`.
+- Try to avoid state-check commands when you have the data in the prompt; they waste iterations.
+- Do not release beyond daily capacity shown by `capacity` (use the value in the provided state).
+- Do not order parts without taking into account the orders inbound as PENDING (check the state table).
 - Do not invent flags, product names, supplier names, or order IDs.
 - Do not choose a slower supplier when a faster valid one can meet the need.
 - Do not attempt to hire more than 10 workers per assembly line.
@@ -75,30 +78,15 @@ bin/manufacturer-cli price set --item "Basic300:450" --item "Pro450:950"
 
 ## Batch Execution Optimization
 
-**⚡ CRITICAL: Batch operations within a single command.** The CLI itself accepts multiple items:
-- Each command can process many items with repeated `--item` or `--order` flags
-- One CLI call per command type = fast, efficient, one audit trail
-- Your decisions already have state → execute all production releases, purchases, and price changes at once
-
-**How to batch (native CLI support):**
+**⚡ Prefer batching operations within a single Bash invocation.** The CLI natively supports multiple items:
 ```bash
-# All production releases in one call
-bin/manufacturer-cli production release --order SO-001 --order SO-002 --order SO-003 && \
-
-# All purchase orders in one call
-bin/manufacturer-cli purchase create --item "ChipSupply:Control Board:100" --item "FastParts:Motor:50" && \
-
-# All price changes in one call
-bin/manufacturer-cli price set --item "Basic300:450" --item "Pro450:950"
+# Single invocation with all actions chained:
+bin/manufacturer-cli production release --order O1 --order O2 && \
+bin/manufacturer-cli purchase create --item "Supplier:Product:Qty" --item "Supplier:Product:Qty" && \
+bin/manufacturer-cli price set --item "Model:Price"
 ```
 
-The key: You already have the state provided above. Use it directly without running state-check commands. Figure out all your actions, then batch-execute them in one response.
-
-**Why batch matters:** 
-- Iteration 1: You make ALL decisions and execute ALL commands together
-- Iteration 2 (optional): Only if Claude needs to reassess based on results
-- Without batching: You'd need 4+ iterations (check → decide → execute per action)
-- With batching: Typically 1-2 iterations total
+Best practice: Read the provided state once, decide all actions, then chain them together. This minimizes iterations and keeps the log clean.
 
 ## Decision Framework
 

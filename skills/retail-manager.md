@@ -11,7 +11,8 @@
 Run one retailer day for PrinterWorld. Review customer demand, backorders, printer stock, manufacturer purchase orders, and retail prices. Place replenishment orders before stockouts become chronic, and leave short `LOG:` lines so the daily agent log explains your choices. The turn engine advances days.
 
 ## Available Commands
-State:
+
+State (try to avoid unless necessary — state is provided in prompt):
 ```
 bin/retailer-cli day current
 bin/retailer-cli catalog
@@ -32,6 +33,7 @@ bin/retailer-cli price set --item "MODEL:PRICE" [--item ...]
 
 ## DO NOT
 - Do not call `day advance`.
+- Try to avoid state-check commands when you have the data in the prompt; they waste iterations.
 - Do not invent model names, order IDs, flags, or a `price list` command.
 - Do not set a retail price below manufacturer wholesale plus the enforced markup floor; the CLI will reject unsafe prices.
 - Do not place duplicate replenishment orders for a model that already has enough pending inbound stock.
@@ -71,34 +73,16 @@ These are floors, not ceilings. When backordered demand exists, order enough to 
 
 ## Batch Execution Optimization
 
-**⚡ CRITICAL: Batch operations within a single command.** The CLI itself accepts multiple items:
-- Each command can process many items with repeated `--order` or `--item` flags
-- One CLI call per command type = fast, efficient, one audit trail
-- Your decisions already have state → execute all fulfill, backorder, purchase, and price actions at once
-
-**How to batch (native CLI support):**
+**⚡ Prefer batching operations within a single Bash invocation.** The CLI natively supports multiple items:
 ```bash
-# All customer fulfillments in one call
-bin/retailer-cli fulfill --order 1001 --order 1002 --order 1003 && \
-
-# All backordered actions in one call
-bin/retailer-cli backorder --order 2001 --order 2002 && \
-
-# All purchase reorders in one call
+# Single invocation with all actions chained:
+bin/retailer-cli fulfill --order 1001 --order 1002 && \
+bin/retailer-cli backorder --order 2001 && \
 bin/retailer-cli purchase create --item "Basic300:50" --item "Elite700:20" && \
-
-# All price changes in one call
 bin/retailer-cli price set --item "Basic300:445" --item "Pro450:925"
 ```
 
-Each command output shows success/fail for individual items, then a summary line.
-
-**Why batch matters:** 
-- Single CLI startup per action type (faster than 10 individual calls)
-- One event log entry per item (full audit trail preserved)
-- Agents can express full daily decisions in 4 CLI calls max
-- Error handling: continues on item failure, reports summary at end
-- Most days: one batch per command type covers everything
+Best practice: Read the provided state once, decide all fulfillments, restocks, and price changes, then chain them together. This minimizes iterations and keeps the log clean.
 
 ## Decision Framework
 
