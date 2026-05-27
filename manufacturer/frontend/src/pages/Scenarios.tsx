@@ -1,15 +1,12 @@
-import type { Annotations, Data, Shape } from 'plotly.js';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Badge, Button, Form, ProgressBar, Spinner, Table } from 'react-bootstrap';
 import { FaBolt, FaDownload, FaPlay, FaStop, FaSyncAlt, FaTrash } from 'react-icons/fa';
 import PageGuide from '../components/PageGuide';
-import ResponsivePlot from '../components/ResponsivePlot';
 import { configAPI, getErrorMessage, scenariosAPI } from '../services/api';
 import type {
   ConfigSummary,
   LogContents,
   LogFile,
-  MetricsSnapshot,
   ScenarioRunRecord,
   ScenarioSummary,
   SimulationConfig,
@@ -72,7 +69,6 @@ const Scenarios: React.FC = () => {
   const [logFiles, setLogFiles] = useState<LogFile[]>([]);
   const [selectedLog, setSelectedLog] = useState<string | null>(null);
   const [logContent, setLogContent] = useState<LogContents | null>(null);
-  const [metrics, setMetrics] = useState<MetricsSnapshot[]>([]);
   const [loadingList, setLoadingList] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -164,21 +160,11 @@ const Scenarios: React.FC = () => {
     }
   }, []);
 
-  const loadMetrics = useCallback(async () => {
-    try {
-      const response = await scenariosAPI.metrics(200);
-      setMetrics(response.data.snapshots);
-    } catch {
-      // non-fatal
-    }
-  }, []);
-
   // ── Initial load ─────────────────────────────────────────────────────────
   useEffect(() => {
     void loadLibraries();
     void loadStatus();
     void loadLogFiles();
-    void loadMetrics();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Polling while a run is active ────────────────────────────────────────
@@ -187,11 +173,10 @@ const Scenarios: React.FC = () => {
     const id = window.setInterval(() => {
       void loadStatus();
       void loadLogFiles();
-      void loadMetrics();
       if (selectedLog) void loadLogContent(selectedLog);
     }, POLL_INTERVAL_MS);
     return () => window.clearInterval(id);
-  }, [run, loadStatus, loadLogFiles, loadMetrics, loadLogContent, selectedLog]);
+  }, [run, loadStatus, loadLogFiles, loadLogContent, selectedLog]);
 
   // ── Refresh log content when user picks another file ────────────────────
   useEffect(() => {
@@ -258,7 +243,6 @@ const Scenarios: React.FC = () => {
       setLogContent(null);
       setSelectedLog(null);
       await loadLogFiles();
-      await loadMetrics();
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to clear logs.'));
     }
@@ -297,166 +281,6 @@ const Scenarios: React.FC = () => {
     () => configs.find((c) => c.name === selectedConfig) ?? null,
     [configs, selectedConfig],
   );
-
-  const inventoryChart = useMemo(() => {
-    if (!metrics.length) return null;
-    const dayLabels = metrics.map((m) => `D${m.day}`);
-    const mfg = metrics.map((m) => Object.values(m.manufacturer.inventory ?? {}).reduce((a, b) => a + Number(b || 0), 0));
-    const retailStock = metrics.map((m) =>
-      m.retailers.reduce((acc, r) => acc + Object.values(r.stock ?? {}).reduce((a, b) => a + Number(b || 0), 0), 0),
-    );
-    const providerStock = metrics.map((m) =>
-      m.providers.reduce((acc, p) => acc + Object.values(p.stock ?? {}).reduce((a, b) => a + Number(b || 0), 0), 0),
-    );
-    return { days: dayLabels, mfg, retailStock, providerStock };
-  }, [metrics]);
-
-  const demandChart = useMemo(() => {
-    if (!metrics.length) return null;
-    const dayLabels = metrics.map((m) => `D${m.day}`);
-    const placed = metrics.map((m) =>
-      m.retailers.reduce((acc, r) => acc + (r.customer_orders?.placed_today ?? 0), 0),
-    );
-    const fulfilled = metrics.map((m) =>
-      m.retailers.reduce((acc, r) => acc + (r.customer_orders?.fulfilled_today ?? 0), 0),
-    );
-    const backordered = metrics.map((m) =>
-      m.retailers.reduce((acc, r) => acc + (r.customer_orders?.backordered_today ?? 0), 0),
-    );
-    return { days: dayLabels, placed, fulfilled, backordered };
-  }, [metrics]);
-
-  const capacityChart = useMemo(() => {
-    if (!metrics.length) return null;
-    const dayLabels: string[] = metrics.map((m) => `D${m.day}`);
-    const lines: number[] = metrics.map((m) => m.manufacturer?.capacity?.assembly_lines ?? 1);
-    const workers: number[] = metrics.map((m) => m.manufacturer?.capacity?.workers_per_line ?? 1);
-    const dailyHours: number[] = metrics.map((m) => m.manufacturer?.capacity?.daily_assembly_hours ?? 8.0);
-    return { days: dayLabels, lines, workers, dailyHours };
-  }, [metrics]);
-
-  const financialChart = useMemo(() => {
-    if (!metrics.length) return null;
-    const dayLabels: string[] = metrics.map((m) => `D${m.day}`);
-    const costs: number[] = metrics.map((m) => m.manufacturer?.financials?.total_costs ?? 0);
-    const revenue: number[] = metrics.map((m) => m.manufacturer?.financials?.total_revenue ?? 0);
-    const profit: number[] = metrics.map((m) => m.manufacturer?.financials?.net_profit ?? 0);
-    return { days: dayLabels, costs, revenue, profit };
-  }, [metrics]);
-
-  // ── Printer price chart: manufacturer wholesale + retailer retail ───────────
-  const printerPriceChart = useMemo(() => {
-    if (!metrics.length) return null;
-    const dayLabels = metrics.map((m) => `D${m.day}`);
-    const traces: Data[] = [];
-
-    const productNames = new Set<string>();
-    metrics.forEach((m) => Object.keys(m.manufacturer?.prices ?? {}).forEach((k) => productNames.add(k)));
-
-    productNames.forEach((product) => {
-      const vals = metrics.map((m) => {
-        const p = m.manufacturer?.prices?.[product];
-        return p != null ? Number(p) : null;
-      });
-      if (vals.some((v) => v != null)) {
-        traces.push({
-          x: dayLabels, y: vals as number[], type: 'scatter', mode: 'lines+markers',
-          name: `Wholesale: ${product}`, line: { dash: 'solid' }, connectgaps: true,
-        } as Data);
-      }
-    });
-
-    metrics[0]?.retailers.forEach((retailer, ri) => {
-      const retailerName = retailer.name;
-      const rProductNames = new Set<string>();
-      metrics.forEach((m) => Object.keys(m.retailers[ri]?.prices ?? {}).forEach((k) => rProductNames.add(k)));
-      rProductNames.forEach((product) => {
-        const vals = metrics.map((m) => {
-          const p = m.retailers[ri]?.prices?.[product];
-          return p != null ? Number(p) : null;
-        });
-        if (vals.some((v) => v != null)) {
-          traces.push({
-            x: dayLabels, y: vals as number[], type: 'scatter', mode: 'lines+markers',
-            name: `${retailerName}: ${product}`, line: { dash: 'dot' }, connectgaps: true,
-          } as Data);
-        }
-      });
-    });
-
-    return traces.length ? { days: dayLabels, traces } : null;
-  }, [metrics]);
-
-  // ── Material price chart: provider cheapest tier per component ────────────
-  const materialPriceChart = useMemo(() => {
-    if (!metrics.length) return null;
-    const dayLabels = metrics.map((m) => `D${m.day}`);
-    const traces: Data[] = [];
-
-    const providerProductNames = new Set<string>();
-    metrics.forEach((m) =>
-      m.providers.forEach((p) => Object.keys(p.prices ?? {}).forEach((k) => providerProductNames.add(k))),
-    );
-
-    metrics[0]?.providers.forEach((provider, pi) => {
-      const providerName = provider.name;
-      providerProductNames.forEach((product) => {
-        const vals = metrics.map((m) => {
-          const tiers = m.providers[pi]?.prices?.[product];
-          if (!tiers || typeof tiers !== 'object') return null;
-          const tierVals = Object.values(tiers).map(Number).filter((v) => !isNaN(v));
-          return tierVals.length ? Math.min(...tierVals) : null;
-        });
-        if (vals.some((v) => v != null)) {
-          traces.push({
-            x: dayLabels, y: vals as number[], type: 'scatter', mode: 'lines+markers',
-            name: `${providerName}: ${product}`, line: { dash: 'dashdot' }, connectgaps: true,
-          } as Data);
-        }
-      });
-    });
-
-    return traces.length ? { days: dayLabels, traces } : null;
-  }, [metrics]);
-
-  // ── Events overlay: horizontal bars per scenario event (numeric x-axis) ───
-  const eventsOverlay = useMemo(() => {
-    const events = scenarioDetail?.events;
-    if (!events?.length) return null;
-
-    // Derive full day range from scenario definition (not just simulated days)
-    const maxScenarioDay = Math.max(...events.map((ev) => ev.end_day ?? ev.start_day ?? 1), 1);
-
-    const shapes: Partial<Shape>[] = events
-      .filter((ev) => ev.start_day != null && ev.end_day != null)
-      .map((ev, i) => ({
-        type: 'rect' as const,
-        xref: 'x' as const,
-        yref: 'y' as const,
-        x0: ev.start_day,
-        x1: ev.end_day,
-        y0: i - 0.4,
-        y1: i + 0.4,
-        fillcolor: `hsl(${(i * 67) % 360}, 60%, 55%)`,
-        opacity: 0.75,
-        line: { width: 0 },
-      }));
-
-    const annotations: Partial<Annotations>[] = events
-      .filter((ev) => ev.start_day != null)
-      .map((ev, i) => ({
-        x: ev.start_day ?? 0,
-        y: i,
-        text: ev.name ?? `event ${i + 1}`,
-        xanchor: 'left' as const,
-        showarrow: false,
-        font: { color: '#fff', size: 11 },
-      }));
-
-    const yLabels = events.map((ev, i) => ev.name ?? `event ${i + 1}`);
-
-    return { shapes, annotations, yLabels, eventCount: events.length, maxScenarioDay };
-  }, [scenarioDetail]);
 
   // ── Render ───────────────────────────────────────────────────────────────
 
@@ -869,212 +693,6 @@ const Scenarios: React.FC = () => {
             </div>
           )}
         </div>
-      </div>
-
-      {/* ── Inventory + Demand charts ─── */}
-      <div className="data-grid mt-3">
-        <div className="chart-container">
-          {inventoryChart ? (
-            <ResponsivePlot
-              data={[
-                { x: inventoryChart.days, y: inventoryChart.providerStock, type: 'scatter', mode: 'lines+markers', name: 'Provider stock' },
-                { x: inventoryChart.days, y: inventoryChart.mfg, type: 'scatter', mode: 'lines+markers', name: 'Manufacturer inventory' },
-                { x: inventoryChart.days, y: inventoryChart.retailStock, type: 'scatter', mode: 'lines+markers', name: 'Retailer stock' },
-              ]}
-              layout={{
-                title: { text: 'Inventory across the chain' },
-                xaxis: { title: { text: 'Simulated day' } },
-                yaxis: { title: { text: 'Units in hand (sum)' } },
-                margin: { t: 56, r: 24, b: 56, l: 56 },
-              }}
-              minHeight={300}
-            />
-          ) : (
-            <div className="empty-state">Metrics chart will populate after the first day completes.</div>
-          )}
-        </div>
-        <div className="chart-container">
-          {demandChart ? (
-            <ResponsivePlot
-              data={[
-                { x: demandChart.days, y: demandChart.placed, type: 'bar', name: 'Placed', marker: { color: '#d18a1a' } },
-                { x: demandChart.days, y: demandChart.fulfilled, type: 'bar', name: 'Fulfilled', marker: { color: '#2f7d4a' } },
-                { x: demandChart.days, y: demandChart.backordered, type: 'bar', name: 'Backordered', marker: { color: '#b6463b' } },
-              ]}
-              layout={{
-                barmode: 'group',
-                title: { text: 'Daily customer demand outcomes' },
-                xaxis: { title: { text: 'Simulated day' } },
-                yaxis: { title: { text: 'Customer orders' } },
-                margin: { t: 56, r: 24, b: 56, l: 56 },
-              }}
-              minHeight={300}
-            />
-          ) : (
-            <div className="empty-state">Demand chart waits for the first metrics snapshot.</div>
-          )}
-        </div>
-      </div>
-
-      {/* ── Capacity charts ─── */}
-      <div className="data-grid mt-3">
-        <div className="chart-container">
-          {capacityChart ? (
-            <ResponsivePlot
-              data={[
-                { x: capacityChart.days, y: capacityChart.lines, type: 'scatter', mode: 'lines+markers', name: 'Assembly lines', marker: { color: '#0066cc' } },
-                { x: capacityChart.days, y: capacityChart.workers, type: 'scatter', mode: 'lines+markers', name: 'Workers per line', marker: { color: '#ff6600' } },
-              ]}
-              layout={{
-                title: { text: 'Assembly capacity expansion' },
-                xaxis: { title: { text: 'Simulated day' } },
-                yaxis: { title: { text: 'Count' } },
-                margin: { t: 56, r: 24, b: 56, l: 56 },
-              }}
-              minHeight={300}
-            />
-          ) : (
-            <div className="empty-state">Capacity evolution chart waits for the first metrics snapshot.</div>
-          )}
-        </div>
-        <div className="chart-container">
-          {capacityChart ? (
-            <ResponsivePlot
-              data={[
-                { x: capacityChart.days, y: capacityChart.dailyHours, type: 'scatter', mode: 'lines+markers', name: 'Daily assembly hours', marker: { color: '#228B22' } },
-              ]}
-              layout={{
-                title: { text: 'Total daily assembly capacity' },
-                xaxis: { title: { text: 'Simulated day' } },
-                yaxis: { title: { text: 'Hours' } },
-                margin: { t: 56, r: 24, b: 56, l: 56 },
-              }}
-              minHeight={300}
-            />
-          ) : (
-            <div className="empty-state">Capacity hours chart waits for the first metrics snapshot.</div>
-          )}
-        </div>
-      </div>
-
-      {/* ── Financial charts ─── */}
-      <div className="data-grid mt-3">
-        <div className="chart-container">
-          {financialChart ? (
-            <ResponsivePlot
-              data={[
-                { x: financialChart.days, y: financialChart.costs, type: 'scatter', mode: 'lines+markers', name: 'Total costs', marker: { color: '#dc3545' } },
-                { x: financialChart.days, y: financialChart.revenue, type: 'scatter', mode: 'lines+markers', name: 'Total revenue', marker: { color: '#28a745' } },
-              ]}
-              layout={{
-                title: { text: 'Financial performance' },
-                xaxis: { title: { text: 'Simulated day' } },
-                yaxis: { title: { text: 'Amount ($)' } },
-                margin: { t: 56, r: 24, b: 56, l: 56 },
-              }}
-              minHeight={300}
-            />
-          ) : (
-            <div className="empty-state">Financial chart waits for the first metrics snapshot.</div>
-          )}
-        </div>
-        <div className="chart-container">
-          {financialChart ? (
-            <ResponsivePlot
-              data={[
-                { x: financialChart.days, y: financialChart.profit, type: 'scatter', mode: 'lines+markers', name: 'Net profit', marker: { color: financialChart.profit.some((p) => p < 0) ? '#ffc107' : '#0dcaf0' } },
-              ]}
-              layout={{
-                title: { text: 'Net profit evolution' },
-                xaxis: { title: { text: 'Simulated day' } },
-                yaxis: { title: { text: 'Profit ($)' } },
-                margin: { t: 56, r: 24, b: 56, l: 56 },
-              }}
-              minHeight={300}
-            />
-          ) : (
-            <div className="empty-state">Profit chart waits for the first metrics snapshot.</div>
-          )}
-        </div>
-      </div>
-
-      {/* ── Price charts ─── */}
-      <div className="data-grid mt-3">
-        <div className="chart-container">
-          {printerPriceChart ? (
-            <ResponsivePlot
-              data={printerPriceChart.traces}
-              layout={{
-                title: { text: 'Printer prices (wholesale vs retail)' },
-                xaxis: { title: { text: 'Simulated day' } },
-                yaxis: { title: { text: 'Price ($)' } },
-                legend: { orientation: 'h', y: -0.25 },
-                margin: { t: 56, r: 24, b: 80, l: 56 },
-              }}
-              minHeight={320}
-            />
-          ) : (
-            <div className="empty-state">Printer price chart shows manufacturer wholesale and retailer retail after the first day.</div>
-          )}
-        </div>
-        <div className="chart-container">
-          {materialPriceChart ? (
-            <ResponsivePlot
-              data={materialPriceChart.traces}
-              layout={{
-                title: { text: 'Material prices (provider components)' },
-                xaxis: { title: { text: 'Simulated day' } },
-                yaxis: { title: { text: 'Price ($)' } },
-                legend: { orientation: 'h', y: -0.25 },
-                margin: { t: 56, r: 24, b: 80, l: 56 },
-              }}
-              minHeight={320}
-            />
-          ) : (
-            <div className="empty-state">Material price chart shows provider component prices after the first day.</div>
-          )}
-        </div>
-      </div>
-
-      {/* ── Events timeline (full width, numeric axis so all events render correctly) ─── */}
-      <div className="chart-container mt-3">
-        {eventsOverlay ? (
-          <ResponsivePlot
-            data={[
-              {
-                // Dummy trace to anchor the numeric x-axis to the full scenario range
-                x: [0.5, eventsOverlay.maxScenarioDay + 0.5],
-                y: [null, null],
-                type: 'scatter',
-                mode: 'none' as const,
-                showlegend: false,
-              },
-            ]}
-            layout={{
-              title: { text: 'Scenario events timeline' },
-              xaxis: {
-                title: { text: 'Simulated day' },
-                range: [0.5, eventsOverlay.maxScenarioDay + 0.5],
-              },
-              yaxis: {
-                title: { text: '' },
-                tickvals: eventsOverlay.yLabels.map((_, i) => i),
-                ticktext: eventsOverlay.yLabels,
-                range: [-0.6, eventsOverlay.eventCount - 0.4],
-              },
-              shapes: eventsOverlay.shapes,
-              annotations: eventsOverlay.annotations,
-              margin: { t: 56, r: 24, b: 56, l: 120 },
-              plot_bgcolor: '#f8f9fa',
-            }}
-            minHeight={Math.max(200, eventsOverlay.eventCount * 50 + 80)}
-          />
-        ) : (
-          <div className="empty-state">
-            Events timeline shows scenario event windows once a scenario is selected.
-            {!scenarioDetail?.events?.length ? ' The selected scenario has no named events.' : ''}
-          </div>
-        )}
       </div>
 
       <div className="card mt-3">

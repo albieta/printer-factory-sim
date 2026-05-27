@@ -1,104 +1,241 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import type { Data } from 'plotly.js';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Form, Table } from 'react-bootstrap';
 import { FaDownload } from 'react-icons/fa';
 import PageGuide from '../components/PageGuide';
 import ResponsivePlot from '../components/ResponsivePlot';
-import { eventsAPI, exportAPI, getErrorMessage } from '../services/api';
-import type { Event } from '../types';
+import { eventsAPI, exportAPI, getErrorMessage, scenariosAPI } from '../services/api';
+import type { Event, MetricsSnapshot, ScenarioSummary } from '../types';
 import { describeEventDetails, formatEventType, formatTimestamp } from '../utils/formatters';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { onSimulationUpdate } from '../utils/simulationEvents';
 
+// ── helpers ──────────────────────────────────────────────────────────────────
+
+const EmptyChart: React.FC<{ label: string }> = ({ label }) => (
+  <div className="empty-state" style={{ minHeight: 160, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    {label}
+  </div>
+);
+
+const SectionHeader: React.FC<{ title: string; subtitle: string }> = ({ title, subtitle }) => (
+  <div className="mt-5 mb-3">
+    <div className="section-kicker">{title}</div>
+    <p className="text-muted mb-0">{subtitle}</p>
+  </div>
+);
+
+// ── component ────────────────────────────────────────────────────────────────
+
 const Reports: React.FC = () => {
   const [events, setEvents] = useState<Event[]>([]);
+  const [metrics, setMetrics] = useState<MetricsSnapshot[]>([]);
+  const [scenarios, setScenarios] = useState<ScenarioSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [eventFilter, setEventFilter] = useState('all');
 
-  const loadEvents = async () => {
+  const loadEvents = useCallback(async () => {
     try {
-      setLoading(true);
       const response = await eventsAPI.getEvents({ limit: 500 });
       setEvents(response.data);
-      setError(null);
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to load event analytics.'));
-    } finally {
-      setLoading(false);
     }
-  };
+  }, []);
+
+  const loadMetrics = useCallback(async () => {
+    try {
+      const response = await scenariosAPI.metrics(200);
+      setMetrics(response.data.snapshots);
+    } catch {
+      // non-fatal — metrics may not exist yet
+    }
+  }, []);
+
+  const loadScenarios = useCallback(async () => {
+    try {
+      const response = await scenariosAPI.list();
+      setScenarios(response.data.scenarios);
+    } catch {
+      // non-fatal
+    }
+  }, []);
 
   useEffect(() => {
-    void loadEvents();
+    Promise.all([loadEvents(), loadMetrics(), loadScenarios()]).finally(() => setLoading(false));
     const clear = onSimulationUpdate(() => {
       void loadEvents();
+      void loadMetrics();
     });
-
     return clear;
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── chart derivations ─────────────────────────────────────────────────────
+
+  const dayLabels = useMemo(() => metrics.map((m) => `D${m.day}`), [metrics]);
+
+  // COMMON — aggregate inventory per service
+  const inventoryChart = useMemo(() => {
+    if (!metrics.length) return null;
+    const mfg = metrics.map((m) => Object.values(m.manufacturer.inventory ?? {}).reduce((a, b) => a + Number(b || 0), 0));
+    const retailStock = metrics.map((m) => m.retailers.reduce((acc, r) => acc + Object.values(r.stock ?? {}).reduce((a, b) => a + Number(b || 0), 0), 0));
+    const providerStock = metrics.map((m) => m.providers.reduce((acc, p) => acc + Object.values(p.stock ?? {}).reduce((a, b) => a + Number(b || 0), 0), 0));
+    return { mfg, retailStock, providerStock };
+  }, [metrics]);
+
+  // COMMON — printer prices: wholesale + retail per model
+  const printerPriceChart = useMemo(() => {
+    if (!metrics.length) return null;
+    const traces: Data[] = [];
+    const productNames = new Set<string>();
+    metrics.forEach((m) => Object.keys(m.manufacturer?.prices ?? {}).forEach((k) => productNames.add(k)));
+    productNames.forEach((product) => {
+      const vals = metrics.map((m) => { const p = m.manufacturer?.prices?.[product]; return p != null ? Number(p) : null; });
+      if (vals.some((v) => v != null)) {
+        traces.push({ x: dayLabels, y: vals as number[], type: 'scatter', mode: 'lines+markers', name: `Wholesale: ${product}`, line: { dash: 'solid' }, connectgaps: true } as Data);
+      }
+    });
+    metrics[0]?.retailers.forEach((retailer, ri) => {
+      const rNames = new Set<string>();
+      metrics.forEach((m) => Object.keys(m.retailers[ri]?.prices ?? {}).forEach((k) => rNames.add(k)));
+      rNames.forEach((product) => {
+        const vals = metrics.map((m) => { const p = m.retailers[ri]?.prices?.[product]; return p != null ? Number(p) : null; });
+        if (vals.some((v) => v != null)) {
+          traces.push({ x: dayLabels, y: vals as number[], type: 'scatter', mode: 'lines+markers', name: `${retailer.name}: ${product}`, line: { dash: 'dot' }, connectgaps: true } as Data);
+        }
+      });
+    });
+    return traces.length ? traces : null;
+  }, [metrics, dayLabels]);
+
+  // COMMON — scenario events overlay (matches last run's scenario name)
+  const eventsOverlay = useMemo(() => {
+    const lastScenarioName = metrics[0]?.scenario;
+    if (!lastScenarioName || lastScenarioName === 'manual') return null;
+    const scenarioDetail = scenarios.find((s) => s.scenario_name === lastScenarioName || s.name.replace('.json', '') === lastScenarioName);
+    const events = scenarioDetail?.events;
+    if (!events?.length) return null;
+    const maxDay = Math.max(...events.map((ev) => ev.end_day ?? ev.start_day ?? 1), 1);
+    const shapes = events.filter((ev) => ev.start_day != null && ev.end_day != null).map((ev, i) => ({
+      type: 'rect' as const, xref: 'x' as const, yref: 'y' as const,
+      x0: ev.start_day, x1: ev.end_day, y0: i - 0.4, y1: i + 0.4,
+      fillcolor: `hsl(${(i * 67) % 360}, 60%, 55%)`, opacity: 0.75, line: { width: 0 },
+    }));
+    const annotations = events.filter((ev) => ev.start_day != null).map((ev, i) => ({
+      x: ev.start_day ?? 0, y: i, text: ev.name ?? `event ${i + 1}`,
+      xanchor: 'left' as const, showarrow: false, font: { color: '#fff', size: 11 },
+    }));
+    const yLabels = events.map((ev, i) => ev.name ?? `event ${i + 1}`);
+    return { shapes, annotations, yLabels, eventCount: events.length, maxDay };
+  }, [metrics, scenarios]);
+
+  // RETAILER — daily customer demand
+  const demandChart = useMemo(() => {
+    if (!metrics.length) return null;
+    const placed = metrics.map((m) => m.retailers.reduce((acc, r) => acc + (r.customer_orders?.placed_today ?? 0), 0));
+    const fulfilled = metrics.map((m) => m.retailers.reduce((acc, r) => acc + (r.customer_orders?.fulfilled_today ?? 0), 0));
+    const backordered = metrics.map((m) => m.retailers.reduce((acc, r) => acc + (r.customer_orders?.backordered_today ?? 0), 0));
+    return { placed, fulfilled, backordered };
+  }, [metrics]);
+
+  // RETAILER — stock per product
+  const retailerStockChart = useMemo(() => {
+    if (!metrics.length) return null;
+    const traces: Data[] = [];
+    const modelNames = new Set<string>();
+    metrics.forEach((m) => m.retailers.forEach((r) => Object.keys(r.stock ?? {}).forEach((k) => modelNames.add(k))));
+    modelNames.forEach((model) => {
+      const vals = metrics.map((m) => m.retailers.reduce((acc, r) => acc + (r.stock?.[model] ?? 0), 0));
+      traces.push({ x: dayLabels, y: vals, type: 'scatter', mode: 'lines+markers', name: model, connectgaps: true } as Data);
+    });
+    return traces.length ? traces : null;
+  }, [metrics, dayLabels]);
+
+  // MANUFACTURER — assembly capacity
+  const capacityChart = useMemo(() => {
+    if (!metrics.length) return null;
+    const lines = metrics.map((m) => m.manufacturer?.capacity?.assembly_lines ?? 1);
+    const workers = metrics.map((m) => m.manufacturer?.capacity?.workers_per_line ?? 1);
+    const dailyHours = metrics.map((m) => m.manufacturer?.capacity?.daily_assembly_hours ?? 8);
+    return { lines, workers, dailyHours };
+  }, [metrics]);
+
+  // MANUFACTURER — financials
+  const financialChart = useMemo(() => {
+    if (!metrics.length) return null;
+    const costs = metrics.map((m) => m.manufacturer?.financials?.total_costs ?? 0);
+    const revenue = metrics.map((m) => m.manufacturer?.financials?.total_revenue ?? 0);
+    const profit = metrics.map((m) => m.manufacturer?.financials?.net_profit ?? 0);
+    return { costs, revenue, profit };
+  }, [metrics]);
+
+  // MANUFACTURER — inventory per material
+  const mfgInventoryChart = useMemo(() => {
+    if (!metrics.length) return null;
+    const traces: Data[] = [];
+    const materialNames = new Set<string>();
+    metrics.forEach((m) => Object.keys(m.manufacturer?.inventory ?? {}).forEach((k) => materialNames.add(k)));
+    materialNames.forEach((material) => {
+      const vals = metrics.map((m) => m.manufacturer?.inventory?.[material] ?? null);
+      if (vals.some((v) => v != null)) {
+        traces.push({ x: dayLabels, y: vals as number[], type: 'scatter', mode: 'lines+markers', name: material, connectgaps: true } as Data);
+      }
+    });
+    return traces.length ? traces : null;
+  }, [metrics, dayLabels]);
+
+  // SUPPLIER — material prices (cheapest tier)
+  const materialPriceChart = useMemo(() => {
+    if (!metrics.length) return null;
+    const traces: Data[] = [];
+    const providerProductNames = new Set<string>();
+    metrics.forEach((m) => m.providers.forEach((p) => Object.keys(p.prices ?? {}).forEach((k) => providerProductNames.add(k))));
+    metrics[0]?.providers.forEach((provider, pi) => {
+      providerProductNames.forEach((product) => {
+        const vals = metrics.map((m) => {
+          const tiers = m.providers[pi]?.prices?.[product];
+          if (!tiers || typeof tiers !== 'object') return null;
+          const tierVals = Object.values(tiers).map(Number).filter((v) => !isNaN(v));
+          return tierVals.length ? Math.min(...tierVals) : null;
+        });
+        if (vals.some((v) => v != null)) {
+          traces.push({ x: dayLabels, y: vals as number[], type: 'scatter', mode: 'lines+markers', name: `${provider.name}: ${product}`, line: { dash: 'dashdot' }, connectgaps: true } as Data);
+        }
+      });
+    });
+    return traces.length ? traces : null;
+  }, [metrics, dayLabels]);
+
+  // SUPPLIER — stock per component
+  const supplierStockChart = useMemo(() => {
+    if (!metrics.length) return null;
+    const traces: Data[] = [];
+    const componentNames = new Set<string>();
+    metrics.forEach((m) => m.providers.forEach((p) => Object.keys(p.stock ?? {}).forEach((k) => componentNames.add(k))));
+    metrics[0]?.providers.forEach((provider, pi) => {
+      componentNames.forEach((component) => {
+        const vals = metrics.map((m) => m.providers[pi]?.stock?.[component] ?? null);
+        if (vals.some((v) => v != null)) {
+          traces.push({ x: dayLabels, y: vals as number[], type: 'scatter', mode: 'lines+markers', name: `${provider.name}: ${component}`, connectgaps: true } as Data);
+        }
+      });
+    });
+    return traces.length ? traces : null;
+  }, [metrics, dayLabels]);
+
+  // ── event log (existing) ──────────────────────────────────────────────────
 
   const filteredEvents = useMemo(
     () => events.filter((event) => eventFilter === 'all' || event.event_type === eventFilter),
-    [eventFilter, events]
+    [eventFilter, events],
   );
 
-  const manufacturingFlow = useMemo(() => {
-    const daily = new Map<string, { created: number; released: number; completed: number }>();
-    const ensure = (date: string) => {
-      if (!daily.has(date)) {
-        daily.set(date, { created: 0, released: 0, completed: 0 });
-      }
-      return daily.get(date)!;
-    };
-
-    events.forEach((event) => {
-      const day = ensure(event.sim_date);
-      if (event.event_type === 'ORDER_CREATED') {
-        day.created += 1;
-      }
-      if (event.event_type === 'ORDER_RELEASED' || event.event_type === 'ORDER_UNBLOCKED_MATERIALS') {
-        day.released += 1;
-      }
-      if (event.event_type === 'ORDER_COMPLETED') {
-        day.completed += 1;
-      }
-    });
-
-    return Array.from(daily.entries()).sort(([a], [b]) => a.localeCompare(b));
-  }, [events]);
-
-  const procurementFlow = useMemo(() => {
-    const daily = new Map<string, { created: number; delivered: number; rejected: number }>();
-    const ensure = (date: string) => {
-      if (!daily.has(date)) {
-        daily.set(date, { created: 0, delivered: 0, rejected: 0 });
-      }
-      return daily.get(date)!;
-    };
-
-    events.forEach((event) => {
-      const day = ensure(event.sim_date);
-      if (event.event_type === 'PO_CREATED') {
-        day.created += 1;
-      }
-      if (event.event_type === 'PO_DELIVERED') {
-        day.delivered += 1;
-      }
-      if (event.event_type === 'PO_REJECTED_CAPACITY') {
-        day.rejected += 1;
-      }
-    });
-
-    return Array.from(daily.entries()).sort(([a], [b]) => a.localeCompare(b));
-  }, [events]);
+  // ── export handler ────────────────────────────────────────────────────────
 
   const handleExport = async (type: 'full' | 'inventory' | 'events') => {
     try {
-      const response = type === 'full'
-        ? await exportAPI.exportFullState()
-        : type === 'inventory'
-          ? await exportAPI.exportInventory()
-          : await exportAPI.exportEvents();
+      const response = type === 'full' ? await exportAPI.exportFullState() : type === 'inventory' ? await exportAPI.exportInventory() : await exportAPI.exportEvents();
       const blob = new Blob([JSON.stringify(response.data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -113,9 +250,10 @@ const Reports: React.FC = () => {
     }
   };
 
-  if (loading) {
-    return <LoadingSpinner label="Loading analytics and exports..." />;
-  }
+  if (loading) return <LoadingSpinner label="Loading analytics..." />;
+
+  const hasMetrics = metrics.length > 0;
+  const noMetricsMsg = 'No data yet — advance the day or run a scenario to populate charts.';
 
   return (
     <div>
@@ -123,15 +261,15 @@ const Reports: React.FC = () => {
         <div>
           <div className="section-kicker">Analytics</div>
           <h1>Explain what happened across the flow</h1>
-          <p>Use analytics to understand how demand moved, where bottlenecks appeared, and which operating decisions changed inventory, procurement, and assembly outcomes over time.</p>
+          <p>Charts update automatically when you advance the day or run a scenario. Grouped by supply chain layer — Common covers the full chain, then Retailer, Manufacturer, and Supplier each have their own section.</p>
         </div>
       </div>
 
       <PageGuide
         title="Analytics"
-        controls="This screen explains the simulation with a few focused charts instead of mixed event rollups. Manufacturing flow and procurement flow each get their own view."
-        next="Use the event log when you need the detailed reason behind a status change, delivery, rejection, or shortage."
-        tip="The charts intentionally stay subsystem-specific so planners can distinguish demand flow from procurement flow at a glance."
+        controls="Charts are sourced from the metrics log. They update on every Advance All or scenario run. Resetting the simulation clears the chart history."
+        next="Use the event log at the bottom for line-by-line audit detail — which order was blocked, which PO was rejected, and when."
+        tip="Stock-per-product charts let you spot which specific material or model is running low, independently of the aggregate totals."
       />
 
       {error ? <Alert variant="danger">{error}</Alert> : null}
@@ -139,8 +277,8 @@ const Reports: React.FC = () => {
       <div className="action-bar">
         <div>
           <div className="section-kicker">Data exports</div>
-          <h3 className="mb-1">Download scenario snapshots</h3>
-          <p className="text-muted mb-0">Export the full simulator state or just the inventory and event history for deeper analysis.</p>
+          <h3 className="mb-1">Download simulator state</h3>
+          <p className="text-muted mb-0">Export the full state, inventory snapshot, or event history as JSON.</p>
         </div>
         <div className="action-buttons">
           <Button variant="primary" onClick={() => void handleExport('full')}><FaDownload className="me-2" />Full state</Button>
@@ -149,81 +287,172 @@ const Reports: React.FC = () => {
         </div>
       </div>
 
-      <div className="data-grid">
-        <div className="chart-container">
+      {/* ── COMMON ─────────────────────────────────────────────────────────── */}
+      <SectionHeader title="Common" subtitle="Full-chain views spanning all three services." />
+
+      <div className="chart-container mb-3">
+        {hasMetrics && inventoryChart ? (
           <ResponsivePlot
             data={[
-              {
-                x: manufacturingFlow.map(([date]) => date),
-                y: manufacturingFlow.map(([, value]) => value.created),
-                type: 'bar',
-                name: 'Created',
-                marker: { color: '#d18a1a' },
-              },
-              {
-                x: manufacturingFlow.map(([date]) => date),
-                y: manufacturingFlow.map(([, value]) => value.released),
-                type: 'bar',
-                name: 'Released or unblocked',
-                marker: { color: '#1a6b67' },
-              },
-              {
-                x: manufacturingFlow.map(([date]) => date),
-                y: manufacturingFlow.map(([, value]) => value.completed),
-                type: 'bar',
-                name: 'Completed',
-                marker: { color: '#2f7d4a' },
-              },
+              { x: dayLabels, y: inventoryChart.providerStock, type: 'scatter', mode: 'lines+markers', name: 'Provider stock' },
+              { x: dayLabels, y: inventoryChart.mfg, type: 'scatter', mode: 'lines+markers', name: 'Manufacturer materials' },
+              { x: dayLabels, y: inventoryChart.retailStock, type: 'scatter', mode: 'lines+markers', name: 'Retailer stock' },
             ]}
-            layout={{
-              barmode: 'group',
-              title: { text: 'Daily manufacturing flow' },
-              xaxis: { title: { text: 'Simulation date' } },
-              yaxis: { title: { text: 'Orders' } },
-              margin: { t: 68, r: 24, b: 56, l: 56 },
-            }}
-            minHeight={340}
+            layout={{ title: { text: 'Inventory across the chain' }, xaxis: { title: { text: 'Simulated day' } }, yaxis: { title: { text: 'Units in hand (sum)' } }, margin: { t: 56, r: 24, b: 56, l: 56 } }}
+            minHeight={300}
           />
+        ) : <EmptyChart label={noMetricsMsg} />}
+      </div>
+
+      <div className="data-grid mb-3">
+        <div className="chart-container">
+          {hasMetrics && printerPriceChart ? (
+            <ResponsivePlot
+              data={printerPriceChart}
+              layout={{ title: { text: 'Printer prices (wholesale vs retail)' }, xaxis: { title: { text: 'Simulated day' } }, yaxis: { title: { text: 'Price ($)' } }, legend: { orientation: 'h', y: -0.25 }, margin: { t: 56, r: 24, b: 80, l: 56 } }}
+              minHeight={320}
+            />
+          ) : <EmptyChart label={noMetricsMsg} />}
         </div>
 
         <div className="chart-container">
-          <ResponsivePlot
-            data={[
-              {
-                x: procurementFlow.map(([date]) => date),
-                y: procurementFlow.map(([, value]) => value.created),
-                type: 'bar',
-                name: 'POs created',
-                marker: { color: '#be5b2d' },
-              },
-              {
-                x: procurementFlow.map(([date]) => date),
-                y: procurementFlow.map(([, value]) => value.delivered),
-                type: 'bar',
-                name: 'Delivered',
-                marker: { color: '#1a6b67' },
-              },
-              {
-                x: procurementFlow.map(([date]) => date),
-                y: procurementFlow.map(([, value]) => value.rejected),
-                type: 'bar',
-                name: 'Rejected',
-                marker: { color: '#b6463b' },
-              },
-            ]}
-            layout={{
-              barmode: 'group',
-              title: { text: 'Daily procurement flow' },
-              xaxis: { title: { text: 'Simulation date' } },
-              yaxis: { title: { text: 'Purchase orders' } },
-              margin: { t: 68, r: 24, b: 56, l: 56 },
-            }}
-            minHeight={340}
-          />
+          {eventsOverlay ? (
+            <ResponsivePlot
+              data={[{ x: [0.5, eventsOverlay.maxDay + 0.5], y: [null, null], type: 'scatter', mode: 'none' as const, showlegend: false }]}
+              layout={{
+                title: { text: 'Scenario events timeline' },
+                xaxis: { title: { text: 'Simulated day' }, range: [0.5, eventsOverlay.maxDay + 0.5] },
+                yaxis: { title: { text: '' }, tickvals: eventsOverlay.yLabels.map((_, i) => i), ticktext: eventsOverlay.yLabels, range: [-0.6, eventsOverlay.eventCount - 0.4] },
+                shapes: eventsOverlay.shapes,
+                annotations: eventsOverlay.annotations,
+                margin: { t: 56, r: 24, b: 56, l: 120 },
+                plot_bgcolor: '#f8f9fa',
+              }}
+              minHeight={Math.max(200, eventsOverlay.eventCount * 50 + 80)}
+            />
+          ) : <EmptyChart label="Scenario events timeline — run a named scenario to populate." />}
         </div>
       </div>
 
-      <div className="card">
+      {/* ── RETAILER ───────────────────────────────────────────────────────── */}
+      <SectionHeader title="Retailer" subtitle="Customer demand flow and retailer stock by product." />
+
+      <div className="data-grid mb-3">
+        <div className="chart-container">
+          {hasMetrics && demandChart ? (
+            <ResponsivePlot
+              data={[
+                { x: dayLabels, y: demandChart.placed, type: 'bar', name: 'Placed', marker: { color: '#d18a1a' } },
+                { x: dayLabels, y: demandChart.fulfilled, type: 'bar', name: 'Fulfilled', marker: { color: '#2f7d4a' } },
+                { x: dayLabels, y: demandChart.backordered, type: 'bar', name: 'Backordered', marker: { color: '#b6463b' } },
+              ]}
+              layout={{ barmode: 'group', title: { text: 'Daily customer demand outcomes' }, xaxis: { title: { text: 'Simulated day' } }, yaxis: { title: { text: 'Customer orders' } }, margin: { t: 56, r: 24, b: 56, l: 56 } }}
+              minHeight={300}
+            />
+          ) : <EmptyChart label={noMetricsMsg} />}
+        </div>
+
+        <div className="chart-container">
+          {hasMetrics && retailerStockChart ? (
+            <ResponsivePlot
+              data={retailerStockChart}
+              layout={{ title: { text: 'Retailer stock per product' }, xaxis: { title: { text: 'Simulated day' } }, yaxis: { title: { text: 'Units on hand' } }, legend: { orientation: 'h', y: -0.25 }, margin: { t: 56, r: 24, b: 80, l: 56 } }}
+              minHeight={300}
+            />
+          ) : <EmptyChart label={noMetricsMsg} />}
+        </div>
+      </div>
+
+      {/* ── MANUFACTURER ───────────────────────────────────────────────────── */}
+      <SectionHeader title="Manufacturer" subtitle="Assembly capacity, financials, and raw material inventory over time." />
+
+      <div className="data-grid mb-3">
+        <div className="chart-container">
+          {hasMetrics && capacityChart ? (
+            <ResponsivePlot
+              data={[
+                { x: dayLabels, y: capacityChart.lines, type: 'scatter', mode: 'lines+markers', name: 'Assembly lines', marker: { color: '#0066cc' } },
+                { x: dayLabels, y: capacityChart.workers, type: 'scatter', mode: 'lines+markers', name: 'Workers per line', marker: { color: '#ff6600' } },
+              ]}
+              layout={{ title: { text: 'Assembly capacity expansion' }, xaxis: { title: { text: 'Simulated day' } }, yaxis: { title: { text: 'Count' } }, margin: { t: 56, r: 24, b: 56, l: 56 } }}
+              minHeight={300}
+            />
+          ) : <EmptyChart label={noMetricsMsg} />}
+        </div>
+
+        <div className="chart-container">
+          {hasMetrics && capacityChart ? (
+            <ResponsivePlot
+              data={[{ x: dayLabels, y: capacityChart.dailyHours, type: 'scatter', mode: 'lines+markers', name: 'Daily assembly hours', marker: { color: '#228B22' } }]}
+              layout={{ title: { text: 'Total daily assembly capacity' }, xaxis: { title: { text: 'Simulated day' } }, yaxis: { title: { text: 'Hours' } }, margin: { t: 56, r: 24, b: 56, l: 56 } }}
+              minHeight={300}
+            />
+          ) : <EmptyChart label={noMetricsMsg} />}
+        </div>
+      </div>
+
+      <div className="data-grid mb-3">
+        <div className="chart-container">
+          {hasMetrics && financialChart ? (
+            <ResponsivePlot
+              data={[
+                { x: dayLabels, y: financialChart.costs, type: 'scatter', mode: 'lines+markers', name: 'Total costs', marker: { color: '#dc3545' } },
+                { x: dayLabels, y: financialChart.revenue, type: 'scatter', mode: 'lines+markers', name: 'Total revenue', marker: { color: '#28a745' } },
+              ]}
+              layout={{ title: { text: 'Financial performance' }, xaxis: { title: { text: 'Simulated day' } }, yaxis: { title: { text: 'Amount ($)' } }, margin: { t: 56, r: 24, b: 56, l: 56 } }}
+              minHeight={300}
+            />
+          ) : <EmptyChart label={noMetricsMsg} />}
+        </div>
+
+        <div className="chart-container">
+          {hasMetrics && financialChart ? (
+            <ResponsivePlot
+              data={[{ x: dayLabels, y: financialChart.profit, type: 'scatter', mode: 'lines+markers', name: 'Net profit', marker: { color: financialChart.profit.some((p) => p < 0) ? '#ffc107' : '#0dcaf0' } }]}
+              layout={{ title: { text: 'Net profit evolution' }, xaxis: { title: { text: 'Simulated day' } }, yaxis: { title: { text: 'Profit ($)' } }, margin: { t: 56, r: 24, b: 56, l: 56 } }}
+              minHeight={300}
+            />
+          ) : <EmptyChart label={noMetricsMsg} />}
+        </div>
+      </div>
+
+      <div className="chart-container mb-3">
+        {hasMetrics && mfgInventoryChart ? (
+          <ResponsivePlot
+            data={mfgInventoryChart}
+            layout={{ title: { text: 'Manufacturer raw material inventory per component' }, xaxis: { title: { text: 'Simulated day' } }, yaxis: { title: { text: 'Units in stock' } }, legend: { orientation: 'h', y: -0.2 }, margin: { t: 56, r: 24, b: 80, l: 56 } }}
+            minHeight={320}
+          />
+        ) : <EmptyChart label={noMetricsMsg} />}
+      </div>
+
+      {/* ── SUPPLIER ───────────────────────────────────────────────────────── */}
+      <SectionHeader title="Supplier" subtitle="Provider component pricing and stock levels over time." />
+
+      <div className="data-grid mb-3">
+        <div className="chart-container">
+          {hasMetrics && materialPriceChart ? (
+            <ResponsivePlot
+              data={materialPriceChart}
+              layout={{ title: { text: 'Material prices (provider components)' }, xaxis: { title: { text: 'Simulated day' } }, yaxis: { title: { text: 'Price ($)' } }, legend: { orientation: 'h', y: -0.25 }, margin: { t: 56, r: 24, b: 80, l: 56 } }}
+              minHeight={320}
+            />
+          ) : <EmptyChart label={noMetricsMsg} />}
+        </div>
+
+        <div className="chart-container">
+          {hasMetrics && supplierStockChart ? (
+            <ResponsivePlot
+              data={supplierStockChart}
+              layout={{ title: { text: 'Supplier stock per component' }, xaxis: { title: { text: 'Simulated day' } }, yaxis: { title: { text: 'Units in stock' } }, legend: { orientation: 'h', y: -0.25 }, margin: { t: 56, r: 24, b: 80, l: 56 } }}
+              minHeight={320}
+            />
+          ) : <EmptyChart label={noMetricsMsg} />}
+        </div>
+      </div>
+
+      {/* ── Event log ──────────────────────────────────────────────────────── */}
+      <div className="card mt-3">
         <div className="card-header d-flex justify-content-between align-items-center gap-3 flex-wrap">
           <span>Event log</span>
           <Form.Select style={{ maxWidth: 260 }} value={eventFilter} onChange={(event) => setEventFilter(event.target.value)}>

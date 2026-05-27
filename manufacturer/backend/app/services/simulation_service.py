@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
 import math
 import os
 import random
-from datetime import date
+from collections import Counter
+from datetime import date, datetime
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -130,6 +133,12 @@ class SimulationService:
                 retailer_url, sim_cfg
             )
 
+        # 5. Append a metrics snapshot for the Analytics page.
+        try:
+            self._append_metrics_snapshot()
+        except Exception:
+            pass
+
         return results
 
     def _inject_retailer_demand(
@@ -192,6 +201,193 @@ class SimulationService:
         if errors:
             result["errors"] = errors
         return result
+
+    # ── Metrics helpers ────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _metrics_path() -> Path:
+        return Path(__file__).resolve().parents[4] / "logs" / "metrics.jsonl"
+
+    def _clear_metrics(self) -> None:
+        p = self._metrics_path()
+        if p.exists():
+            p.write_text("", encoding="utf-8")
+
+    def _fetch_retailer_metrics(self, url: str, day: int) -> dict[str, Any]:
+        try:
+            with httpx.Client(timeout=5.0) as c:
+                stock_r = c.get(f"{url}/api/stock")
+                catalog_r = c.get(f"{url}/api/catalog")
+                orders_r = c.get(f"{url}/api/orders")
+                purchases_r = c.get(f"{url}/api/purchases")
+
+            stock_data = stock_r.json() if stock_r.is_success else {}
+            catalog_data = catalog_r.json() if catalog_r.is_success else {}
+            orders_raw = orders_r.json() if orders_r.is_success else []
+            purchases_raw = purchases_r.json() if purchases_r.is_success else []
+
+            stock: dict[str, int] = {}
+            for item in (stock_data.get("items", []) if isinstance(stock_data, dict) else stock_data if isinstance(stock_data, list) else []):
+                if isinstance(item, dict):
+                    stock[str(item.get("product_name", "?"))] = int(item.get("quantity", 0))
+
+            prices: dict[str, float] = {}
+            for entry in (catalog_data.get("entries", []) if isinstance(catalog_data, dict) else []):
+                if isinstance(entry, dict):
+                    prices[str(entry.get("product_name", "?"))] = float(entry.get("retail_price", 0))
+
+            customer_orders = [o for o in orders_raw if isinstance(o, dict)] if isinstance(orders_raw, list) else []
+            today_orders = [o for o in customer_orders if int(o.get("placed_day", -1)) == day]
+            today_counts: dict[str, int] = dict(Counter(str(o.get("status", "?")) for o in today_orders))
+            purchase_counts: dict[str, int] = dict(Counter(str(o.get("status", "?")) for o in (purchases_raw if isinstance(purchases_raw, list) else []) if isinstance(o, dict)))
+
+            return {
+                "name": "retailer",
+                "stock": stock,
+                "prices": prices,
+                "customer_orders": {
+                    "status_counts": dict(Counter(str(o.get("status", "?")) for o in customer_orders)),
+                    "placed_today": len(today_orders),
+                    "fulfilled_today": today_counts.get("FULFILLED", 0),
+                    "backordered_today": today_counts.get("BACKORDERED", 0),
+                    "cancelled_today": today_counts.get("CANCELLED", 0),
+                },
+                "purchases": purchase_counts,
+                "errors": [],
+            }
+        except Exception as exc:
+            return {"name": "retailer", "stock": {}, "prices": {}, "customer_orders": {"status_counts": {}, "placed_today": 0, "fulfilled_today": 0, "backordered_today": 0, "cancelled_today": 0}, "purchases": {}, "errors": [str(exc)]}
+
+    def _fetch_provider_metrics(self, url: str, name: str) -> dict[str, Any]:
+        try:
+            with httpx.Client(timeout=5.0) as c:
+                stock_r = c.get(f"{url}/api/stock")
+                catalog_r = c.get(f"{url}/api/catalog")
+                orders_r = c.get(f"{url}/api/orders")
+
+            stock_data = stock_r.json() if stock_r.is_success else []
+            catalog_data = catalog_r.json() if catalog_r.is_success else {}
+            orders_raw = orders_r.json() if orders_r.is_success else []
+
+            stock: dict[str, int] = {}
+            for item in (stock_data if isinstance(stock_data, list) else []):
+                if isinstance(item, dict):
+                    stock[str(item.get("product_name", item.get("product_id", "?")))] = int(item.get("quantity", 0))
+
+            prices_nested: dict[str, dict[str, float]] = {}
+            for product in (catalog_data.get("products", []) if isinstance(catalog_data, dict) else []):
+                if isinstance(product, dict):
+                    pname = str(product.get("name", "?"))
+                    prices_nested[pname] = {str(t.get("min_quantity")): float(t.get("unit_price", 0)) for t in product.get("pricing_tiers", []) if isinstance(t, dict)}
+
+            orders = [o for o in orders_raw if isinstance(o, dict)] if isinstance(orders_raw, list) else []
+            return {"name": name, "stock": stock, "prices": prices_nested, "orders": dict(Counter(str(o.get("status", "?")) for o in orders)), "errors": []}
+        except Exception as exc:
+            return {"name": name, "stock": {}, "prices": {}, "orders": {}, "errors": [str(exc)]}
+
+    def _append_metrics_snapshot(self) -> None:
+        """Collect state from all services and append a snapshot to logs/metrics.jsonl."""
+        config = self.config_service.get_config()
+        sim_day = config.sim_day or 0
+
+        # Manufacturer data from local DB
+        inventory: dict[str, float] = {}
+        try:
+            from app.models.models import Inventory as InventoryModel
+            for item in self.db.query(InventoryModel).all():
+                if item.product:
+                    inventory[item.product.name] = float(item.quantity or 0)
+        except Exception:
+            pass
+
+        prices: dict[str, float] = {}
+        try:
+            from app.models.models import WholesalePrice
+            for wp in self.db.query(WholesalePrice).all():
+                if wp.product:
+                    prices[wp.product.name] = float(wp.price or 0)
+        except Exception:
+            pass
+
+        sales_counts: dict[str, int] = {}
+        try:
+            from app.models.models import SalesOrder as SalesOrderModel
+            orders = self.db.query(SalesOrderModel).all()
+            sales_counts = dict(Counter(str(getattr(o.status, "value", o.status)) for o in orders))
+        except Exception:
+            pass
+
+        active_production = 0
+        try:
+            from app.models.models import ManufacturingOrder as MfgOrder, OrderStatus
+            active_production = self.db.query(MfgOrder).filter(MfgOrder.status == OrderStatus.RELEASED).count()
+        except Exception:
+            pass
+
+        capacity_data: dict[str, Any] = {
+            "assembly_lines": config.assembly_lines or 1,
+            "workers_per_line": config.workers_per_line or 1,
+            "shift_hours": float(config.shift_hours or 8),
+            "daily_assembly_hours": self.config_service.get_effective_daily_assembly_hours(config),
+        }
+        try:
+            cap = self.inventory_service.get_capacity_info()
+            capacity_data.update(cap)
+        except Exception:
+            pass
+
+        financials: dict[str, float] = {"total_costs": 0.0, "total_revenue": 0.0, "net_profit": 0.0}
+        try:
+            fin = self.financial_service.get_financial_summary()
+            financials = {"total_costs": float(fin.get("total_costs", 0) or 0), "total_revenue": float(fin.get("total_revenue", 0) or 0), "net_profit": float(fin.get("net_profit", 0) or 0)}
+        except Exception:
+            pass
+
+        manufacturer_snapshot: dict[str, Any] = {
+            "name": "Factory",
+            "inventory": inventory,
+            "prices": prices,
+            "sales_orders": sales_counts,
+            "active_production_orders": active_production,
+            "capacity": capacity_data,
+            "financials": financials,
+            "errors": [],
+        }
+
+        retailer_url = os.getenv("RETAILER_BASE_URL", "http://localhost:8003")
+        retailer_snapshot = self._fetch_retailer_metrics(retailer_url, sim_day)
+
+        provider_url_overrides: dict[str, str] = {}
+        try:
+            from app.models.models import SimulationConfig as SimCfg
+            sim_cfg = self.db.query(SimCfg).first()
+            if sim_cfg and sim_cfg.provider_urls:
+                provider_url_overrides = sim_cfg.provider_urls
+        except Exception:
+            pass
+
+        from app.utils.app_config import get_configured_providers
+        provider_snapshots = []
+        for p in get_configured_providers():
+            name = str(p.get("name", "provider"))
+            url = str(provider_url_overrides.get(name) or p.get("url", ""))
+            if url:
+                provider_snapshots.append(self._fetch_provider_metrics(url, name))
+
+        snapshot: dict[str, Any] = {
+            "ts": datetime.utcnow().isoformat(),
+            "scenario": "manual",
+            "day": sim_day,
+            "signal": {},
+            "retailers": [retailer_snapshot],
+            "manufacturer": manufacturer_snapshot,
+            "providers": provider_snapshots,
+        }
+
+        metrics_path = self._metrics_path()
+        metrics_path.parent.mkdir(exist_ok=True)
+        with metrics_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(snapshot, default=str) + "\n")
 
     def generate_daily_demand(self, sim_date: date) -> int:
         config = self.config_service.get_config()
@@ -277,6 +473,7 @@ class SimulationService:
         }
 
     def reset_simulation(self) -> bool:
+        self._clear_metrics()
         starter_config = build_starter_config(sim_date=date.today())
 
         self.db.query(FinancialTransaction).delete()
@@ -313,6 +510,7 @@ class SimulationService:
 
     def reset_to_empty(self) -> bool:
         """Delete all data except simulation config and start fresh."""
+        self._clear_metrics()
         self.db.query(FinancialTransaction).delete()
         self.db.query(SalesOrder).delete()
         self.db.query(Event).delete()
