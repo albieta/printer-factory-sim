@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import re
 import threading
 import time
@@ -159,6 +160,20 @@ class _RateLimiter:
 
             time.sleep(min(wait, 5.0))
 
+    def penalize(self) -> None:
+        """Fill the sliding window to its RPM limit so subsequent acquire() calls wait.
+
+        Called when the caller receives a 429 from the API, meaning the real
+        service is at capacity regardless of our local accounting.
+        """
+        with self._lock:
+            now = time.monotonic()
+            self._prune(now)
+            # Saturate the window so the next acquire() waits ~60s.
+            slots_needed = max(0, self._rpm - len(self._window))
+            for _ in range(slots_needed):
+                self._window.append((now, 0))
+
 
 # ── client ────────────────────────────────────────────────────────────────────
 
@@ -238,18 +253,38 @@ class GeminiClient:
             if combined_system:
                 body["systemInstruction"] = {"parts": [{"text": combined_system}]}
 
-        self._limiter.acquire(estimated_tokens)
-
         url = f"{GEMINI_API_BASE}/models/{self._model}:generateContent"
-        with httpx.Client(timeout=GEMINI_REQUEST_TIMEOUT) as client:
-            resp = client.post(url, params={"key": self._api_key}, json=body)
+        _MAX_RETRIES = 6
+        _BASE_DELAY = 5.0  # seconds
 
-        # 429 → likely a TPM/RPM race; back off once and retry.
-        if resp.status_code == 429:
-            time.sleep(5.0)
+        for attempt in range(_MAX_RETRIES + 1):
             self._limiter.acquire(estimated_tokens)
             with httpx.Client(timeout=GEMINI_REQUEST_TIMEOUT) as client:
                 resp = client.post(url, params={"key": self._api_key}, json=body)
+
+            if resp.status_code != 429:
+                break
+
+            if attempt == _MAX_RETRIES:
+                # Exhausted retries — surface the error to the caller.
+                resp.raise_for_status()
+
+            # Penalise the local rate limiter so parallel agents don't pile in.
+            self._limiter.penalize()
+
+            # Honour the server's Retry-After header when present; otherwise
+            # use exponential backoff with ±20 % jitter.
+            retry_after_hdr = resp.headers.get("Retry-After") or resp.headers.get("retry-after")
+            if retry_after_hdr:
+                try:
+                    wait = float(retry_after_hdr)
+                except ValueError:
+                    wait = _BASE_DELAY * (2 ** attempt)
+            else:
+                wait = _BASE_DELAY * (2 ** attempt)
+            wait = wait * (0.8 + 0.4 * random.random())
+            wait = min(wait, 60.0)
+            time.sleep(wait)
 
         resp.raise_for_status()
         data = resp.json()
