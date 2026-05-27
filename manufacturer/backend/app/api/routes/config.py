@@ -139,3 +139,18 @@ def apply_scenario_costs(costs: dict, db: Session = Depends(get_db)):
 
     config_service.update_config(SimulationConfigUpdate(**update_data))
     return config_service.serialize_config()
+
+
+@router.post("/init-prices", response_model=dict)
+def init_prices(db: Session = Depends(get_db)):
+    """Ensure wholesale prices are initialized for all printer models."""
+    from app.services.wholesale_price_service import WholesalePriceService
+
+    service = WholesalePriceService(db)
+    service.ensure_defaults()
+    db.commit()
+    prices = service.list_prices()
+    return {
+        "initialized": True,
+        "prices": {name: str(p) for name, p in prices.items()}
+    }

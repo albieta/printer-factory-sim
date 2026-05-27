@@ -54,7 +54,7 @@ ADVANCE_TIMEOUT = 180.0   # day advance may trigger downstream HTTP polls; doubl
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 
-def _post(url: str, payload: dict[str, Any], logger: ApiLogger | None = None) -> dict[str, Any]:
+def _post(url: str, payload: dict[str, Any], logger: ApiLogger | None = None) -> Any:
     with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
         r = client.post(url, json=payload)
         try:
@@ -64,10 +64,10 @@ def _post(url: str, payload: dict[str, Any], logger: ApiLogger | None = None) ->
         if logger:
             logger.log("POST", url, payload, r.status_code, data)
         r.raise_for_status()
-    return dict(data) if data else {}
+    return data
 
 
-def _get(url: str, logger: ApiLogger | None = None) -> dict[str, Any]:
+def _get(url: str, logger: ApiLogger | None = None) -> Any:
     with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
         r = client.get(url)
         try:
@@ -77,10 +77,10 @@ def _get(url: str, logger: ApiLogger | None = None) -> dict[str, Any]:
         if logger:
             logger.log("GET", url, None, r.status_code, data)
         r.raise_for_status()
-    return dict(data) if data else {}
+    return data
 
 
-def _put(url: str, payload: dict[str, Any], logger: ApiLogger | None = None) -> dict[str, Any]:
+def _put(url: str, payload: dict[str, Any], logger: ApiLogger | None = None) -> Any:
     with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
         r = client.put(url, json=payload)
         try:
@@ -90,7 +90,7 @@ def _put(url: str, payload: dict[str, Any], logger: ApiLogger | None = None) -> 
         if logger:
             logger.log("PUT", url, payload, r.status_code, data)
         r.raise_for_status()
-    return dict(data) if data else {}
+    return data
 
 
 _MANUFACTURER_DEFAULTS: dict[str, float] = {
@@ -103,7 +103,7 @@ _MANUFACTURER_DEFAULTS: dict[str, float] = {
 }
 
 
-def apply_scenario_config(mfr_url: str, scenario: dict[str, Any]) -> dict[str, Any]:
+def apply_scenario_config(mfr_url: str, scenario: dict[str, Any]) -> Any:
     """Apply scenario recommended_assembly / recommended_costs to the manufacturer.
 
     Only overrides fields that are still at their default values so that
@@ -125,7 +125,7 @@ def apply_scenario_config(mfr_url: str, scenario: dict[str, Any]) -> dict[str, A
     updates: dict[str, Any] = {}
     for key, recommended_val in candidates.items():
         default = _MANUFACTURER_DEFAULTS.get(key)
-        current_val = current.get(key)
+        current_val = current.get(key) if isinstance(current, dict) else None
         if default is not None and current_val is not None:
             if abs(float(current_val) - float(default)) < 0.01:
                 updates[key] = recommended_val
@@ -581,7 +581,7 @@ def apply_provider_market_signal(
     provider_cfg: dict[str, Any],
     signal: dict[str, Any],
     logger: ApiLogger | None = None,
-) -> dict[str, Any]:
+) -> Any:
     """Best-effort push of market signal into provider order intake."""
 
     try:
@@ -625,7 +625,7 @@ def run_role_agent(
     return run_agent(role, day, prompt, skill_file, cwd=cwd, model=model)
 
 
-def advance_app(app_url: str, app_name: str, logger: ApiLogger | None = None) -> dict[str, Any]:
+def advance_app(app_url: str, app_name: str, logger: ApiLogger | None = None) -> Any:
     """Advance one app day and return the summary.
 
     Week 7 apps mostly use ``/api/day/advance``. The manufacturer
@@ -643,7 +643,6 @@ def advance_app(app_url: str, app_name: str, logger: ApiLogger | None = None) ->
             if logger:
                 logger.log("POST", f"{app_url}/api/day/advance", {}, r.status_code, result)
             r.raise_for_status()
-        result = dict(result) if result else {}
         print(f"  [{app_name}] day advanced → {result}")
         return result
     except httpx.HTTPError as exc:
@@ -652,7 +651,7 @@ def advance_app(app_url: str, app_name: str, logger: ApiLogger | None = None) ->
             try:
                 with httpx.Client(timeout=ADVANCE_TIMEOUT) as fc:
                     fr = fc.post(f"{app_url}/api/simulation/advance-day", json={})
-                    result = dict(fr.json()) if fr.content else {}
+                    result = fr.json() if fr.content else {}
                     if logger:
                         logger.log("POST", f"{app_url}/api/simulation/advance-day", {}, fr.status_code, result)
                     fr.raise_for_status()
@@ -698,7 +697,16 @@ def _initialize_run(config: dict[str, Any]) -> None:
         prices_data = _get(f"{mfr_url}/api/prices")
     except httpx.HTTPError as exc:
         print(f"  [init] WARNING: could not check wholesale prices: {exc}")
+        return
     prices = prices_data.get("prices", {})
+    if not prices:
+        # Try to initialize prices
+        try:
+            _post(f"{mfr_url}/api/config/init-prices", {})
+            prices_data = _get(f"{mfr_url}/api/prices")
+            prices = prices_data.get("prices", {})
+        except httpx.HTTPError:
+            pass
     if not prices:
         print("  [init] WARNING: no wholesale prices configured — revenue will be $0")
     else:
@@ -814,11 +822,7 @@ def run_day(
         )
     summary["sales_forwarded"] = sales_forward_results
 
-    # ── 2. Pre-fetch state for all roles concurrently ─────────────────────────
-    print("  [engine] pre-fetching state for all roles…")
-    state_map = _prefetch_all_state(retailers, mfr, providers, api_logger)
-
-    # ── 3. Run role agents ─────────────────────────────────────────────────────
+    # ── 2. Determine execution mode: sequential or parallel ────────────────────
     # Default: sequential (retailer → manufacturer → provider).
     # Override via PARALLEL_AGENTS env var (set by the UI) or the scenario
     # JSON field "parallel_agents": true. Env var takes precedence.
@@ -834,6 +838,10 @@ def run_day(
     agent_outputs: dict[str, str] = {}
 
     if parallel_agents:
+        # ── 2a. Parallel: pre-fetch state for all roles once ──────────────────
+        print("  [engine] pre-fetching state for all roles…")
+        state_map = _prefetch_all_state(retailers, mfr, providers, api_logger)
+
         print("  [engine] running agents in parallel (parallel_agents=true in scenario)")
         all_roles: list[tuple[str, dict[str, Any]]] = (
             [(r_cfg.get("name", "retailer"), r_cfg) for r_cfg in retailers]
@@ -851,38 +859,45 @@ def run_day(
                 agent_outputs[role_name] = output
                 print(f"  [{role_name}] agent: {output.strip()[:80]}")
     else:
-        # Sequential: retailer → manufacturer (with state refresh) → provider.
-        # Each actor sees decisions made upstream before it acts.
-
-        # 3a. Retailer agents first
+        # ── 2b. Sequential: fetch state for each agent just before it runs ────
+        # Retailer agents first
         for r_cfg in retailers:
             role_name = r_cfg.get("name", "retailer")
-            _, ctx = state_map.get(role_name, ({}, ""))
+            try:
+                state = _fetch_retailer_state(r_cfg["url"], logger=api_logger)
+                ctx = _format_state_for_prompt(state, role="retailer")
+            except Exception as exc:
+                state = {"error": str(exc)}
+                ctx = f"\n⚠️ State fetch failed: {exc}\n"
             output = run_role_agent(role_name, r_cfg, day, signal, state_context=ctx, fast_mode=fast_mode)
             agent_outputs[role_name] = output
-            print(f"  [{role_name}] agent: {output.strip()[:80]}")
+            print(f"  [{role_name}] agent: {output.strip()}")
 
-        # 3b. Re-fetch manufacturer state so it includes SalesOrders placed by
-        #     the retailer agent during its turn (purchase orders → sales orders).
-        if retailers and mfr.get("url"):
-            print("  [engine] re-fetching manufacturer state after retailer actions…")
+        # Manufacturer agent (fetch fresh state after retailer actions)
+        if mfr.get("url"):
             try:
-                fresh_mfr_state = _fetch_manufacturer_state(mfr["url"], logger=api_logger)
-                fresh_mfr_ctx = _format_state_for_prompt(fresh_mfr_state, role="manufacturer")
-                state_map[mfr_name] = (fresh_mfr_state, fresh_mfr_ctx)
+                mfr_state = _fetch_manufacturer_state(mfr["url"], logger=api_logger)
+                mfr_ctx = _format_state_for_prompt(mfr_state, role="manufacturer")
             except Exception as exc:
-                print(f"  [engine] WARNING: manufacturer state re-fetch failed: {exc}")
-
-        # 3c. Manufacturer agent
-        _, mfr_ctx = state_map.get(mfr_name, ({}, ""))
+                print(f"  [engine] WARNING: manufacturer state fetch failed: {exc}")
+                mfr_state = {"error": str(exc)}
+                mfr_ctx = f"\n⚠️ State fetch failed: {exc}\n"
+        else:
+            mfr_state = {}
+            mfr_ctx = ""
         mfr_output = run_role_agent(mfr_name, mfr, day, signal, state_context=mfr_ctx, fast_mode=fast_mode)
         agent_outputs[mfr_name] = mfr_output
         print(f"  [{mfr_name}] agent: {mfr_output.strip()[:80]}")
 
-        # 3d. Provider agents last (see purchase orders placed by manufacturer)
+        # Provider agents last (see purchase orders placed by manufacturer)
         for p_cfg in providers:
             role_name = p_cfg.get("name", "provider")
-            _, ctx = state_map.get(role_name, ({}, ""))
+            try:
+                state = _fetch_provider_state(p_cfg["url"], logger=api_logger)
+                ctx = _format_state_for_prompt(state, role="provider")
+            except Exception as exc:
+                state = {"error": str(exc)}
+                ctx = f"\n⚠️ State fetch failed: {exc}\n"
             output = run_role_agent(role_name, p_cfg, day, signal, state_context=ctx, fast_mode=fast_mode)
             agent_outputs[role_name] = output
             print(f"  [{role_name}] agent: {output.strip()[:80]}")
