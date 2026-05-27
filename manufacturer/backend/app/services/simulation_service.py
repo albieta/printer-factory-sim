@@ -11,7 +11,7 @@ import httpx
 
 from sqlalchemy.orm import Session
 
-from app.models.models import Event, EventType, ManufacturingOrder, OrderStatus, Product, ProductType, PurchaseOrder, PurchaseOrderStatus, BillOfMaterials, Supplier, Inventory
+from app.models.models import Event, EventType, FinancialTransaction, ManufacturingOrder, OrderStatus, Product, ProductType, PurchaseOrder, PurchaseOrderStatus, BillOfMaterials, SalesOrder, Supplier, Inventory, WholesalePrice
 from app.services.config_service import ConfigService
 from app.services.financial_service import FinancialService
 from app.services.inventory_service import InventoryService
@@ -19,6 +19,7 @@ from app.services.order_service import OrderService
 from app.services.production_service import ProductionService
 from app.services.starter_profile import STARTER_INVENTORY, STARTER_PRINTERS, STARTER_MATERIALS, STARTER_BOM, WORKFLOW_STAGE_DEFS, build_starter_config
 from app.services.supplier_service import PurchaseOrderService
+from app.services.wholesale_price_service import WholesalePriceService
 from app.utils.database import apply_external_provider_config
 
 
@@ -280,6 +281,8 @@ class SimulationService:
     def reset_simulation(self) -> bool:
         starter_config = build_starter_config(sim_date=date.today())
 
+        self.db.query(FinancialTransaction).delete()
+        self.db.query(SalesOrder).delete()
         self.db.query(Event).delete()
         self.db.query(ManufacturingOrder).delete()
         self.db.query(PurchaseOrder).delete()
@@ -312,10 +315,13 @@ class SimulationService:
 
     def reset_to_empty(self) -> bool:
         """Delete all data except simulation config and start fresh."""
+        self.db.query(FinancialTransaction).delete()
+        self.db.query(SalesOrder).delete()
         self.db.query(Event).delete()
         self.db.query(ManufacturingOrder).delete()
         self.db.query(PurchaseOrder).delete()
         self.db.query(BillOfMaterials).delete()
+        self.db.query(WholesalePrice).delete()
         self.db.query(Inventory).delete()
         self.db.query(Product).delete()
         self.db.query(Supplier).delete()
@@ -369,5 +375,6 @@ class SimulationService:
         self.db.commit()
 
         apply_external_provider_config(self.db)
+        WholesalePriceService(self.db).ensure_defaults()
         self.db.commit()
         return True

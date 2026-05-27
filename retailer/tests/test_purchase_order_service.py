@@ -28,6 +28,7 @@ def _make_client(handler: Callable[[httpx.Request], httpx.Response]) -> Manufact
 
 def test_place_purchase_order_records_local_row_and_event(seeded_session: Session) -> None:
     captured: list[dict[str, Any]] = []
+    _UUID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "POST"
@@ -38,7 +39,7 @@ def test_place_purchase_order_records_local_row_and_event(seeded_session: Sessio
             json={
                 "schema_version": 1,
                 "order": {
-                    "id": 42,
+                    "id": _UUID,
                     "retailer": "PrinterWorld",
                     "model": "Basic300",
                     "quantity": 4,
@@ -63,7 +64,7 @@ def test_place_purchase_order_records_local_row_and_event(seeded_session: Sessio
     )
     seeded_session.commit()
 
-    assert order.external_order_id == 42
+    assert order.external_order_id == _UUID
     assert order.status == PurchaseOrderStatus.PENDING
     assert order.expected_delivery_day == 3
     assert str(order.unit_price) == "450.00"
@@ -83,7 +84,7 @@ def test_place_purchase_order_records_rejection(seeded_session: Session) -> None
             json={
                 "schema_version": 1,
                 "order": {
-                    "id": 9,
+                    "id": "c3d4e5f6-a7b8-9012-cdef-123456789012",
                     "retailer": "PrinterWorld",
                     "model": "Basic300",
                     "quantity": 4,
@@ -118,7 +119,7 @@ def test_place_purchase_order_records_rejection(seeded_session: Session) -> None
 
 
 def test_place_purchase_order_raises_on_http_error(seeded_session: Session) -> None:
-    def handler(_: httpx.Request) -> httpx.Response:
+    def handler(_req: httpx.Request) -> httpx.Response:
         return httpx.Response(500, json={"detail": "boom"})
 
     service = PurchaseOrderService(seeded_session, _make_client(handler))
@@ -134,6 +135,8 @@ def test_place_purchase_order_raises_on_http_error(seeded_session: Session) -> N
 
 
 def test_poll_pending_orders_delivers_into_stock(seeded_session: Session) -> None:
+    _UUID = "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+
     # Phase 1: place an order that the manufacturer accepts.
     def place_handler(_: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -141,7 +144,7 @@ def test_poll_pending_orders_delivers_into_stock(seeded_session: Session) -> Non
             json={
                 "schema_version": 1,
                 "order": {
-                    "id": 100,
+                    "id": _UUID,
                     "retailer": "PrinterWorld",
                     "model": "Basic300",
                     "quantity": 5,
@@ -165,18 +168,18 @@ def test_poll_pending_orders_delivers_into_stock(seeded_session: Session) -> Non
     )
     seeded_session.commit()
     initial_stock = StockService(seeded_session).get_quantity("Basic300")
-    assert order.external_order_id == 100
+    assert order.external_order_id == _UUID
 
     # Phase 2: swap the client for one that reports DELIVERED.
     def poll_handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
-        assert request.url.path == "/api/sales/orders/100"
+        assert request.url.path == f"/api/sales/orders/{_UUID}"
         return httpx.Response(
             200,
             json={
                 "schema_version": 1,
                 "order": {
-                    "id": 100,
+                    "id": _UUID,
                     "retailer": "PrinterWorld",
                     "model": "Basic300",
                     "quantity": 5,
@@ -199,7 +202,7 @@ def test_poll_pending_orders_delivers_into_stock(seeded_session: Session) -> Non
     assert results == [
         {
             "order_id": order.id,
-            "external_order_id": 100,
+            "external_order_id": _UUID,
             "status": "DELIVERED",
             "quantity": 5,
         }

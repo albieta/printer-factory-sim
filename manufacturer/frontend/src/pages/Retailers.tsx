@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Alert, Badge, Button, Card, Form, Table } from 'react-bootstrap';
+import { FaPlus } from 'react-icons/fa';
 import PageGuide from '../components/PageGuide';
 import { configAPI, getErrorMessage, retailerAPI, scenariosAPI } from '../services/api';
-import type { RetailerCustomerOrder, RetailerPurchaseOrder, RetailerStockItem, ScenarioSummary } from '../types';
+import type { Product, RetailerCustomerOrder, RetailerPurchaseOrder, RetailerStockItem, ScenarioSummary } from '../types';
 import { announceSimulationUpdate, onSimulationUpdate } from '../utils/simulationEvents';
 import { formatCurrency } from '../utils/formatters';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -29,11 +30,16 @@ const Retailers: React.FC = () => {
   });
   const [demandSaving, setDemandSaving] = useState(false);
   const [demandMessage, setDemandMessage] = useState<string | null>(null);
+  const [printerModels, setPrinterModels] = useState<Product[]>([]);
+  const [orderForm, setOrderForm] = useState({ product_name: '', quantity: '1' });
+  const [orderPlacing, setOrderPlacing] = useState(false);
+  const [orderMessage, setOrderMessage] = useState<string | null>(null);
+  const [orderError, setOrderError] = useState<string | null>(null);
 
   const loadData = async () => {
     try {
       setLoading(true);
-      const [summaryRes, stockRes, ordersRes, purchasesRes, scenarioListRes, scenarioStatusRes, configRes] =
+      const [summaryRes, stockRes, ordersRes, purchasesRes, scenarioListRes, scenarioStatusRes, configRes, printersRes] =
         await Promise.all([
           retailerAPI.getSummary(),
           retailerAPI.getStock(),
@@ -42,7 +48,15 @@ const Retailers: React.FC = () => {
           scenariosAPI.list().catch(() => null),
           scenariosAPI.status().catch(() => null),
           configAPI.getConfig().catch(() => null),
+          configAPI.getPrinterModels().catch(() => null),
         ]);
+
+      if (printersRes) {
+        setPrinterModels(printersRes.data);
+        if (!orderForm.product_name && printersRes.data.length > 0) {
+          setOrderForm((f) => ({ ...f, product_name: printersRes.data[0].name }));
+        }
+      }
 
       const summary = summaryRes.data;
       setAvailable(summary.available);
@@ -104,6 +118,35 @@ const Retailers: React.FC = () => {
       setDemandMessage(getErrorMessage(err, 'Failed to save demand settings.'));
     } finally {
       setDemandSaving(false);
+    }
+  };
+
+  const placeOrder = async () => {
+    if (!orderForm.product_name || Number(orderForm.quantity) < 1) return;
+    try {
+      setOrderPlacing(true);
+      setOrderError(null);
+      const res = await retailerAPI.placePurchase({
+        product_name: orderForm.product_name,
+        quantity: Number(orderForm.quantity),
+      });
+      const po = res.data.order;
+      const status = po?.status ?? 'PENDING';
+      if (status === 'REJECTED') {
+        setOrderError(`Order rejected by manufacturer: ${String((po as RetailerPurchaseOrder & { status_reason?: string }).status_reason ?? 'no reason given')}`);
+      } else {
+        setOrderMessage(
+          `Purchase order placed — ${orderForm.product_name} ×${orderForm.quantity}. ` +
+          `Expected delivery: day ${String(po?.expected_delivery_day ?? '?')}. Status: ${status}.`
+        );
+        setOrderForm((f) => ({ ...f, quantity: '1' }));
+        announceSimulationUpdate();
+        await loadData();
+      }
+    } catch (err) {
+      setOrderError(getErrorMessage(err, 'Failed to place purchase order.'));
+    } finally {
+      setOrderPlacing(false);
     }
   };
 
@@ -482,12 +525,66 @@ price_factor = max(0.2, 1 − (retail_price − base_price) / base_price)`}
         </Card.Body>
       </Card>
 
-      {/* Section 3: Purchase Orders to Manufacturer */}
+      {/* Section 3: Place a Purchase Order */}
       <h2 className="mt-5 mb-3">Purchase Orders</h2>
       <p className="text-muted mb-3">
-        <strong>Orders the retailer placed with you.</strong> These are triggered when retailer demand exceeds stock.
-        Track them alongside your SalesOrders to understand the connection.
+        Orders the retailer places with the manufacturer. Each PO creates a SalesOrder on the manufacturer side,
+        which triggers production and delivers finished printers back here when complete.
       </p>
+
+      <Card className="mb-4">
+        <Card.Header><FaPlus className="me-2" /><strong>Place a Purchase Order</strong></Card.Header>
+        <Card.Body>
+          {orderError && (
+            <Alert variant="danger" dismissible onClose={() => setOrderError(null)}>{orderError}</Alert>
+          )}
+          {orderMessage && (
+            <Alert variant="success" dismissible onClose={() => setOrderMessage(null)}>{orderMessage}</Alert>
+          )}
+          <div className="d-flex align-items-end gap-3 flex-wrap">
+            <Form.Group style={{ minWidth: '200px' }}>
+              <Form.Label className="mb-1"><strong>Printer model</strong></Form.Label>
+              {printerModels.length > 0 ? (
+                <Form.Select
+                  value={orderForm.product_name}
+                  onChange={(e) => setOrderForm({ ...orderForm, product_name: e.target.value })}
+                >
+                  {printerModels.map((p) => (
+                    <option key={p.id} value={p.name}>{p.name}</option>
+                  ))}
+                </Form.Select>
+              ) : (
+                <Form.Control
+                  placeholder="e.g. Basic300"
+                  value={orderForm.product_name}
+                  onChange={(e) => setOrderForm({ ...orderForm, product_name: e.target.value })}
+                />
+              )}
+            </Form.Group>
+            <Form.Group style={{ width: '110px' }}>
+              <Form.Label className="mb-1"><strong>Quantity</strong></Form.Label>
+              <Form.Control
+                type="number"
+                min="1"
+                step="1"
+                value={orderForm.quantity}
+                onChange={(e) => setOrderForm({ ...orderForm, quantity: e.target.value })}
+              />
+            </Form.Group>
+            <Button
+              variant="primary"
+              onClick={() => void placeOrder()}
+              disabled={orderPlacing || !orderForm.product_name || Number(orderForm.quantity) < 1}
+            >
+              {orderPlacing ? 'Placing…' : 'Place order'}
+            </Button>
+          </div>
+          <Form.Text className="d-block mt-2 text-muted">
+            The manufacturer will confirm the order, schedule production, and deliver finished units to retailer stock.
+            The order status updates each time you advance the day.
+          </Form.Text>
+        </Card.Body>
+      </Card>
       <Card className="mb-4">
         <Card.Body className="p-0">
           {purchaseOrders.length ? (

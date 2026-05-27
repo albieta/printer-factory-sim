@@ -6,18 +6,25 @@ import os
 from typing import Any
 
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
 router = APIRouter()
 
 RETAILER_URL = os.environ.get("RETAILER_BASE_URL", "http://localhost:8003")
-TIMEOUT = 5.0
+GET_TIMEOUT = 5.0
+POST_TIMEOUT = 30.0
+
+
+class RetailerPurchaseCreate(BaseModel):
+    product_name: str = Field(min_length=1)
+    quantity: int = Field(gt=0)
 
 
 def _retailer_request(endpoint: str) -> dict[str, Any] | list[dict[str, Any]] | None:
     """Make HTTP request to retailer API. Returns None if offline."""
     try:
-        with httpx.Client(timeout=TIMEOUT) as client:
+        with httpx.Client(timeout=GET_TIMEOUT) as client:
             response = client.get(f"{RETAILER_URL}{endpoint}")
             if response.status_code == 200:
                 return response.json()
@@ -26,11 +33,31 @@ def _retailer_request(endpoint: str) -> dict[str, Any] | list[dict[str, Any]] | 
     return None
 
 
+def _retailer_post(endpoint: str, body: dict[str, Any]) -> dict[str, Any]:
+    """POST to the retailer API; raises HTTPException on failure or offline."""
+    try:
+        with httpx.Client(timeout=POST_TIMEOUT) as client:
+            response = client.post(f"{RETAILER_URL}{endpoint}", json=body)
+        if response.status_code >= 400:
+            detail: Any = response.text
+            try:
+                detail = response.json().get("detail", detail)
+            except Exception:
+                pass
+            raise HTTPException(status_code=response.status_code, detail=str(detail))
+        result: dict[str, Any] = response.json()
+        return result
+    except HTTPException:
+        raise
+    except (httpx.RequestError, httpx.TimeoutException) as exc:
+        raise HTTPException(status_code=503, detail=f"Retailer offline: {exc}") from exc
+
+
 @router.get("/status")
 def retailer_status() -> dict[str, Any]:
     """Check retailer health and current day."""
     try:
-        with httpx.Client(timeout=TIMEOUT) as client:
+        with httpx.Client(timeout=GET_TIMEOUT) as client:
             response = client.get(f"{RETAILER_URL}/health")
             if response.status_code == 200:
                 return {"available": True, "status": "online"}
@@ -74,6 +101,16 @@ def retailer_purchases() -> dict[str, Any]:
     if isinstance(result, list):
         return {"purchases": result, "available": True}
     return result
+
+
+@router.post("/purchases", status_code=201)
+def place_retailer_purchase(payload: RetailerPurchaseCreate) -> dict[str, Any]:
+    """Place a purchase order from the retailer to the manufacturer.
+
+    Proxies to the retailer's POST /api/purchases, which calls the
+    manufacturer's POST /api/sales/orders and records the local row.
+    """
+    return _retailer_post("/api/purchases", payload.model_dump())
 
 
 @router.get("/summary")

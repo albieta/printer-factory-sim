@@ -120,6 +120,8 @@ export interface RetailerPurchaseOrder {
 export const retailerAPI = {
   getSummary: () => api.get<RetailerSummary>('/retailer/summary'),
   getStock: () => api.get<RetailerStock>('/retailer/stock'),
+  placePurchase: (payload: { product_name: string; quantity: number }) =>
+    api.post<{ order: RetailerPurchaseOrder }>('/retailer/purchases', payload),
   getOrders: (status?: string) =>
     api.get<{ available: boolean; orders: RetailerOrder[] }>('/retailer/orders', {
       params: status ? { status } : {},

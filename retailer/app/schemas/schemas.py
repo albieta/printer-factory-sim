@@ -116,7 +116,7 @@ class PurchaseOrder(BaseModel):
     delivered_day: Optional[int] = None
     status: PurchaseOrderStatus
     status_reason: Optional[str] = None
-    external_order_id: Optional[int] = None
+    external_order_id: Optional[str] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
