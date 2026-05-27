@@ -50,8 +50,16 @@ def generate_customer_demand(
 
     for model, price in retail_prices.items():
         bp = base_prices.get(model, price)
-        # Demand falls as retail price exceeds the base; floor prevents collapse.
-        price_factor = max(0.2, 1.0 - (price - bp) / bp) if bp > 0 else 1.0
+        # Demand falls as retail price exceeds the base; steeper curve makes consumers more price-sensitive.
+        # Formula: elasticity = max(0.05, (1.0 - (price - bp) / bp) ^ 1.3)
+        # This creates a J-curve: small price increases reduce demand moderately,
+        # large increases cause demand collapse. Floor of 0.05 means even extreme prices
+        # maintain only 5% of baseline (not 20%), making high prices more punishing.
+        if bp > 0:
+            linear_factor = max(0.0, 1.0 - (price - bp) / bp)  # Clamp to 0 so we don't get complex numbers
+            price_factor = max(0.05, linear_factor ** 1.3)  # Power of 1.3 steepens the curve
+        else:
+            price_factor = 1.0
         n = max(0, int(random.gauss(mean_orders * price_factor, variance**0.5)))
         for _ in range(n):
             qty = random.choices([1, 2, 3], weights=[85, 12, 3])[0]

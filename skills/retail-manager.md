@@ -139,15 +139,18 @@ Follow these steps (using state provided above):
 
 4. **Pricing** (batched with purchases above):
 
+   **Price Elasticity**: Customers are price-sensitive. High prices reduce demand proportionally.
+   Profit maximization: `margin × volume` — don't raise so much that you lose more in volume than you gain in margin.
+   
    | Condition | Action |
    |-----------|--------|
-   | Still Short > 0 for any model OR demand_modifier > 1.5 | Raise that model **10%** |
-   | Still Short > 0 OR demand_modifier > 1.2 | Raise that model **5%** |
-   | demand_modifier > 1.0 and any backorder | Raise that model **3–5%** |
-   | demand_modifier < 0.7 AND on_hand > 2× safety stock | Lower that model **5%** |
-   | demand_modifier < 0.5 | Lower all prices **8%** |
+   | Still Short > 0 for any model | Raise that model **3%** (tight supply but elasticity limits benefit of raising further) |
+   | demand_modifier > 2.0 and Still Short > 0 | Raise that model **5%** (very tight, but no more—elasticity kicks in hard) |
+   | demand_modifier > 1.5 and no backlog | Raise that model **2%** max (demand is high but not constrained; don't risk volume) |
+   | demand_modifier < 0.7 AND on_hand > 2× safety stock | Lower that model **5%** (soft demand + oversupply, reduce to stimulate) |
+   | demand_modifier < 0.5 | Lower all prices **8%** (severe collapse; restore demand) |
 
-   Apply per-model (don't lower a backordered model). If `price_sensitivity: high`, cap raises at 5% and only when genuinely stocked out.
+   Apply per-model (don't lower a backordered model). If `price_sensitivity: high`, cap all raises at **2%** (customers shopping around—aggressive pricing loses sales).
 
 5. **Summarize**
    - Print 3-5 bullets with counts and reasons.

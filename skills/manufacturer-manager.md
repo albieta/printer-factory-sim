@@ -142,18 +142,26 @@ Follow these steps (using only the state provided above):
 
    **Assembly Queue Backlog Rules** (the state shows backlog_days — use it directly):
    
-   | Backlog | Action |
-   |---------|--------|
-   | > 5 days | Open a line AND hire workers — queue is critical |
-   | > 3 days | Hire one worker immediately (cheapest throughput boost) |
-   | 1.5–3 days | Hire one worker if daily revenue > daily costs |
-   | < 0.5 days (and holding) | Consider fire-worker to cut wages |
-   | < 0.5 days for 2+ turns | Consider close-assembly-line if workers already at min |
-
-   **ROI check before hiring/opening** (always verify payback):
-   - `hire-worker` daily cost: `cost_per_worker/hr × shift_hours × assembly_lines`
-   - Revenue needed: enough SalesOrders to cover the added wage cost within a few days
+   **ROI check BEFORE any hire or open** (always do this first):
+   - Calculate daily wage cost of the change: `cost_per_worker_per_hour × shift_hours × num_lines`
+   - Forecast: Will we have enough sales orders to recover this cost?
+   - Only expand if: `daily_backlog_revenue > 1.5 × daily_expanded_cost` (payback within 20 days)
    - Do NOT hire if already at max_workers_per_line (shown in state)
+   
+   | Backlog | Demand Signal | Action |
+   |---------|--------------|--------|
+   | > 5 days | demand_modifier > 1.5 with event description showing sustained multi-day spike | Open a line AND hire workers if ROI passes (queue is critical + signal shows sustained demand) |
+   | > 3 days | demand_modifier > 1.2 | Hire one worker IF: ROI check passes (cheapest throughput boost) |
+   | 1.5–3 days | demand_modifier > 1.0 | Hire one worker only if: ROI passes AND backlog remained > 1.5 days last turn (signal of stability) |
+   | 0.5–1.5 days | — | HOLD; do not expand (borderline backlog, could be temporary spike) |
+   | < 0.5 days (2+ consecutive turns) | demand_modifier < 0.8 | Consider fire-worker or close line to cut losses |
+
+   **How to tell if demand is sustained** (agents CAN see this in the prompt):
+   - Look at the "Market signal for day N" section in your prompt—it includes `active_events` and `event_descriptions`.
+   - If event description says "over 3 days" or "sustained for 5 days", demand IS long-term; safe to expand.
+   - If description says "sudden spike" or "one day", it's temporary; do NOT expand.
+   - Example (day 8): `viral_moment: "...demand spike over 3 days"` → expand (days 8–10 are safe).
+   - Example (day 1): `quiet: "Below-average demand"` (no duration) → do NOT expand (could be all week).
    
    **If expanding capacity**:
    ```bash
