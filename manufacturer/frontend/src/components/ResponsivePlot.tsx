@@ -1,4 +1,4 @@
-import React from 'react';
+import { forwardRef } from 'react';
 import Plot from 'react-plotly.js';
 import type { Config, Data, Layout } from 'plotly.js';
 
@@ -9,12 +9,12 @@ interface ResponsivePlotProps {
   minHeight?: number;
 }
 
-const ResponsivePlot: React.FC<ResponsivePlotProps> = ({
+const ResponsivePlot = forwardRef<HTMLDivElement, ResponsivePlotProps>(({
   data,
   layout,
   config,
   minHeight = 320,
-}) => {
+}, ref) => {
   const resolvedHeight = Math.max(minHeight + 96, 460);
   const mergedMargin = {
     t: 56,
@@ -40,7 +40,7 @@ const ResponsivePlot: React.FC<ResponsivePlotProps> = ({
   };
 
   return (
-    <div className="responsive-plot" style={{ height: resolvedHeight }}>
+    <div ref={ref} className="responsive-plot" style={{ height: resolvedHeight }}>
       <Plot
         data={data}
         layout={mergedLayout}
@@ -54,6 +54,8 @@ const ResponsivePlot: React.FC<ResponsivePlotProps> = ({
       />
     </div>
   );
-};
+});
+
+ResponsivePlot.displayName = 'ResponsivePlot';
 
 export default ResponsivePlot;

@@ -1,7 +1,9 @@
 import type { Data } from 'plotly.js';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Button, Form, Table } from 'react-bootstrap';
+import { Alert, Button, Form, Table, Spinner } from 'react-bootstrap';
 import { FaDownload } from 'react-icons/fa';
+import html2canvas from 'html2canvas';
+import JSZip from 'jszip';
 import PageGuide from '../components/PageGuide';
 import ResponsivePlot from '../components/ResponsivePlot';
 import { eventsAPI, exportAPI, getErrorMessage, scenariosAPI } from '../services/api';
@@ -18,10 +20,33 @@ const EmptyChart: React.FC<{ label: string }> = ({ label }) => (
   </div>
 );
 
-const SectionHeader: React.FC<{ title: string; subtitle: string }> = ({ title, subtitle }) => (
-  <div className="mt-5 mb-3">
-    <div className="section-kicker">{title}</div>
-    <p className="text-muted mb-0">{subtitle}</p>
+const SectionHeader: React.FC<{ title: string; subtitle: string; onDownload?: () => void; isDownloading?: boolean; hasData?: boolean }> = ({ title, subtitle, onDownload, isDownloading, hasData = true }) => (
+  <div className="mt-5 mb-3 d-flex justify-content-between align-items-start gap-3">
+    <div>
+      <div className="section-kicker">{title}</div>
+      <p className="text-muted mb-0">{subtitle}</p>
+    </div>
+    {onDownload && hasData && (
+      <Button
+        variant="outline-secondary"
+        size="sm"
+        onClick={onDownload}
+        disabled={isDownloading}
+        className="flex-shrink-0"
+      >
+        {isDownloading ? (
+          <>
+            <Spinner animation="border" size="sm" className="me-2" />
+            Downloading...
+          </>
+        ) : (
+          <>
+            <FaDownload className="me-2" />
+            Download charts
+          </>
+        )}
+      </Button>
+    )}
   </div>
 );
 
@@ -34,6 +59,23 @@ const Reports: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [eventFilter, setEventFilter] = useState('all');
+  const [downloadingSection, setDownloadingSection] = useState<string | null>(null);
+
+  // Chart refs for downloading
+  const commonInventoryChartRef = useRef<HTMLDivElement | null>(null);
+  const commonPricesChartRef = useRef<HTMLDivElement | null>(null);
+  const commonEventsChartRef = useRef<HTMLDivElement | null>(null);
+  const retailerDemandChartRef = useRef<HTMLDivElement | null>(null);
+  const retailerStockChartRef = useRef<HTMLDivElement | null>(null);
+  const mfgCapacityChartRef = useRef<HTMLDivElement | null>(null);
+  const mfgHoursChartRef = useRef<HTMLDivElement | null>(null);
+  const mfgFinancialChartRef = useRef<HTMLDivElement | null>(null);
+  const mfgProfitChartRef = useRef<HTMLDivElement | null>(null);
+  const mfgOrdersChartRef = useRef<HTMLDivElement | null>(null);
+  const mfgDailyFinancialsChartRef = useRef<HTMLDivElement | null>(null);
+  const mfgInventoryChartRef = useRef<HTMLDivElement | null>(null);
+  const supplierPriceChartRef = useRef<HTMLDivElement | null>(null);
+  const supplierStockChartRef = useRef<HTMLDivElement | null>(null);
 
   const loadEvents = useCallback(async () => {
     try {
@@ -285,6 +327,85 @@ const Reports: React.FC = () => {
     [eventFilter, events],
   );
 
+  // ── chart download handler ────────────────────────────────────────────────
+
+  const downloadChartsAsZip = useCallback(
+    async (section: 'common' | 'retailer' | 'manufacturer' | 'supplier') => {
+      setDownloadingSection(section);
+      try {
+        const zip = new JSZip();
+        const chartRefs: Array<{ ref: React.RefObject<HTMLDivElement | null>; name: string }> = [];
+
+        if (section === 'common') {
+          chartRefs.push(
+            { ref: commonInventoryChartRef, name: 'Inventory across the chain' },
+            { ref: commonPricesChartRef, name: 'Printer prices (wholesale vs retail)' },
+            { ref: commonEventsChartRef, name: 'Scenario events timeline' }
+          );
+        } else if (section === 'retailer') {
+          chartRefs.push(
+            { ref: retailerDemandChartRef, name: 'Daily customer demand outcomes' },
+            { ref: retailerStockChartRef, name: 'Retailer stock per product' }
+          );
+        } else if (section === 'manufacturer') {
+          chartRefs.push(
+            { ref: mfgCapacityChartRef, name: 'Assembly capacity expansion' },
+            { ref: mfgHoursChartRef, name: 'Total daily assembly capacity' },
+            { ref: mfgFinancialChartRef, name: 'Financial performance' },
+            { ref: mfgProfitChartRef, name: 'Net profit evolution' },
+            { ref: mfgOrdersChartRef, name: 'Daily order activity (MFG + sales orders)' },
+            { ref: mfgDailyFinancialsChartRef, name: 'Daily income, costs & profit' },
+            { ref: mfgInventoryChartRef, name: 'Manufacturer raw material inventory per component' }
+          );
+        } else if (section === 'supplier') {
+          chartRefs.push(
+            { ref: supplierPriceChartRef, name: 'Material prices (provider components)' },
+            { ref: supplierStockChartRef, name: 'Supplier stock per component' }
+          );
+        }
+
+        let chartCount = 0;
+        for (const { ref, name } of chartRefs) {
+          if (ref.current) {
+            const canvas = await html2canvas(ref.current, {
+              backgroundColor: '#ffffff',
+              scale: 2,
+              allowTaint: true,
+              useCORS: true,
+            });
+            const imgData = canvas.toDataURL('image/png');
+            const base64Data = imgData.replace(/^data:image\/png;base64,/, '');
+            zip.file(`${chartCount + 1}_${name.replace(/[\/\?:]/g, '_')}.png`, base64Data, { base64: true });
+            chartCount += 1;
+          }
+        }
+
+        if (chartCount === 0) {
+          setError(`No data available in ${section} section.`);
+          setDownloadingSection(null);
+          return;
+        }
+
+        const content = await zip.generateAsync({ type: 'blob' });
+        const url = URL.createObjectURL(content);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `analytics-${section}-charts-${new Date().toISOString().slice(0, 10)}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        setError(null);
+      } catch (err) {
+        setError(getErrorMessage(err, `Failed to download ${section} charts.`));
+      } finally {
+        setDownloadingSection(null);
+      }
+    },
+    []
+  );
+
   // ── export handler ────────────────────────────────────────────────────────
 
   const handleExport = async (type: 'full' | 'inventory' | 'events') => {
@@ -342,9 +463,15 @@ const Reports: React.FC = () => {
       </div>
 
       {/* ── COMMON ─────────────────────────────────────────────────────────── */}
-      <SectionHeader title="Common" subtitle="Full-chain views spanning all three services." />
+      <SectionHeader
+        title="Common"
+        subtitle="Full-chain views spanning all three services."
+        onDownload={() => void downloadChartsAsZip('common')}
+        isDownloading={downloadingSection === 'common'}
+        hasData={hasMetrics}
+      />
 
-      <div className="chart-container mb-3">
+      <div className="chart-container mb-3" ref={commonInventoryChartRef}>
         {hasMetrics && inventoryChart ? (
           <ResponsivePlot
             data={[
@@ -359,7 +486,7 @@ const Reports: React.FC = () => {
       </div>
 
       <div className="data-grid mb-3">
-        <div className="chart-container">
+        <div className="chart-container" ref={commonPricesChartRef}>
           {hasMetrics && printerPriceChart ? (
             <ResponsivePlot
               data={printerPriceChart}
@@ -369,7 +496,7 @@ const Reports: React.FC = () => {
           ) : <EmptyChart label={noMetricsMsg} />}
         </div>
 
-        <div className="chart-container">
+        <div className="chart-container" ref={commonEventsChartRef}>
           {eventsOverlay ? (
             <ResponsivePlot
               data={[{ x: [0.5, eventsOverlay.maxDay + 0.5], y: [null, null], type: 'scatter', mode: 'none' as const, showlegend: false }]}
@@ -389,10 +516,16 @@ const Reports: React.FC = () => {
       </div>
 
       {/* ── RETAILER ───────────────────────────────────────────────────────── */}
-      <SectionHeader title="Retailer" subtitle="Customer demand flow and retailer stock by product." />
+      <SectionHeader
+        title="Retailer"
+        subtitle="Customer demand flow and retailer stock by product."
+        onDownload={() => void downloadChartsAsZip('retailer')}
+        isDownloading={downloadingSection === 'retailer'}
+        hasData={hasMetrics}
+      />
 
       <div className="data-grid mb-3">
-        <div className="chart-container">
+        <div className="chart-container" ref={retailerDemandChartRef}>
           {hasMetrics && demandChart ? (
             <ResponsivePlot
               data={[
@@ -406,7 +539,7 @@ const Reports: React.FC = () => {
           ) : <EmptyChart label={noMetricsMsg} />}
         </div>
 
-        <div className="chart-container">
+        <div className="chart-container" ref={retailerStockChartRef}>
           {hasMetrics && retailerStockChart ? (
             <ResponsivePlot
               data={retailerStockChart}
@@ -418,10 +551,16 @@ const Reports: React.FC = () => {
       </div>
 
       {/* ── MANUFACTURER ───────────────────────────────────────────────────── */}
-      <SectionHeader title="Manufacturer" subtitle="Assembly capacity, financials, and raw material inventory over time." />
+      <SectionHeader
+        title="Manufacturer"
+        subtitle="Assembly capacity, financials, and raw material inventory over time."
+        onDownload={() => void downloadChartsAsZip('manufacturer')}
+        isDownloading={downloadingSection === 'manufacturer'}
+        hasData={hasMetrics}
+      />
 
       <div className="data-grid mb-3">
-        <div className="chart-container">
+        <div className="chart-container" ref={mfgCapacityChartRef}>
           {hasMetrics && capacityChart ? (
             <ResponsivePlot
               data={[
@@ -434,7 +573,7 @@ const Reports: React.FC = () => {
           ) : <EmptyChart label={noMetricsMsg} />}
         </div>
 
-        <div className="chart-container">
+        <div className="chart-container" ref={mfgHoursChartRef}>
           {hasMetrics && capacityChart ? (
             <ResponsivePlot
               data={[{ x: dayLabels, y: capacityChart.dailyHours, type: 'scatter', mode: 'lines+markers', name: 'Daily assembly hours', marker: { color: '#228B22' } }]}
@@ -446,7 +585,7 @@ const Reports: React.FC = () => {
       </div>
 
       <div className="data-grid mb-3">
-        <div className="chart-container">
+        <div className="chart-container" ref={mfgFinancialChartRef}>
           {hasMetrics && financialChart ? (
             <ResponsivePlot
               data={[
@@ -459,7 +598,7 @@ const Reports: React.FC = () => {
           ) : <EmptyChart label={noMetricsMsg} />}
         </div>
 
-        <div className="chart-container">
+        <div className="chart-container" ref={mfgProfitChartRef}>
           {hasMetrics && financialChart ? (
             <ResponsivePlot
               data={[{ x: dayLabels, y: financialChart.profit, type: 'scatter', mode: 'lines+markers', name: 'Net profit', marker: { color: financialChart.profit.some((p) => p < 0) ? '#ffc107' : '#0dcaf0' } }]}
@@ -471,7 +610,7 @@ const Reports: React.FC = () => {
       </div>
 
       <div className="data-grid mb-3">
-        <div className="chart-container">
+        <div className="chart-container" ref={mfgOrdersChartRef}>
           {hasMetrics && mfgOrdersChart ? (
             <ResponsivePlot
               data={[
@@ -486,7 +625,7 @@ const Reports: React.FC = () => {
           ) : <EmptyChart label={noMetricsMsg} />}
         </div>
 
-        <div className="chart-container">
+        <div className="chart-container" ref={mfgDailyFinancialsChartRef}>
           {hasMetrics && dailyFinancialsChart ? (
             <ResponsivePlot
               data={[
@@ -501,7 +640,7 @@ const Reports: React.FC = () => {
         </div>
       </div>
 
-      <div className="chart-container mb-3">
+      <div className="chart-container mb-3" ref={mfgInventoryChartRef}>
         {hasMetrics && mfgInventoryChart ? (
           <ResponsivePlot
             data={mfgInventoryChart}
@@ -512,10 +651,16 @@ const Reports: React.FC = () => {
       </div>
 
       {/* ── SUPPLIER ───────────────────────────────────────────────────────── */}
-      <SectionHeader title="Supplier" subtitle="Provider component pricing and stock levels over time." />
+      <SectionHeader
+        title="Supplier"
+        subtitle="Provider component pricing and stock levels over time."
+        onDownload={() => void downloadChartsAsZip('supplier')}
+        isDownloading={downloadingSection === 'supplier'}
+        hasData={hasMetrics}
+      />
 
       <div className="data-grid mb-3">
-        <div className="chart-container">
+        <div className="chart-container" ref={supplierPriceChartRef}>
           {hasMetrics && materialPriceChart ? (
             <ResponsivePlot
               data={materialPriceChart}
@@ -525,7 +670,7 @@ const Reports: React.FC = () => {
           ) : <EmptyChart label={noMetricsMsg} />}
         </div>
 
-        <div className="chart-container">
+        <div className="chart-container" ref={supplierStockChartRef}>
           {hasMetrics && supplierStockChart ? (
             <ResponsivePlot
               data={supplierStockChart}
