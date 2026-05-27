@@ -18,19 +18,19 @@ def advance_day(db: Session = Depends(get_db)):
     return SimulationService(db).advance_day()
 
 
-@router.post("/reset", response_model=ResetConfirm)
+@router.post("/reset/", response_model=ResetConfirm)
 def reset_simulation(db: Session = Depends(get_db)):
     SimulationService(db).reset_simulation()
     return ResetConfirm(success=True, message="Simulation reset to the starter scenario successfully")
 
 
-@router.post("/reset-empty", response_model=ResetConfirm)
+@router.post("/reset-empty/", response_model=ResetConfirm)
 def reset_to_empty(db: Session = Depends(get_db)):
     SimulationService(db).reset_to_empty()
     return ResetConfirm(success=True, message="Simulation cleared to empty state. All products, suppliers, and data removed.")
 
 
-@router.post("/reset-default-config", response_model=ResetConfirm)
+@router.post("/reset-default-config/", response_model=ResetConfirm)
 def reset_to_default_config(db: Session = Depends(get_db)):
     import os
     import httpx
@@ -45,13 +45,13 @@ def reset_to_default_config(db: Session = Depends(get_db)):
         with httpx.Client(timeout=10.0) as client:
             # Reset provider (if endpoint exists)
             try:
-                client.post(f"{provider_url}/api/reset", json={})
+                client.post(f"{provider_url}/api/day/reset", json={})
             except (httpx.HTTPError, Exception):
                 pass  # Provider reset endpoint may not exist yet
 
             # Reset retailer (if endpoint exists)
             try:
-                client.post(f"{retailer_url}/api/reset", json={})
+                client.post(f"{retailer_url}/api/day/reset", json={})
             except (httpx.HTTPError, Exception):
                 pass  # Retailer reset endpoint may not exist yet
     except Exception:
