@@ -155,7 +155,8 @@ def _manufacturer_snapshot(mfr_cfg: dict[str, Any], day: int, logger: ApiLogger 
     daily_financials: dict[str, float] = {"revenue": 0.0, "costs": 0.0, "net_profit": 0.0}
     if isinstance(transactions_data, list):
         rev = sum(_to_float(t.get("amount")) for t in transactions_data if isinstance(t, dict) and t.get("type") == "PRODUCT_SOLD")
-        cost = sum(_to_float(t.get("amount")) for t in transactions_data if isinstance(t, dict) and t.get("type") != "PRODUCT_SOLD")
+        # Costs are stored as negative values in the database; take absolute value for reporting
+        cost = abs(sum(_to_float(t.get("amount")) for t in transactions_data if isinstance(t, dict) and t.get("type") != "PRODUCT_SOLD"))
         daily_financials = {"revenue": rev, "costs": cost, "net_profit": rev - cost}
 
     all_data = (inventory_data, prices_data, sales_data, production_data, capacity_data, financial_data, transactions_data, orders_daily_data)

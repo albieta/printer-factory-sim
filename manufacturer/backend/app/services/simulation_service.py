@@ -386,11 +386,12 @@ class SimulationService:
 
         # Per-day financial activity. Transactions are recorded with the new sim_day inside
         # advance_day() (after the increment), so querying by sim_day gives today's totals.
+        # Costs are stored as negative values; take absolute value for reporting.
         daily_financials: dict[str, float] = {"revenue": 0.0, "costs": 0.0, "net_profit": 0.0}
         try:
             txns = self.db.query(FinancialTransaction).filter(FinancialTransaction.sim_day == sim_day).all()
             rev = sum(float(t.amount) for t in txns if t.transaction_type == FinancialTransactionType.PRODUCT_SOLD)
-            cost = sum(float(t.amount) for t in txns if t.transaction_type != FinancialTransactionType.PRODUCT_SOLD)
+            cost = abs(sum(float(t.amount) for t in txns if t.transaction_type != FinancialTransactionType.PRODUCT_SOLD))
             daily_financials = {"revenue": rev, "costs": cost, "net_profit": rev - cost}
         except Exception:
             pass
