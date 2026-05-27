@@ -73,6 +73,12 @@ class SimulationService:
         self.db.add(event)
         self.db.commit()
 
+        # Append metrics snapshot so analytics charts update with manual day advances
+        try:
+            self._append_metrics_snapshot()
+        except Exception:
+            pass
+
         return {
             "sim_date": sim_date,
             "events_generated": 1 + orders_created + pos_delivered + orders_completed,
