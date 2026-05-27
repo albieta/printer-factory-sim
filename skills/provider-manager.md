@@ -116,7 +116,15 @@ Follow these steps, running the appropriate CLI commands:
 - Treat 0.8 to 1.2 demand as steady.
 
 ## When Done
-Print exactly this shape:
+
+**START your response with ONE-LINE DECISION SUMMARY (so the engine log sees it first):**
+```
+Restocked M products + price adjustments + order decisions
+```
+
+Then provide your reasoning/details below that summary.
+
+**END with exactly this shape:**
 ```
 - Day N complete.
 - Restocked: none or PRODUCT +QTY, ...
@@ -124,4 +132,5 @@ Print exactly this shape:
 - Order pressure: none or N pending / N rejected.
 - Main risk: none or PRODUCT at N units because REASON.
 ```
+
 Stop.

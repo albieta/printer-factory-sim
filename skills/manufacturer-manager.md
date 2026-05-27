@@ -163,7 +163,15 @@ Follow these steps (using only the state provided above):
 `demand_modifier`: 1.0 normal, high stronger demand, low weaker demand. `supply_modifier`: lead-time risk; Week 7 is normally 1.0. Treat 0.8 to 1.2 demand as steady.
 
 ## When Done
-Print 3 to 7 bullets:
+
+**START your response with ONE-LINE DECISION SUMMARY (so the engine log sees it first):**
+```
+Released N orders + ordered M materials (NNN units) + price actions → focus on XXXX
+```
+
+Then provide your reasoning/details below that summary.
+
+**END with 3–7 bullet-point summary:**
 ```
 - Day N complete.
 - Released N sales order(s).
@@ -173,4 +181,5 @@ Print 3 to 7 bullets:
 - Financial: Profit $X or concern: loss trend / low margin.
 - Inventory concern: none or MATERIAL at N units.
 ```
+
 Stop.

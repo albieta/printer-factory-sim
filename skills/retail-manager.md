@@ -137,7 +137,15 @@ Follow these steps (using state provided above):
 - `supply_modifier < 0.7` or `lead_time_modifier > 1.0`: upstream supply is constrained; order earlier and log the risk.
 
 ## When Done
-Print exactly this shape:
+
+**START your response with ONE-LINE DECISION SUMMARY (so the engine log sees it first):**
+```
+Fulfilled/backordered N orders + ordered M units + price actions
+```
+
+Then provide your reasoning/details below that summary.
+
+**END with exactly this shape:**
 ```
 - Day N complete.
 - Customer actions: none or N fulfilled / N backordered.
@@ -145,4 +153,5 @@ Print exactly this shape:
 - Price changes: none or MODEL to PRICE, ...
 - Main risk: none or MODEL because REASON.
 ```
+
 Stop.
