@@ -346,30 +346,34 @@ class SimulationService:
             pass
 
         # Per-day combined order activity (MFG orders + SalesOrders).
-        # MFG orders are created and released during advance_day() using the new sim_day date.
-        # SalesOrders are placed by the retailer agent before the advance (placed_day = sim_day-1).
+        # Events are recorded BEFORE day advance with agent_day's sim_date.
+        # This method is called AFTER advance, so sim_date has moved forward.
+        # We need to look back one day to find the events agents created.
+        from datetime import timedelta
+
         prev_day = max(0, sim_day - 1)
+        agent_date = config.sim_date - timedelta(days=1)  # Day when agents actually worked
         sales_orders_today: dict[str, int] = {"placed": 0, "in_progress": 0, "shipped": 0, "rejected": 0}
         try:
             mfg_created = self.db.query(ManufacturingOrder).filter(
-                ManufacturingOrder.created_date == config.sim_date
+                ManufacturingOrder.created_date == agent_date
             ).count()
             mfg_released = self.db.query(ManufacturingOrder).filter(
-                ManufacturingOrder.released_date == config.sim_date
+                ManufacturingOrder.released_date == agent_date
             ).count()
             mfg_blocked = self.db.query(ManufacturingOrder).filter(
-                ManufacturingOrder.created_date == config.sim_date,
+                ManufacturingOrder.created_date == agent_date,
                 ManufacturingOrder.status == OrderStatus.BLOCKED,
             ).count()
             so_placed = self.db.query(SalesOrder).filter(SalesOrder.placed_day == prev_day).count()
             so_confirmed = self.db.query(Event).filter(
                 Event.event_type == EventType.SALES_ORDER_RELEASED,
-                Event.sim_date == config.sim_date,
+                Event.sim_date == agent_date,
             ).count()
             so_shipped = self.db.query(SalesOrder).filter(SalesOrder.shipped_day == sim_day).count()
             so_rejected = self.db.query(Event).filter(
                 Event.event_type == EventType.SALES_ORDER_REJECTED,
-                Event.sim_date == config.sim_date,
+                Event.sim_date == agent_date,
             ).count()
             sales_orders_today = {
                 "placed": mfg_created + so_placed,
