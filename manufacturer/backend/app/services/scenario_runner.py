@@ -347,12 +347,17 @@ class ScenarioRunner:
             summary.update(
                 {
                     "scenario_name": data.get("scenario_name"),
+                    "base_price": data.get("base_price"),
+                    "base_demand": data.get("base_demand"),
                     "event_count": len(data.get("events", [])),
                     "events": [
                         {
                             "name": event.get("name"),
                             "start_day": event.get("start_day"),
                             "end_day": event.get("end_day"),
+                            "demand_modifier": event.get("demand_modifier"),
+                            "supply_modifier": event.get("supply_modifier"),
+                            "lead_time_modifier": event.get("lead_time_modifier"),
                             "description": event.get("description"),
                         }
                         for event in data.get("events", [])

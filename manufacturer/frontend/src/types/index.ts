@@ -247,6 +247,9 @@ export interface ScenarioEvent {
   name: string | null;
   start_day: number | null;
   end_day: number | null;
+  demand_modifier: number | null;
+  supply_modifier: number | null;
+  lead_time_modifier: number | null;
   description: string | null;
 }
 
@@ -255,6 +258,8 @@ export interface ScenarioSummary {
   relative_path: string;
   kind: 'scenario';
   scenario_name?: string | null;
+  base_price?: number | null;
+  base_demand?: { mean: number; variance: number } | null;
   event_count?: number;
   events?: ScenarioEvent[];
   recommended_assembly?: {

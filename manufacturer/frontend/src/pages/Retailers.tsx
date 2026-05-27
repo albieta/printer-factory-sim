@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Card, Table } from 'react-bootstrap';
+import { Alert, Badge, Card, Table } from 'react-bootstrap';
 import PageGuide from '../components/PageGuide';
-import { getErrorMessage, retailerAPI } from '../services/api';
-import type { RetailerCustomerOrder, RetailerPurchaseOrder, RetailerStockItem } from '../types';
+import { getErrorMessage, retailerAPI, scenariosAPI } from '../services/api';
+import type { RetailerCustomerOrder, RetailerPurchaseOrder, RetailerStockItem, ScenarioSummary } from '../types';
 import { onSimulationUpdate } from '../utils/simulationEvents';
 import { formatCurrency } from '../utils/formatters';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -18,16 +18,21 @@ const Retailers: React.FC = () => {
   const [stockItems, setStockItems] = useState<RetailerStockItem[]>([]);
   const [customerOrders, setCustomerOrders] = useState<RetailerCustomerOrder[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<RetailerPurchaseOrder[]>([]);
+  const [activeScenario, setActiveScenario] = useState<ScenarioSummary | null>(null);
+  const [activeRunDay, setActiveRunDay] = useState<number | null>(null);
 
   const loadData = async () => {
     try {
       setLoading(true);
-      const [summaryRes, stockRes, ordersRes, purchasesRes] = await Promise.all([
-        retailerAPI.getSummary(),
-        retailerAPI.getStock(),
-        retailerAPI.getOrders(),
-        retailerAPI.getPurchases(),
-      ]);
+      const [summaryRes, stockRes, ordersRes, purchasesRes, scenarioListRes, scenarioStatusRes] =
+        await Promise.all([
+          retailerAPI.getSummary(),
+          retailerAPI.getStock(),
+          retailerAPI.getOrders(),
+          retailerAPI.getPurchases(),
+          scenariosAPI.list().catch(() => null),
+          scenariosAPI.status().catch(() => null),
+        ]);
 
       const summary = summaryRes.data;
       setAvailable(summary.available);
@@ -39,6 +44,20 @@ const Retailers: React.FC = () => {
       setStockItems(stockRes.data.items ?? []);
       setCustomerOrders(ordersRes.data.orders ?? []);
       setPurchaseOrders(purchasesRes.data.purchases ?? []);
+
+      // Resolve active scenario from status + list.
+      const run = scenarioStatusRes?.data?.run ?? null;
+      if (run && scenarioListRes) {
+        const matched = scenarioListRes.data.scenarios.find(
+          (s) => s.relative_path === run.scenario,
+        ) ?? null;
+        setActiveScenario(matched);
+        setActiveRunDay(run.current_day);
+      } else {
+        setActiveScenario(null);
+        setActiveRunDay(null);
+      }
+
       setError(null);
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to load retailer data.'));
@@ -96,6 +115,138 @@ const Retailers: React.FC = () => {
       />
 
       {error ? <Alert variant="danger">{error}</Alert> : null}
+
+      {/* ── How demand works ── */}
+      <Card className="mb-4">
+        <Card.Header><strong>How Customer Demand Works</strong></Card.Header>
+        <Card.Body>
+          <p className="mb-2">
+            Each simulated day the turn engine generates synthetic customer orders and POSTs them to
+            this retailer before any agent acts. Orders are <strong>one printer per customer</strong>
+            — there are no multi-model baskets.
+          </p>
+          <p className="mb-2">
+            The number of orders placed for each model is drawn independently from a normal
+            distribution:
+          </p>
+          <pre className="bg-light rounded p-3 mb-3" style={{ fontSize: '0.85rem' }}>
+{`orders_per_model = max(0, round(gauss(
+    mean × demand_modifier × price_factor,
+    sqrt(variance)
+)))
+
+price_factor = max(0.2, 1 − (retail_price − base_price) / base_price)`}
+          </pre>
+          <ul className="mb-2">
+            <li>
+              <strong>mean / variance</strong> — set in the scenario's <code>base_demand</code>{' '}
+              block; doubled values are now the active baseline.
+            </li>
+            <li>
+              <strong>demand_modifier</strong> — multiplied from all events active on that day
+              (events compound, so overlapping events multiply together).
+            </li>
+            <li>
+              <strong>price_factor</strong> — automatically reduces demand when the retailer agent
+              raises prices above the scenario's base price. Floored at 0.2 to prevent total
+              collapse.
+            </li>
+            <li>
+              <strong>Reproducibility</strong> — each day is seeded with <code>random.seed(day)</code>,
+              so identical scenario runs produce identical demand sequences.
+            </li>
+          </ul>
+          <p className="mb-0 text-muted" style={{ fontSize: '0.85rem' }}>
+            Fulfilled orders consume retailer stock immediately. Backordered orders queue until
+            the retailer receives a delivery from the manufacturer.
+          </p>
+        </Card.Body>
+      </Card>
+
+      {/* ── Active scenario configuration ── */}
+      <Card className="mb-4">
+        <Card.Header><strong>Active Scenario — Demand Configuration</strong></Card.Header>
+        <Card.Body>
+          {activeScenario ? (
+            <>
+              <div className="d-flex align-items-center gap-3 mb-3 flex-wrap">
+                <span>
+                  <strong>Scenario:</strong>{' '}
+                  {activeScenario.scenario_name ?? activeScenario.name}
+                </span>
+                {activeScenario.base_demand && (
+                  <>
+                    <span>
+                      <strong>Base mean:</strong> {activeScenario.base_demand.mean} orders/model/day
+                    </span>
+                    <span>
+                      <strong>Variance:</strong> {activeScenario.base_demand.variance}
+                    </span>
+                  </>
+                )}
+                {activeScenario.base_price != null && (
+                  <span>
+                    <strong>Base price:</strong> {formatCurrency(activeScenario.base_price)}
+                  </span>
+                )}
+                {activeRunDay != null && (
+                  <span className="text-muted">Day {activeRunDay} of run</span>
+                )}
+              </div>
+              {activeScenario.events && activeScenario.events.length > 0 && (
+                <Table responsive hover size="sm" className="mb-0">
+                  <thead>
+                    <tr>
+                      <th>Event</th>
+                      <th>Days</th>
+                      <th>Demand ×</th>
+                      <th>Supply ×</th>
+                      <th>Lead time ×</th>
+                      <th>Description</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activeScenario.events.map((ev, idx) => {
+                      const isActive =
+                        activeRunDay != null &&
+                        ev.start_day != null &&
+                        ev.end_day != null &&
+                        activeRunDay >= ev.start_day &&
+                        activeRunDay <= ev.end_day;
+                      return (
+                        <tr key={idx} className={isActive ? 'table-warning' : ''}>
+                          <td>
+                            <strong>{ev.name ?? '—'}</strong>
+                            {isActive && (
+                              <Badge bg="warning" text="dark" className="ms-2">
+                                active
+                              </Badge>
+                            )}
+                          </td>
+                          <td className="text-nowrap">
+                            {ev.start_day ?? '?'}–{ev.end_day ?? '?'}
+                          </td>
+                          <td>{ev.demand_modifier != null ? `×${ev.demand_modifier}` : '—'}</td>
+                          <td>{ev.supply_modifier != null ? `×${ev.supply_modifier}` : '—'}</td>
+                          <td>{ev.lead_time_modifier != null ? `×${ev.lead_time_modifier}` : '—'}</td>
+                          <td className="text-muted" style={{ fontSize: '0.85rem' }}>
+                            {ev.description ?? '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </Table>
+              )}
+            </>
+          ) : (
+            <p className="text-muted mb-0">
+              No scenario is currently running. Start one from the{' '}
+              <a href="/scenarios">Scenarios</a> tab to see demand configuration here.
+            </p>
+          )}
+        </Card.Body>
+      </Card>
 
       <div className="kpi-grid">
         <div className="kpi-card info">
