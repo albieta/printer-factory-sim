@@ -136,18 +136,10 @@ class FinancialService:
         }
 
     def get_transactions(self, sim_day: int | None = None) -> list[dict[str, Any]]:
-        """Get financial transactions, optionally filtered by engine day.
-
-        When sim_day is provided, it's interpreted as an engine day number.
-        Transactions for engine day N can be recorded with two different sim_day values:
-        - sim_day = N-1: transactions from agent actions before day advance
-        - sim_day = N: transactions from day advance operations (daily costs, etc.)
-        Both should be included in daily financials for that day.
-        """
+        """Get financial transactions, optionally filtered to one accounting day."""
         query = self.db.query(FinancialTransaction)
         if sim_day is not None:
-            prev_day = max(0, sim_day - 1)
-            query = query.filter(FinancialTransaction.sim_day.in_([prev_day, sim_day]))
+            query = query.filter(FinancialTransaction.sim_day == sim_day)
         transactions = query.order_by(FinancialTransaction.created_at).all()
         return [
             {

@@ -7,7 +7,7 @@
 > reasoning stream in real time — keep the `LOG:` lines short and decisive.
 
 ## Your Role
-Run one factory day: review retailer orders, check materials/capacity, order parts early enough to cover supplier lead times, release only material-covered production, and change wholesale prices only when the signal calls for it. The engine advances days.
+Run one factory day: review retailer orders, check materials/capacity, release production, order parts early enough to cover supplier lead times, and change wholesale prices only when the signal calls for it. The engine advances days.
 
 ## Available Commands
 
@@ -50,7 +50,6 @@ Financial Costs (operator-configured, you cannot change):
 - Do not call `day advance`.
 - Try to avoid state-check commands when you have the data in the prompt; they waste iterations.
 - Do not release beyond daily capacity shown by `capacity` (use the value in the provided state).
-- Do not release a sales order unless on-hand stock covers its BOM demand today; uncovered orders should stay PENDING while you place purchase orders.
 - Do not order parts without taking into account the orders inbound as PENDING (check the state table).
 - Do not invent flags, product names, supplier names, or order IDs.
 - Do not choose a slower supplier when a faster valid one can meet the need.
@@ -115,12 +114,11 @@ Follow these steps (using only the state provided above):
 
 2. **Release + Order + Price Together** (CLI natively supports batch):
    
-   **Release only material-covered PENDING orders in one call:**
+   **Release PENDING orders in one call:**
    ```bash
    bin/manufacturer-cli production release --order SO-0001-025 --order SO-0001-026 --order SO-0001-027
    ```
-   If an order would consume material that is not on hand, do not release it yet. Order the missing materials first and let the order remain PENDING until stock arrives.
-   
+
    **Order all needed materials in one call:**
    ```bash
    bin/manufacturer-cli purchase create --item "ChipSupply Co:LCD Screen:100" --item "ChipSupply Co:PLA Filament:300"

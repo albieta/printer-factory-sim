@@ -410,17 +410,13 @@ class SimulationService:
         except Exception:
             pass
 
-        # Per-day financial activity. When we advance the day, sim_day is incremented first, then
-        # transactions are recorded with the NEW sim_day. The metrics snapshot is captured AFTER
-        # advancing, so we're now at the start of the new day. We need to look at transactions from
-        # the day that just finished (sim_day - 1) plus any config changes made today that have
-        # already been recorded with the current sim_day.
+        # Per-day financial activity. Transactions are already stamped with
+        # their accounting sim_day, so each chart bar must use exactly one day.
+        # Including adjacent days double-counts purchases and daily operating costs.
         daily_financials: dict[str, float] = {"revenue": 0.0, "costs": 0.0, "net_profit": 0.0}
         try:
-            # Query transactions from both the previous day (config/user actions) and current day (advance_day operations)
-            prev_day = max(0, sim_day - 1)
             txns = self.db.query(FinancialTransaction).filter(
-                FinancialTransaction.sim_day.in_([prev_day, sim_day])
+                FinancialTransaction.sim_day == sim_day
             ).all()
             rev = sum(float(t.amount) for t in txns if t.transaction_type == FinancialTransactionType.PRODUCT_SOLD)
             cost = abs(sum(float(t.amount) for t in txns if t.transaction_type != FinancialTransactionType.PRODUCT_SOLD))

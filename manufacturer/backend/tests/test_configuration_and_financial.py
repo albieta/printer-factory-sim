@@ -245,6 +245,18 @@ class TestFinancialTracking:
         assert "MATERIALS_PURCHASED" in types
         assert "PRODUCT_SOLD" in types
 
+    def test_transactions_day_filter_uses_exact_accounting_day(self, db: Session) -> None:
+        """Daily financial charts must not double-count adjacent days."""
+        fin_service = FinancialService(db)
+
+        fin_service.record_materials_purchased(77, 100.0, "Previous day purchase")
+        fin_service.record_materials_purchased(78, 250.0, "Current day purchase")
+
+        transactions = fin_service.get_transactions(78)
+
+        assert [t["sim_day"] for t in transactions] == [78]
+        assert sum(abs(t["amount"]) for t in transactions) == 250.0
+
 
 class TestConfigurationConstraints:
     """Test configuration boundary conditions and constraints."""
