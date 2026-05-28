@@ -387,6 +387,7 @@ export interface MetricsSnapshot {
       fulfilled_today: number;
       backordered_today: number;
       cancelled_today: number;
+      demand_by_model?: Record<string, number>;
     };
     purchases: Record<string, number>;
     errors: string[];
@@ -415,6 +416,7 @@ export interface MetricsSnapshot {
       placed: number;
       in_progress: number;
       shipped: number;
+      blocked?: number;
       rejected: number;
     };
     daily_financials: {

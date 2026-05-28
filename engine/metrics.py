@@ -159,7 +159,8 @@ def _manufacturer_snapshot(mfr_cfg: dict[str, Any], day: int, logger: ApiLogger 
         "placed": mfg_created + so_placed,
         "in_progress": mfg_released + so_confirmed,
         "shipped": so_shipped,
-        "rejected": mfg_blocked + so_rejected,
+        "blocked": mfg_blocked,
+        "rejected": so_rejected,
     }
 
     active_count = 0
@@ -254,6 +255,11 @@ def _retailer_snapshot(
     event_counts = _event_counts_for_day(base_url, order_day, logger)
     purchase_orders = [row for row in purchases_data if isinstance(row, dict)] if isinstance(purchases_data, list) else []
 
+    demand_by_model: dict[str, int] = {}
+    for order in today_orders:
+        model = str(order.get("product_name", "unknown"))
+        demand_by_model[model] = demand_by_model.get(model, 0) + 1
+
     return {
         "name": retailer_cfg.get("name", "retailer"),
         "stock": stock,
@@ -264,6 +270,7 @@ def _retailer_snapshot(
             "fulfilled_today": event_counts["fulfilled_today"] if event_counts is not None else fulfilled_today,
             "backordered_today": event_counts["backordered_today"] if event_counts is not None else today_counts.get("BACKORDERED", 0),
             "cancelled_today": event_counts["cancelled_today"] if event_counts is not None else today_counts.get("CANCELLED", 0),
+            "demand_by_model": demand_by_model,
         },
         "purchases": _status_counts(purchase_orders),
         "errors": [

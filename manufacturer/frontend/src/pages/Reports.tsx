@@ -56,6 +56,7 @@ const mergeCustomerDemandForDay = (base: MetricsSnapshot, incoming: MetricsSnaps
     customer_orders: {
       ...retailer.customer_orders,
       status_counts: { ...(retailer.customer_orders?.status_counts ?? {}) },
+      demand_by_model: { ...(retailer.customer_orders?.demand_by_model ?? {}) },
     },
   }));
 
@@ -67,6 +68,7 @@ const mergeCustomerDemandForDay = (base: MetricsSnapshot, incoming: MetricsSnaps
         customer_orders: {
           ...incomingRetailer.customer_orders,
           status_counts: { ...(incomingRetailer.customer_orders?.status_counts ?? {}) },
+          demand_by_model: { ...(incomingRetailer.customer_orders?.demand_by_model ?? {}) },
         },
       });
       return;
@@ -80,10 +82,17 @@ const mergeCustomerDemandForDay = (base: MetricsSnapshot, incoming: MetricsSnaps
       status_counts[key] = Math.max(current?.status_counts?.[key] ?? 0, next?.status_counts?.[key] ?? 0);
     });
 
+    const modelKeys = new Set([...Object.keys(current?.demand_by_model ?? {}), ...Object.keys(next?.demand_by_model ?? {})]);
+    const demand_by_model: Record<string, number> = {};
+    modelKeys.forEach((key) => {
+      demand_by_model[key] = Math.max(current?.demand_by_model?.[key] ?? 0, next?.demand_by_model?.[key] ?? 0);
+    });
+
     retailers[index] = {
       ...retailers[index],
       customer_orders: {
         status_counts,
+        demand_by_model,
         placed_today: Math.max(current?.placed_today ?? 0, next?.placed_today ?? 0),
         fulfilled_today: Math.max(current?.fulfilled_today ?? 0, next?.fulfilled_today ?? 0),
         backordered_today: Math.max(current?.backordered_today ?? 0, next?.backordered_today ?? 0),
@@ -119,6 +128,8 @@ const Reports: React.FC = () => {
   const mfgFinancialChartRef = useRef<HTMLDivElement | null>(null);
   const mfgProfitChartRef = useRef<HTMLDivElement | null>(null);
   const mfgOrdersChartRef = useRef<HTMLDivElement | null>(null);
+  const mfgBlockedChartRef = useRef<HTMLDivElement | null>(null);
+  const retailerDemandByModelChartRef = useRef<HTMLDivElement | null>(null);
   const mfgDailyFinancialsChartRef = useRef<HTMLDivElement | null>(null);
   const mfgInventoryChartRef = useRef<HTMLDivElement | null>(null);
   const supplierPriceChartRef = useRef<HTMLDivElement | null>(null);
@@ -416,7 +427,7 @@ const Reports: React.FC = () => {
     return { costs, revenue, profit };
   }, [uniqueMetrics]);
 
-  // MANUFACTURER — daily sales order activity
+  // MANUFACTURER — daily sales order activity (blocked and rejected split)
   const mfgOrdersChart = useMemo(() => {
     if (!uniqueMetrics.length) return null;
     const sot = (m: MetricsSnapshot) => m.manufacturer?.sales_orders_today ?? {};
@@ -424,9 +435,36 @@ const Reports: React.FC = () => {
       placed: uniqueMetrics.map((m) => sot(m).placed ?? 0),
       in_progress: uniqueMetrics.map((m) => sot(m).in_progress ?? 0),
       shipped: uniqueMetrics.map((m) => sot(m).shipped ?? 0),
+      blocked: uniqueMetrics.map((m) => sot(m).blocked ?? 0),
       rejected: uniqueMetrics.map((m) => sot(m).rejected ?? 0),
     };
   }, [uniqueMetrics]);
+
+  // MANUFACTURER — blocked by material shortage evolution
+  const mfgBlockedChart = useMemo(() => {
+    if (!uniqueMetrics.length) return null;
+    return uniqueMetrics.map((m) => m.manufacturer?.sales_orders_today?.blocked ?? 0);
+  }, [uniqueMetrics]);
+
+  // RETAILER — demand per model evolution
+  const demandByModelChart = useMemo(() => {
+    if (!uniqueMetrics.length) return null;
+    const modelNames = new Set<string>();
+    uniqueMetrics.forEach((m) =>
+      (m.retailers ?? []).forEach((r) =>
+        Object.keys(r.customer_orders?.demand_by_model ?? {}).forEach((k) => modelNames.add(k))
+      )
+    );
+    if (!modelNames.size) return null;
+    const traces: Data[] = [];
+    modelNames.forEach((model) => {
+      const vals = uniqueMetrics.map((m) =>
+        (m.retailers ?? []).reduce((acc, r) => acc + (r.customer_orders?.demand_by_model?.[model] ?? 0), 0)
+      );
+      traces.push({ x: dayLabels, y: vals, type: 'bar', name: model, connectgaps: true } as Data);
+    });
+    return traces.length ? traces : null;
+  }, [uniqueMetrics, dayLabels]);
 
   // MANUFACTURER — daily financials
   const dailyFinancialsChart = useMemo(() => {
@@ -520,6 +558,7 @@ const Reports: React.FC = () => {
         if (section === 'all' || section === 'retailer') {
           chartRefs.push(
             { ref: retailerDemandChartRef, name: 'Daily customer demand outcomes' },
+            { ref: retailerDemandByModelChartRef, name: 'Demand per model evolution' },
             { ref: retailerStockChartRef, name: 'Retailer stock per product' }
           );
         }
@@ -533,6 +572,7 @@ const Reports: React.FC = () => {
             { ref: mfgFinancialChartRef, name: 'Financial performance' },
             { ref: mfgProfitChartRef, name: 'Net profit evolution' },
             { ref: mfgOrdersChartRef, name: 'Daily order activity (MFG + sales orders)' },
+            { ref: mfgBlockedChartRef, name: 'Blocked by material shortage evolution' },
             { ref: mfgDailyFinancialsChartRef, name: 'Daily income, costs & profit' },
             { ref: mfgInventoryChartRef, name: 'Manufacturer raw material inventory per component' }
           );
@@ -708,16 +748,26 @@ const Reports: React.FC = () => {
         hasData={hasMetrics}
       />
 
+      <div className="chart-container mb-3" ref={retailerDemandChartRef}>
+        {hasMetrics && demandChart ? (
+          <ResponsivePlot
+            data={[
+              { x: dayLabels, y: demandChart.placed, type: 'bar', name: 'Placed', marker: { color: '#d18a1a' } },
+              { x: dayLabels, y: demandChart.fulfilled, type: 'bar', name: 'Fulfilled', marker: { color: '#2f7d4a' } },
+              { x: dayLabels, y: demandChart.backordered, type: 'bar', name: 'Backordered', marker: { color: '#b6463b' } },
+            ]}
+            layout={{ barmode: 'group', title: { text: 'Daily customer demand outcomes' }, xaxis: { title: { text: 'Simulated day' } }, yaxis: { title: { text: 'Customer orders' } }, margin: { t: 56, r: 24, b: 56, l: 56 } }}
+            minHeight={300}
+          />
+        ) : <EmptyChart label={noMetricsMsg} />}
+      </div>
+
       <div className="data-grid mb-3">
-        <div className="chart-container" ref={retailerDemandChartRef}>
-          {hasMetrics && demandChart ? (
+        <div className="chart-container" ref={retailerDemandByModelChartRef}>
+          {hasMetrics && demandByModelChart ? (
             <ResponsivePlot
-              data={[
-                { x: dayLabels, y: demandChart.placed, type: 'bar', name: 'Placed', marker: { color: '#d18a1a' } },
-                { x: dayLabels, y: demandChart.fulfilled, type: 'bar', name: 'Fulfilled', marker: { color: '#2f7d4a' } },
-                { x: dayLabels, y: demandChart.backordered, type: 'bar', name: 'Backordered', marker: { color: '#b6463b' } },
-              ]}
-              layout={{ barmode: 'group', title: { text: 'Daily customer demand outcomes' }, xaxis: { title: { text: 'Simulated day' } }, yaxis: { title: { text: 'Customer orders' } }, margin: { t: 56, r: 24, b: 56, l: 56 } }}
+              data={demandByModelChart}
+              layout={{ barmode: 'stack', title: { text: 'Demand per model evolution' }, xaxis: { title: { text: 'Simulated day' } }, yaxis: { title: { text: 'Orders placed' } }, legend: { orientation: 'h', y: -0.25 }, margin: { t: 56, r: 24, b: 80, l: 56 } }}
               minHeight={300}
             />
           ) : <EmptyChart label={noMetricsMsg} />}
@@ -742,6 +792,22 @@ const Reports: React.FC = () => {
         isDownloading={downloadingSection === 'manufacturer'}
         hasData={hasMetrics}
       />
+
+      <div className="chart-container mb-3" ref={mfgOrdersChartRef}>
+        {hasMetrics && mfgOrdersChart ? (
+          <ResponsivePlot
+            data={[
+              { x: dayLabels, y: mfgOrdersChart.placed, type: 'bar', name: 'New (MFG + SO)', marker: { color: '#0066cc' } },
+              { x: dayLabels, y: mfgOrdersChart.in_progress, type: 'bar', name: 'Accepted', marker: { color: '#28a745' } },
+              { x: dayLabels, y: mfgOrdersChart.shipped, type: 'bar', name: 'Shipped', marker: { color: '#17a2b8' } },
+              { x: dayLabels, y: mfgOrdersChart.blocked, type: 'bar', name: 'Blocked (material shortage)', marker: { color: '#fd7e14' } },
+              { x: dayLabels, y: mfgOrdersChart.rejected, type: 'bar', name: 'Deleted/Rejected', marker: { color: '#dc3545' } },
+            ]}
+            layout={{ barmode: 'group', title: { text: 'Daily order activity (MFG + sales orders)' }, xaxis: { title: { text: 'Simulated day' } }, yaxis: { title: { text: 'Orders' } }, margin: { t: 56, r: 24, b: 56, l: 56 } }}
+            minHeight={300}
+          />
+        ) : <EmptyChart label={noMetricsMsg} />}
+      </div>
 
       <div className="data-grid mb-3">
         <div className="chart-container" ref={mfgCapacityChartRef}>
@@ -822,16 +888,11 @@ const Reports: React.FC = () => {
       </div>
 
       <div className="data-grid mb-3">
-        <div className="chart-container" ref={mfgOrdersChartRef}>
-          {hasMetrics && mfgOrdersChart ? (
+        <div className="chart-container" ref={mfgBlockedChartRef}>
+          {hasMetrics && mfgBlockedChart ? (
             <ResponsivePlot
-              data={[
-                { x: dayLabels, y: mfgOrdersChart.placed, type: 'bar', name: 'New (MFG + SO)', marker: { color: '#0066cc' } },
-                { x: dayLabels, y: mfgOrdersChart.in_progress, type: 'bar', name: 'Accepted', marker: { color: '#28a745' } },
-                { x: dayLabels, y: mfgOrdersChart.shipped, type: 'bar', name: 'Shipped', marker: { color: '#17a2b8' } },
-                { x: dayLabels, y: mfgOrdersChart.rejected, type: 'bar', name: 'Deleted/Blocked', marker: { color: '#dc3545' } },
-              ]}
-              layout={{ barmode: 'group', title: { text: 'Daily order activity (MFG + sales orders)' }, xaxis: { title: { text: 'Simulated day' } }, yaxis: { title: { text: 'Orders' } }, margin: { t: 56, r: 24, b: 56, l: 56 } }}
+              data={[{ x: dayLabels, y: mfgBlockedChart, type: 'scatter', mode: 'lines+markers', name: 'Blocked orders', marker: { color: '#fd7e14' }, fill: 'tozeroy', fillcolor: 'rgba(253,126,20,0.15)' }]}
+              layout={{ title: { text: 'Blocked by material shortage evolution' }, xaxis: { title: { text: 'Simulated day' } }, yaxis: { title: { text: 'Blocked orders' }, rangemode: 'tozero' }, margin: { t: 56, r: 24, b: 56, l: 56 } }}
               minHeight={300}
             />
           ) : <EmptyChart label={noMetricsMsg} />}

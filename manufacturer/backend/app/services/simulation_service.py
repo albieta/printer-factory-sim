@@ -268,6 +268,10 @@ class SimulationService:
             # fulfilled_day is set to previous_day inside the retailer's advance_day(), so it equals day-1
             fulfilled_today = sum(1 for o in customer_orders if int(o.get("fulfilled_day") or -1) == day - 1)
             purchase_counts: dict[str, int] = dict(Counter(str(o.get("status", "?")) for o in (purchases_raw if isinstance(purchases_raw, list) else []) if isinstance(o, dict)))
+            demand_by_model: dict[str, int] = {}
+            for order in today_orders:
+                model = str(order.get("product_name", "unknown"))
+                demand_by_model[model] = demand_by_model.get(model, 0) + 1
 
             return {
                 "name": "retailer",
@@ -279,6 +283,7 @@ class SimulationService:
                     "fulfilled_today": event_counts["fulfilled_today"] if event_counts is not None else fulfilled_today,
                     "backordered_today": event_counts["backordered_today"] if event_counts is not None else today_counts.get("BACKORDERED", 0),
                     "cancelled_today": event_counts["cancelled_today"] if event_counts is not None else today_counts.get("CANCELLED", 0),
+                    "demand_by_model": demand_by_model,
                 },
                 "purchases": purchase_counts,
                 "errors": [],
@@ -405,7 +410,8 @@ class SimulationService:
                 "placed": mfg_created + so_placed,
                 "in_progress": mfg_released + so_confirmed,
                 "shipped": so_shipped,
-                "rejected": mfg_blocked + so_rejected,
+                "blocked": mfg_blocked,
+                "rejected": so_rejected,
             }
         except Exception:
             pass
