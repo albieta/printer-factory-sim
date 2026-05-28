@@ -7,6 +7,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session, joinedload
@@ -197,6 +198,26 @@ def export_full_state(db: Session = Depends(get_db)):
         except Exception:
             pass
 
+    # Export retailer data
+    retailer_data = None
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            retailer_response = client.get("http://localhost:8003/api/admin/export/state")
+            if retailer_response.status_code == 200:
+                retailer_data = retailer_response.json()
+    except Exception:
+        pass
+
+    # Export provider data
+    provider_data = None
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            provider_response = client.get("http://localhost:8001/api/admin/export/state")
+            if provider_response.status_code == 200:
+                provider_data = provider_response.json()
+    except Exception:
+        pass
+
     payload = json_ready(
         {
             "config": ConfigService(db).serialize_config(),
@@ -211,6 +232,8 @@ def export_full_state(db: Session = Depends(get_db)):
             "financial_transactions": [serialize_financial_transaction(txn) for txn in financial_transactions],
             "events": [serialize_event(event) for event in events],
             "metrics_snapshots": metrics_snapshots,
+            "retailer_data": retailer_data,
+            "provider_data": provider_data,
         }
     )
 
@@ -604,6 +627,24 @@ def import_full_state_payload(db: Session, payload: dict[str, Any]) -> ImportRes
                 with metrics_path.open("w", encoding="utf-8") as f:
                     for snapshot in metrics_snapshots:
                         f.write(json.dumps(snapshot, default=str) + "\n")
+            except Exception:
+                pass
+
+        # Restore retailer data if present
+        retailer_data = payload.get("retailer_data")
+        if retailer_data:
+            try:
+                with httpx.Client(timeout=10.0) as client:
+                    client.post("http://localhost:8003/api/admin/import/state", json=retailer_data)
+            except Exception:
+                pass
+
+        # Restore provider data if present
+        provider_data = payload.get("provider_data")
+        if provider_data:
+            try:
+                with httpx.Client(timeout=10.0) as client:
+                    client.post("http://localhost:8001/api/admin/import/state", json=provider_data)
             except Exception:
                 pass
     except Exception:

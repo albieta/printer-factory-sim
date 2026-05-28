@@ -571,6 +571,8 @@ class SimulationService:
 
     def reset_to_empty(self) -> bool:
         """Delete all data except simulation config and start fresh."""
+        import httpx
+
         self._clear_metrics()
         self.db.query(FinancialTransaction).delete()
         self.db.query(SalesOrder).delete()
@@ -592,6 +594,21 @@ class SimulationService:
         config.provider_urls = None
 
         self.db.commit()
+
+        # Reset retailer data
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                client.post("http://localhost:8003/api/admin/reset/empty")
+        except Exception:
+            pass
+
+        # Reset provider data
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                client.post("http://localhost:8001/api/admin/reset/empty")
+        except Exception:
+            pass
+
         return True
 
     def reset_to_default_config(self) -> bool:
