@@ -262,9 +262,11 @@ class SimulationConfigUpdate(SimulationConfigBase):
 class SimulationConfig(SimulationConfigBase):
     id: int
     sim_date: date
+    sim_day: int = 0
     effective_daily_assembly_hours: float
     total_costs: float = 0.0
     total_revenue: float = 0.0
+    provider_urls: Optional[Any] = None
 
     class Config:
         from_attributes = True

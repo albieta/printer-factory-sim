@@ -372,7 +372,21 @@ def import_full_state_payload(db: Session, payload: dict[str, Any]) -> ImportRes
             shift_hours=float(config_payload.get("shift_hours", 8.0)),
             demand_distribution_mean=float(config_payload.get("demand_distribution_mean", 5.0)),
             demand_distribution_variance=float(config_payload.get("demand_distribution_variance", 2.0)),
+            internal_demand_enabled=bool(config_payload.get("internal_demand_enabled", False)),
             sim_date=parse_date_value(config_payload.get("sim_date"), "config.sim_date"),
+            sim_day=int(config_payload.get("sim_day", 0)),
+            cost_per_assembly_line=float(config_payload.get("cost_per_assembly_line", 50000.0)),
+            cost_per_assembly_line_per_day=float(config_payload.get("cost_per_assembly_line_per_day", 100.0)),
+            cost_per_worker_per_hour=float(config_payload.get("cost_per_worker_per_hour", 50.0)),
+            max_workers_per_line=int(config_payload.get("max_workers_per_line", 10)),
+            total_costs=float(config_payload.get("total_costs", 0.0)),
+            total_revenue=float(config_payload.get("total_revenue", 0.0)),
+            retailer_demand_enabled=bool(config_payload.get("retailer_demand_enabled", False)),
+            retailer_demand_mean=float(config_payload.get("retailer_demand_mean", 8.0)),
+            retailer_demand_variance=float(config_payload.get("retailer_demand_variance", 2.0)),
+            retailer_demand_modifier=float(config_payload.get("retailer_demand_modifier", 1.0)),
+            retailer_demand_base_price=float(config_payload.get("retailer_demand_base_price", 400.0)),
+            provider_urls=config_payload.get("provider_urls"),
         )
         db.add(config)
 
@@ -460,6 +474,7 @@ def import_full_state_payload(db: Session, payload: dict[str, Any]) -> ImportRes
             )
 
         supplier_ids = {str(supplier["id"]) for supplier in suppliers_payload}
+        manufacturing_order_ids = {str(order["id"]) for order in manufacturing_orders_payload}
         for index, purchase_order in enumerate(purchase_orders_payload):
             if purchase_order.get("supplier_id") not in supplier_ids:
                 raise ValueError(
@@ -513,6 +528,10 @@ def import_full_state_payload(db: Session, payload: dict[str, Any]) -> ImportRes
             if sales_order.get("product_id") not in printer_ids:
                 raise ValueError(
                     f"`sales_orders[{index}].product_id` must reference an imported printer product."
+                )
+            if sales_order.get("linked_mfg_order_id") is not None and sales_order.get("linked_mfg_order_id") not in manufacturing_order_ids:
+                raise ValueError(
+                    f"`sales_orders[{index}].linked_mfg_order_id` must reference an imported manufacturing order."
                 )
             db.add(
                 SalesOrder(

@@ -91,6 +91,8 @@ class ConfigService:
             "total_costs": config.total_costs,
             "total_revenue": config.total_revenue,
             "sim_date": config.sim_date,
+            "sim_day": config.sim_day,
+            "provider_urls": config.provider_urls,
         }
 
     def get_sim_date(self) -> date:

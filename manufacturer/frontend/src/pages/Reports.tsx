@@ -182,25 +182,54 @@ const Reports: React.FC = () => {
     return traces.length ? traces : null;
   }, [metrics, dayLabels]);
 
-  // COMMON — scenario events overlay (matches last run's scenario name)
+  // COMMON — scenario events overlay with day-by-day timeline
   const eventsOverlay = useMemo(() => {
+    // Build a timeline for each day that has been run
+    if (!metrics.length) return null;
+
+    const maxDay = Math.max(...metrics.map((m) => m.day ?? 0), 0);
     const lastScenarioName = metrics[0]?.scenario;
-    if (!lastScenarioName || lastScenarioName === 'manual') return null;
-    const scenarioDetail = scenarios.find((s) => s.scenario_name === lastScenarioName || s.name.replace('.json', '') === lastScenarioName);
-    const events = scenarioDetail?.events;
-    if (!events?.length) return null;
-    const maxDay = Math.max(...events.map((ev) => ev.end_day ?? ev.start_day ?? 1), 1);
-    const shapes = events.filter((ev) => ev.start_day != null && ev.end_day != null).map((ev, i) => ({
-      type: 'rect' as const, xref: 'x' as const, yref: 'y' as const,
-      x0: ev.start_day, x1: ev.end_day, y0: i - 0.4, y1: i + 0.4,
-      fillcolor: `hsl(${(i * 67) % 360}, 60%, 55%)`, opacity: 0.75, line: { width: 0 },
-    }));
-    const annotations = events.filter((ev) => ev.start_day != null).map((ev, i) => ({
-      x: ev.start_day ?? 0, y: i, text: ev.name ?? `event ${i + 1}`,
-      xanchor: 'left' as const, showarrow: false, font: { color: '#fff', size: 11 },
-    }));
-    const yLabels = events.map((ev, i) => ev.name ?? `event ${i + 1}`);
-    return { shapes, annotations, yLabels, eventCount: events.length, maxDay };
+    const scenarioDetail = lastScenarioName && lastScenarioName !== 'manual'
+      ? scenarios.find((s) => s.scenario_name === lastScenarioName || s.name.replace('.json', '') === lastScenarioName)
+      : null;
+    const events = scenarioDetail?.events ?? [];
+
+    // Create day rows for all days from 0 to maxDay
+    const dayRows: Array<{ day: number; label: string; events: Array<any> }> = [];
+    for (let day = 0; day <= maxDay; day++) {
+      const dayEvents = events.filter((ev) =>
+        ev.start_day != null && ev.start_day <= day && (ev.end_day ?? ev.start_day) >= day
+      );
+      const label = dayEvents.length > 0
+        ? dayEvents.map((ev) => ev.name ?? `event`).join(', ')
+        : `Day ${day}`;
+      dayRows.push({ day, label, events: dayEvents });
+    }
+
+    // Build shapes and annotations from events
+    const shapes = events
+      .filter((ev) => ev.start_day != null && ev.end_day != null)
+      .map((ev, i) => {
+        const yIndex = dayRows.findIndex((dr) => dr.events.includes(ev));
+        return {
+          type: 'rect' as const, xref: 'x' as const, yref: 'y' as const,
+          x0: ev.start_day, x1: ev.end_day, y0: yIndex - 0.4, y1: yIndex + 0.4,
+          fillcolor: `hsl(${(i * 67) % 360}, 60%, 55%)`, opacity: 0.75, line: { width: 0 },
+        };
+      });
+
+    const annotations = events
+      .filter((ev) => ev.start_day != null)
+      .map((ev, i) => {
+        const yIndex = dayRows.findIndex((dr) => dr.events.includes(ev));
+        return {
+          x: ev.start_day ?? 0, y: yIndex, text: ev.name ?? `event ${i + 1}`,
+          xanchor: 'left' as const, showarrow: false, font: { color: '#fff', size: 11 },
+        };
+      });
+
+    const yLabels = dayRows.map((dr) => dr.label);
+    return { shapes, annotations, yLabels, eventCount: dayRows.length, maxDay };
   }, [metrics, scenarios]);
 
   // RETAILER — daily customer demand
@@ -500,7 +529,7 @@ const Reports: React.FC = () => {
             <ResponsivePlot
               data={[{ x: [0.5, eventsOverlay.maxDay + 0.5], y: [null, null], type: 'scatter', mode: 'none' as const, showlegend: false }]}
               layout={{
-                title: { text: 'Scenario events timeline' },
+                title: { text: 'Simulation timeline — Days and scenario events' },
                 xaxis: { title: { text: 'Simulated day' }, range: [0.5, eventsOverlay.maxDay + 0.5] },
                 yaxis: { title: { text: '' }, tickvals: eventsOverlay.yLabels.map((_, i) => i), ticktext: eventsOverlay.yLabels, range: [-0.6, eventsOverlay.eventCount - 0.4] },
                 shapes: eventsOverlay.shapes,
@@ -510,7 +539,7 @@ const Reports: React.FC = () => {
               }}
               minHeight={Math.max(200, eventsOverlay.eventCount * 50 + 80)}
             />
-          ) : <EmptyChart label="Scenario events timeline — run a named scenario to populate." />}
+          ) : <EmptyChart label="Simulation timeline — Run a scenario or advance days to populate." />}
         </div>
       </div>
 
