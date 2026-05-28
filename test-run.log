@@ -1,0 +1,32 @@
+Turn engine — scenario: smoke-test
+Running 3 day(s).
+  [init] prices OK: Basic300=$1054.73, Elite700=$3281.39, Pro450=$1875.08
+
+=== Day 1 [fast-mode] ===
+  [PrinterWorld] agent: [stub] PrinterWorld would decide here (day 1)
+  [Factory] agent: [stub] Factory would decide here (day 1)
+  [ChipSupply Co] agent: [stub] ChipSupply Co would decide here (day 1)
+  [PrinterWorld] day advanced → {'previous_day': 14, 'current_day': 15, 'purchase_orders_delivered': 2, 'backorders_fulfilled': 16}
+  [Factory] day advanced → {'sim_date': '2026-06-12', 'events_generated': 10, 'orders_created': 0, 'orders_completed': 5, 'purchase_orders_delivered': 4}
+  [ChipSupply Co] day advanced → {'previous_day': 14, 'current_day': 15, 'orders_shipped': 0, 'orders_delivered': 5}
+  [summary] Day 1: 32 customer orders / 25 fulfilled / 0 backordered; events=normal
+
+=== Day 2 [fast-mode] ===
+  [PrinterWorld] agent: [stub] PrinterWorld would decide here (day 2)
+  [Factory] agent: [stub] Factory would decide here (day 2)
+  [ChipSupply Co] agent: [stub] ChipSupply Co would decide here (day 2)
+  [PrinterWorld] day advanced → {'previous_day': 15, 'current_day': 16, 'purchase_orders_delivered': 0, 'backorders_fulfilled': 0}
+  [Factory] day advanced → {'sim_date': '2026-06-13', 'events_generated': 8, 'orders_created': 0, 'orders_completed': 4, 'purchase_orders_delivered': 3}
+  [ChipSupply Co] day advanced → {'previous_day': 15, 'current_day': 16, 'orders_shipped': 0, 'orders_delivered': 5}
+  [summary] Day 2: 29 customer orders / 19 fulfilled / 0 backordered; events=normal
+
+=== Day 3 [fast-mode] ===
+  [PrinterWorld] agent: [stub] PrinterWorld would decide here (day 3)
+  [Factory] agent: [stub] Factory would decide here (day 3)
+  [ChipSupply Co] agent: [stub] ChipSupply Co would decide here (day 3)
+  [PrinterWorld] day advanced → {'previous_day': 16, 'current_day': 17, 'purchase_orders_delivered': 5, 'backorders_fulfilled': 57}
+  [Factory] day advanced → {'sim_date': '2026-06-14', 'events_generated': 7, 'orders_created': 0, 'orders_completed': 2, 'purchase_orders_delivered': 4}
+  [ChipSupply Co] day advanced → {'previous_day': 16, 'current_day': 17, 'orders_shipped': 0, 'orders_delivered': 3}
+  [summary] Day 3: 29 customer orders / 10 fulfilled / 0 backordered; events=normal
+
+Done.
