@@ -133,10 +133,20 @@ Follow these steps (using only the state provided above):
    **Why one batch:** All decisions are independent. Decide releases → purchases → pricing in your head, then execute all at once. No waiting between steps.
 
 3. **Order Details** (reference only; commands go in batch above):
-   - Order if: `Stock - Needed ≤ lead_time_days × expected_daily_consumption` and nothing inbound.
-   - Consider bulk tiers: buying 300 units may cost less per unit than buying 100.
+   
+   **Calculate material demand from pending orders BEFORE deciding to order:**
+   - For each PENDING sales order (not yet released), look up the product's BOM
+   - Multiply quantity by each material requirement to get total demand
+   - Example: 5 pending Basic300 orders need `5 × 2.5 = 12.5 units` of PLA Filament
+   - Add all pending orders' demand for each material
+   
+   **Order trigger:**
+   - Stock PLUS inbound >= demand + 100 units safety stock? HOLD (sufficient for pending orders)
+   - Stock PLUS inbound < demand + 100 units safety stock AND no order in-flight? ORDER immediately
+   - Order volume: Aim for 300–500 units to balance warehouse space and bulk pricing
    - Check warehouse free space: `Stock + Ordered-inbound + New-order ≤ warehouse_capacity`.
      Do NOT order more than the warehouse can fit.
+   - Consider bulk tiers: buying 300 units may cost less per unit than buying 100.
 
 4. **Scale + Adjust + Summarize** (part of your single batch):
 

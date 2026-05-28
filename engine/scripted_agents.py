@@ -373,33 +373,62 @@ def run_scripted_manufacturer(
 
     log_lines.append(f"Released: {len(released)} order(s): {', '.join(released[:5])}\n")
 
-    # ── 3. Order low materials ────────────────────────────────────────────────
+    # ── 3. Order low materials with foresight ──────────────────────────────────
     inbound_by_product: dict[str, float] = {}
     for po in inbound_pos:
         name = po.get("product", "")
         inbound_by_product[name] = inbound_by_product.get(name, 0) + float(po.get("quantity", 0))
 
     purchases_placed: list[str] = []
-    low_threshold = 50.0
-    replenish_qty = 200
+
+    # Material BOM requirements (mirrors starter_profile.py)
+    bom_requirements: dict[str, dict[str, float]] = {
+        "Basic300": {
+            "PLA Filament": 2.5, "Aluminum Frame": 1.0, "Stepper Motor": 3.0, "Control Board": 1.0
+        },
+        "Pro450": {
+            "ABS Filament": 4.0, "Aluminum Frame": 2.0, "Stepper Motor": 4.0, "Control Board": 2.0
+        },
+        "Elite700": {
+            "ABS Filament": 6.0, "Aluminum Frame": 3.0, "Stepper Motor": 6.0,
+            "Control Board": 2.0, "LCD Screen": 1.0
+        },
+    }
+
+    # Calculate material demand from pending + released orders
+    material_demand: dict[str, float] = {m: 0.0 for m in inventory.keys()}
+    for order in pending_orders:
+        model = order.get("model", "")
+        qty = float(order.get("quantity", 0))
+        if model in bom_requirements:
+            for material, req_qty in bom_requirements[model].items():
+                material_demand[material] = material_demand.get(material, 0) + (qty * req_qty)
+
+    # Reorder when available (on_hand + inbound) < demand + safety_stock
+    safety_stock = 100.0
+    replenish_target = 300  # Order up to this level
 
     for material, qty in inventory.items():
         already_inbound = inbound_by_product.get(material, 0)
-        if qty < low_threshold and already_inbound < low_threshold:
-            # Use HTTP API to create purchase order (consistent with provider/retailer agents)
-            # The service finds the appropriate supplier for the material
-            try:
-                _post(
-                    f"{url}/api/purchase-orders/",
-                    {
-                        "supplier_id": "ChipSupply Co",  # Default supplier; in practice would query first
-                        "product_id": material,
-                        "quantity": int(replenish_qty),
-                    }
-                )
-                purchases_placed.append(f"{material} ×{replenish_qty}")
-            except Exception as exc:
-                log_lines.append(f"Purchase order creation failed for {material}: {exc}\n")
+        demand = material_demand.get(material, 0)
+        available = qty + already_inbound
+        needed = demand + safety_stock
+
+        if available < needed:
+            order_qty = max(0, int(replenish_target - available))
+            if order_qty > 0:
+                try:
+                    _post(
+                        f"{url}/api/purchase-orders/",
+                        {
+                            "supplier_id": "ChipSupply Co",
+                            "product_id": material,
+                            "quantity": order_qty,
+                        }
+                    )
+                    purchases_placed.append(f"{material} ×{order_qty} (have {qty}+{already_inbound} inbound, need {needed:.0f})")
+                except Exception as exc:
+                    log_lines.append(f"Purchase order creation failed for {material}: {exc}\n")
 
     log_lines.append(f"Purchases placed: {', '.join(purchases_placed) if purchases_placed else 'none'}\n")
 

@@ -139,14 +139,12 @@ class FinancialService:
         """Get financial transactions, optionally filtered by engine day.
 
         When sim_day is provided, it's interpreted as an engine day number.
-        Financial transactions are recorded AFTER day advance with the incremented sim_day,
-        so engine day X corresponds to transactions recorded with sim_day = X+1.
+        After day advance, sim_day is incremented, and transactions are recorded with the new sim_day.
+        So engine day N gets transactions recorded with sim_day = N (after that day's advance).
         """
         query = self.db.query(FinancialTransaction)
         if sim_day is not None:
-            # Convert engine day to the actual sim_day when transactions were recorded
-            actual_sim_day = sim_day + 1
-            query = query.filter(FinancialTransaction.sim_day == actual_sim_day)
+            query = query.filter(FinancialTransaction.sim_day == sim_day)
         transactions = query.order_by(FinancialTransaction.created_at).all()
         return [
             {
