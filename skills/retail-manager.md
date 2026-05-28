@@ -139,11 +139,12 @@ Follow these steps (using state provided above):
 
 4. **Pricing** (batched with purchases above):
 
-   **Markup Floor**: Retail prices MUST BE AT LEAST manufacturer's wholesale price + 10%. This is the minimum margin floor.
+   **Markup Floor — CRITICAL REQUIREMENT**: Retail prices MUST NEVER GO BELOW manufacturer's wholesale price × 1.10.
    - Check the manufacturer's wholesale price for each model (provided in prompt under "Manufacturer wholesale prices")
-   - Calculate minimum retail price: `wholesale_price × 1.10`
-   - Never set retail price below this floor
-   - Example: if manufacturer wholesale is $500, minimum retail is $550
+   - Calculate minimum floor: `floor_price = wholesale_price × 1.10`
+   - Example: wholesale Basic300 = $1000 → floor = $1100 (never below $1100)
+   - **Before changing any retail price, verify: new_price >= floor_price**
+   - **If proposed adjustment drops below floor, DO NOT apply the adjustment — keep current price instead**
 
    **Price Elasticity**: Customers are price-sensitive. High prices reduce demand proportionally.
    Profit maximization: `margin × volume` — don't raise so much that you lose more in volume than you gain in margin.
@@ -156,7 +157,13 @@ Follow these steps (using state provided above):
    | demand_modifier < 0.7 AND on_hand > 2× safety stock | Lower that model **5%** (soft demand + oversupply, reduce to stimulate) |
    | demand_modifier < 0.5 | Lower all prices **8%** (severe collapse; restore demand) |
 
-   Apply per-model (don't lower a backordered model). **ALWAYS RESPECT THE 10% MARKUP FLOOR** — if a price adjustment would drop below wholesale + 10%, reduce the adjustment to stay above the floor. If `price_sensitivity: high`, cap all raises at **2%** (customers shopping around—aggressive pricing loses sales).
+   **Application Rule**:
+   1. For each model, calculate the proposed new price based on conditions above
+   2. Calculate the floor: `floor = wholesale_price × 1.10`
+   3. Check: `if new_price < floor: new_price = current_price` (skip the adjustment)
+   4. Apply the adjusted (or unchanged) price
+   
+   If `price_sensitivity: high`, cap all raises at **2%** (customers shopping around—aggressive pricing loses sales). Still respect the floor.
 
 5. **Summarize**
    - Print 3-5 bullets with counts and reasons.

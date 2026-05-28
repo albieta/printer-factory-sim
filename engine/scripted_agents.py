@@ -261,6 +261,15 @@ def run_scripted_retailer(
     log_lines.append(f"Purchases placed: {', '.join(purchases_placed) if purchases_placed else 'none'}\n")
 
     # ── 3. Price adjustments ──────────────────────────────────────────────────
+    # Get manufacturer wholesale prices to enforce markup floor (retail >= wholesale × 1.10)
+    manufacturer_wholesale: dict[str, float] = {}
+    try:
+        prices_resp = _get("http://localhost:8002/api/prices")
+        if isinstance(prices_resp, dict) and "prices" in prices_resp:
+            manufacturer_wholesale = {k: float(v) for k, v in prices_resp["prices"].items() if isinstance(v, (int, float, str))}
+    except Exception:
+        pass  # If we can't get wholesale prices, we'll still try to adjust retail prices
+
     price_changes: list[str] = []
     for model, min_stock in _RETAILER_MIN_STOCK.items():
         on_hand = stock_by_name.get(model, 0)
@@ -268,11 +277,21 @@ def run_scripted_retailer(
         if not current_price:
             continue
 
+        # Calculate proposed new price based on demand/stock
         new_price: float | None = None
         if on_hand < min_stock and price_sensitivity != "high":
             new_price = round(current_price * 1.05, 2)
         elif on_hand > min_stock * 5 and demand_mod < 0.8:
             new_price = round(current_price * 0.95, 2)
+
+        # Enforce markup floor: retail must be >= wholesale × 1.10
+        if new_price is not None:
+            wholesale = manufacturer_wholesale.get(model, 0)
+            if wholesale > 0:
+                min_retail = round(wholesale * 1.10, 2)
+                if new_price < min_retail:
+                    # Can't go below floor, so skip price adjustment
+                    new_price = None
 
         if new_price is not None:
             try:
@@ -395,7 +414,7 @@ def run_scripted_manufacturer(
         },
     }
 
-    # Calculate material demand from pending + released orders
+    # Calculate material demand from pending orders
     material_demand: dict[str, float] = {m: 0.0 for m in inventory.keys()}
     for order in pending_orders:
         model = order.get("model", "")
@@ -405,7 +424,7 @@ def run_scripted_manufacturer(
                 material_demand[material] = material_demand.get(material, 0) + (qty * req_qty)
 
     # Get warehouse capacity info
-    warehouse_capacity = 0
+    warehouse_capacity = 4400
     current_usage = 0
     try:
         capacity_data = _get(f"{url}/api/capacity")
@@ -416,39 +435,43 @@ def run_scripted_manufacturer(
 
     available_free_space = warehouse_capacity - current_usage
 
-    # Reorder when available (on_hand + inbound) < demand + safety_stock
+    # Order materials based on demand: if (stock + inbound) < demand + safety, order more
     safety_stock = 100.0
-    replenish_target = 300  # Order up to this level
 
-    for material, qty in inventory.items():
+    for material, stock in inventory.items():
         already_inbound = inbound_by_product.get(material, 0)
         demand = material_demand.get(material, 0)
-        available = qty + already_inbound
+        available = stock + already_inbound
         needed = demand + safety_stock
 
         if available < needed:
-            order_qty = max(0, int(replenish_target - available))
+            # Try to bring inventory up to 350+ units (or meet demand + safety, whichever is larger)
+            gap = max(int(needed - available), 300)
 
-            # Warehouse capacity check: strict check to prevent rejections on delivery
-            # Do NOT order if (current_usage + order_qty) would exceed warehouse_capacity
-            if current_usage + order_qty > warehouse_capacity:
-                log_lines.append(f"Warehouse capacity full for {material}: cannot order {order_qty} (usage {current_usage}/{warehouse_capacity})\n")
-                continue
+            # CRITICAL: Don't order if (current_usage + order_qty) exceeds warehouse capacity
+            # This prevents rejections on delivery
+            if current_usage + gap > warehouse_capacity:
+                # Try smaller quantities until it fits
+                max_can_order = max(0, warehouse_capacity - current_usage)
+                if max_can_order < 50:  # Too small to be useful
+                    log_lines.append(f"Warehouse full for {material}: only {max_can_order} units free\n")
+                    continue
+                gap = min(gap, int(max_can_order))
 
-            if order_qty > 0:
+            if gap > 0:
                 try:
                     _post(
                         f"{url}/api/purchase-orders/",
                         {
                             "supplier_id": "ChipSupply Co",
                             "product_id": material,
-                            "quantity": order_qty,
+                            "quantity": gap,
                         }
                     )
-                    purchases_placed.append(f"{material} ×{order_qty} (have {qty}+{already_inbound} inbound, need {needed:.0f})")
-                    current_usage += order_qty
+                    purchases_placed.append(f"{material} ×{gap} (have {stock}+{already_inbound} inbound, need {needed:.0f})")
+                    current_usage += gap
                 except Exception as exc:
-                    log_lines.append(f"Purchase order creation failed for {material}: {exc}\n")
+                    log_lines.append(f"Purchase order failed for {material}: {exc}\n")
 
     log_lines.append(f"Purchases placed: {', '.join(purchases_placed) if purchases_placed else 'none'}\n")
 

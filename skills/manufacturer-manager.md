@@ -139,26 +139,28 @@ Follow these steps (using only the state provided above):
 
 3. **Order Details** (reference only; commands go in batch above):
    
-   **Calculate material demand from pending orders BEFORE deciding to order:**
-   - For each PENDING sales order (not yet released), look up the product's BOM
-   - Multiply quantity by each material requirement to get total demand
-   - Example: 5 pending Basic300 orders need `5 × 2.5 = 12.5 units` of PLA Filament
-   - Add all pending orders' demand for each material
+   **Use the Inventory table provided in state** — it has three key columns per material:
+   - **Stock**: Current inventory of this material
+   - **Needed (accepted orders)**: Total BOM demand from all PENDING sales orders
+   - **Ordered (not delivered)**: Inbound materials not yet arrived
    
-   **Warehouse Capacity Check** (CRITICAL to avoid rejection):
-   - Available free space = `warehouse_capacity - current_usage`
-   - For each material order, estimate volume needed (you may need to use supplier's package sizes or estimate)
-   - **IMPORTANT**: Consider that as orders are released and completed, space frees up while new orders are in transit
-     - Example: 100 units of inbound material arriving in 3 days, but 200 units will be consumed in those 3 days → net gain of 100 free space
-   - Conservative approach: ensure `new_order_qty ≤ available_free_space - (pending_inbound_arrivals - estimated_consumption_before_arrival)`
-   - Safer approach: order smaller quantities (250–350 units) that definitely fit, rather than max quantities that barely fit
+   **Order trigger — simple and strict**:
+   - If `Stock + Ordered >= Needed` → no order needed (sufficient coverage)
+   - If `Stock + Ordered < Needed` → order immediately
+   - **BUT CRITICAL: Do NOT order if `Stock + new_order > warehouse_capacity`**
+   - Check the warehouse free space: if free space is tight, order conservative quantities (200–300 units max)
    
-   **Order trigger:**
-   - Stock PLUS inbound >= demand + 100 units safety stock? HOLD (sufficient for pending orders)
-   - Stock PLUS inbound < demand + 100 units safety stock AND no order in-flight? ORDER immediately
-   - BUT: verify the order quantity fits in available warehouse space
-   - Order volume: Aim for 250–400 units to balance warehouse space, bulk pricing, and delivery timing
-   - Consider bulk tiers: buying 300 units may cost less per unit than buying 100.
+   **Warehouse Capacity Check** (CRITICAL to avoid "Receipt rejected because warehouse would exceed capacity"):
+   - `Available free space = warehouse_capacity - current_usage`
+   - **Simple rule**: Do NOT place an order if `(Stock + new_order_qty) > warehouse_capacity`
+   - Example: Stock=1000, warehouse_capacity=4400, new_order=600 → Check: 1000+600=1600 ≤ 4400 ✓ OK to order
+   - Example: Stock=4200, warehouse_capacity=4400, new_order=300 → Check: 4200+300=4500 > 4400 ✗ DO NOT order
+   - If order won't fit: skip it entirely; do NOT attempt reduced quantities
+   
+   **Order size**: 
+   - Aim for 250–400 units (balances bulk pricing and warehouse space)
+   - If warehouse is tight (<500 free units), reduce to 200 units max
+   - Consider bulk pricing tiers: 300+ units often have significant discounts
 
 4. **Scale + Adjust + Summarize** (part of your single batch):
 

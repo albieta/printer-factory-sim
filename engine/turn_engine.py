@@ -448,6 +448,23 @@ def _format_state_for_prompt(state: dict[str, Any], role: str = "manufacturer") 
         ]
         prices_text = "\n".join(price_lines) if price_lines else "None"
 
+        # Fetch manufacturer wholesale prices for markup floor enforcement
+        mfr_prices_text = ""
+        try:
+            with httpx.Client(timeout=DEFAULT_TIMEOUT) as c:
+                mfr_prices_r = c.get("http://localhost:8002/api/prices")
+                if mfr_prices_r.is_success:
+                    mfr_data = mfr_prices_r.json()
+                    if isinstance(mfr_data, dict) and "prices" in mfr_data:
+                        mfr_prices = mfr_data["prices"]
+                        mfr_lines = []
+                        for model, price in sorted(mfr_prices.items()):
+                            floor = float(price) * 1.10
+                            mfr_lines.append(f"- {model}: ${float(price):.2f} (min retail floor: ${floor:.2f})")
+                        mfr_prices_text = "\n".join(mfr_lines)
+        except Exception:
+            pass
+
         pending_cust = [o for o in orders_list if isinstance(o, dict) and o.get("status", "").upper() in ("PENDING", "BACKORDERED")]
         backorders = [o for o in orders_list if isinstance(o, dict) and o.get("status", "").upper() == "BACKORDERED"]
         inbound_pos = [p for p in purchases_list if isinstance(p, dict) and p.get("status", "").upper() in ("PENDING", "CONFIRMED", "IN_PROGRESS")]
@@ -480,6 +497,8 @@ def _format_state_for_prompt(state: dict[str, Any], role: str = "manufacturer") 
             demand_lines.append(f"| {m} | {on_hand} | {bo} | {inb} | {short}{flag} |")
         demand_table = "\n".join(demand_lines)
 
+        mfr_prices_section = f"\n**Manufacturer Wholesale Prices** (enforce 10% markup floor — retail >= wholesale × 1.10):\n{mfr_prices_text}\n" if mfr_prices_text else ""
+
         return f"""
 ## Current State (Day {day_val})
 
@@ -488,8 +507,10 @@ def _format_state_for_prompt(state: dict[str, Any], role: str = "manufacturer") 
 
 *(Still Short = backordered units not covered by current stock + inbound. Order at least this much to clear the backlog.)*
 
-**Catalog Prices**:
+**Your Retail Catalog Prices**:
 {prices_text}
+
+{mfr_prices_section}
 
 **Customer Orders**: {len(pending_cust)} pending/backordered total (of which {len(backorders)} backordered)
 
