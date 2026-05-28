@@ -48,7 +48,7 @@ def test_provider_api_catalog_order_and_day_flow(seeded_session: Session) -> Non
     assert order_response.status_code == 201
     order_payload = order_response.json()["order"]
     assert order_payload["status"] == "PENDING"
-    assert order_payload["expected_delivery_day"] == 3
+    assert order_payload["expected_delivery_day"] == 2
 
     day_response = client.post("/api/day/advance")
     assert day_response.status_code == 200

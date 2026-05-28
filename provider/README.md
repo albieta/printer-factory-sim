@@ -228,7 +228,7 @@ Base URL: `http://localhost:8001`
     "unit_price": "32.00",
     "total_price": "1600.00",
     "placed_day": 1,
-    "expected_delivery_day": 4,
+    "expected_delivery_day": 3,
     "shipped_day": null,
     "delivered_day": null,
     "status": "PENDING",
@@ -283,7 +283,7 @@ has processed the transition, so deliveries arrive one day late.
 
 This is the Week 6 acceptance scenario from `docs/PRD-week6.md §8`.
 
-**Setup (day 0):** Provider has 500 Control Boards (lead 3 days, tier-20 price 32 EUR).
+**Setup (day 0):** Provider has 500 Control Boards (lead 2 days, tier-20 price 32 EUR).
 Manufacturer has 5 Control Boards.
 
 **Day 1:**
@@ -296,7 +296,7 @@ Manufacturer has 5 Control Boards.
 .venv/bin/python -m manufacturer.cli purchase create \
     --supplier "ChipSupply Co" --product "Control Board" --qty 50
 
-# Verify order is PENDING with expected_delivery_day = 4
+# Verify order is PENDING with expected_delivery_day = 3
 .venv/bin/python -m provider.cli orders list
 
 # Advance both apps
@@ -304,9 +304,9 @@ Manufacturer has 5 Control Boards.
 .venv/bin/python -m manufacturer.cli day advance
 ```
 
-**Days 2–3:** Repeat day advance. Order remains SHIPPED in provider.
+**Day 2:** Repeat day advance. Order remains SHIPPED in provider.
 
-**Day 4:**
+**Day 3:**
 
 ```bash
 # Provider delivers the order

@@ -73,22 +73,18 @@ def test_shipped_orders_deliver_on_expected_day(seeded_session: Session) -> None
     order = OrderService(seeded_session).create_order(
         buyer="manufacturer", product_id=product_id, quantity=50
     )
-    # Control Board lead_time = 3 → expected_delivery_day = 1 + 3 = 4.
-    assert order.expected_delivery_day == 4
+    # Control Board lead_time = 2 -> expected_delivery_day = 1 + 2 = 3.
+    assert order.expected_delivery_day == 3
 
     day = DayService(seeded_session)
     day.advance()  # day 2: ships
     seeded_session.refresh(order)
     assert order.status is OrderStatus.SHIPPED
 
-    day.advance()  # day 3: still in flight
-    seeded_session.refresh(order)
-    assert order.status is OrderStatus.SHIPPED
-
-    day.advance()  # day 4: due → delivered
+    day.advance()  # day 3: due -> delivered
     seeded_session.refresh(order)
     assert order.status is OrderStatus.DELIVERED
-    assert order.delivered_day == 4
+    assert order.delivered_day == 3
 
 
 def test_advance_does_not_touch_rejected_orders(seeded_session: Session) -> None:
@@ -119,8 +115,7 @@ def test_summary_counts_ships_and_deliveries(seeded_session: Session) -> None:
     assert summary["orders_shipped"] == 2
     assert summary["orders_delivered"] == 0
 
-    # Both orders deliver on day = 0 + lead_time(3) = 3. Advance to day 3.
-    DayService(seeded_session).advance()  # day 2
-    summary = DayService(seeded_session).advance()  # day 3
+    # Both orders deliver on day = 0 + lead_time(2) = 2. Advance to day 2.
+    summary = DayService(seeded_session).advance()  # day 2
     assert summary["orders_shipped"] == 0
     assert summary["orders_delivered"] == 2

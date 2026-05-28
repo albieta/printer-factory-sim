@@ -42,7 +42,7 @@ def test_provider_half_of_five_day_scenario(seeded_session: Session) -> None:
     )
     assert order.status is OrderStatus.PENDING
     assert order.placed_day == 1
-    assert order.expected_delivery_day == 4
+    assert order.expected_delivery_day == 3
     assert order.unit_price == Decimal("32.00")
     assert order.total_price == Decimal("1600.00")
 
@@ -52,18 +52,12 @@ def test_provider_half_of_five_day_scenario(seeded_session: Session) -> None:
     assert order.status is OrderStatus.SHIPPED
     assert order.shipped_day == 2
 
-    # Day 3: advance — still in flight.
-    day.advance()
-    seeded_session.refresh(order)
-    assert order.status is OrderStatus.SHIPPED
-    assert order.delivered_day is None
-
-    # Day 4: advance — order delivers.
+    # Day 3: advance - order delivers.
     day.advance()
     seeded_session.refresh(order)
     assert order.status is OrderStatus.DELIVERED
-    assert order.delivered_day == 4
-    assert sim.get_current_day() == 4
+    assert order.delivered_day == 3
+    assert sim.get_current_day() == 3
 
     # Stock decremented once at placement, never twice.
     remaining = seeded_session.query(Stock).filter_by(product_id=control_board.id).one().quantity

@@ -7,7 +7,7 @@
 > reasoning stream in real time — keep the `LOG:` lines short and decisive.
 
 ## Your Role
-Run one factory day: review retailer orders, check materials/capacity, release production, order low parts, and change wholesale prices only when the signal calls for it. The engine advances days.
+Run one factory day: review retailer orders, check materials/capacity, order parts early enough to cover supplier lead times, release only material-covered production, and change wholesale prices only when the signal calls for it. The engine advances days.
 
 ## Available Commands
 
@@ -50,6 +50,7 @@ Financial Costs (operator-configured, you cannot change):
 - Do not call `day advance`.
 - Try to avoid state-check commands when you have the data in the prompt; they waste iterations.
 - Do not release beyond daily capacity shown by `capacity` (use the value in the provided state).
+- Do not release a sales order unless on-hand stock covers its BOM demand today; uncovered orders should stay PENDING while you place purchase orders.
 - Do not order parts without taking into account the orders inbound as PENDING (check the state table).
 - Do not invent flags, product names, supplier names, or order IDs.
 - Do not choose a slower supplier when a faster valid one can meet the need.
@@ -105,6 +106,7 @@ Follow these steps (using only the state provided above):
      - CRITICAL = stock below demand with nothing ordered → order immediately
      - LOW (ordered) = stock below demand but inbound → monitor
      - EXCESS = far more stock than needed → pause ordering
+     - Lead-time buffer target: `Needed + expected demand through the longest supplier lead time + 1 safety day`
    - PENDING sales orders (all awaiting release)
    - Inbound purchase orders (arriving materials + expected arrival dates)
    - Wholesale prices (current pricing)
@@ -113,10 +115,11 @@ Follow these steps (using only the state provided above):
 
 2. **Release + Order + Price Together** (CLI natively supports batch):
    
-   **Release all PENDING orders in one call:**
+   **Release only material-covered PENDING orders in one call:**
    ```bash
    bin/manufacturer-cli production release --order SO-0001-025 --order SO-0001-026 --order SO-0001-027
    ```
+   If an order would consume material that is not on hand, do not release it yet. Order the missing materials first and let the order remain PENDING until stock arrives.
    
    **Order all needed materials in one call:**
    ```bash
@@ -144,9 +147,12 @@ Follow these steps (using only the state provided above):
    - **Needed (accepted orders)**: Total BOM demand from all PENDING sales orders
    - **Ordered (not delivered)**: Inbound materials not yet arrived
    
-   **Order trigger — simple and strict**:
-   - If `Stock + Ordered >= Needed` → no order needed (sufficient coverage)
-   - If `Stock + Ordered < Needed` → order immediately
+   **Order trigger — lead-time coverage, simple and strict**:
+   - Estimate demand across the supplier lead-time horizon, not just today's PENDING orders.
+   - `Coverage target = Needed + expected lead-time demand + 1 safety day`
+   - Use recent PENDING order volume and `demand_modifier` as the expected daily demand signal. If demand is unclear, assume at least 1 normal day of demand for every supplier lead-time day.
+   - If `Stock + Ordered >= Coverage target` → no order needed (sufficient coverage)
+   - If `Stock + Ordered < Coverage target` → order immediately, before the shortage reaches production
    - **BUT CRITICAL: Do NOT order if `Stock + new_order > warehouse_capacity`**
    - Check the warehouse free space: if free space is tight, order conservative quantities (200–300 units max)
    

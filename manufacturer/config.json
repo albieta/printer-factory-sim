@@ -10,7 +10,7 @@
             "manufacturer_product_name": "Control Board",
             "external_product_id": 1,
             "unit_cost": 40.0,
-            "lead_time_days": 3,
+            "lead_time_days": 2,
             "quantity_breaks": [
               { "qty": 20, "price": 32.0 },
               { "qty": 200, "price": 25.0 }
@@ -20,7 +20,7 @@
             "manufacturer_product_name": "Stepper Motor",
             "external_product_id": 2,
             "unit_cost": 15.0,
-            "lead_time_days": 5,
+            "lead_time_days": 4,
             "quantity_breaks": [
               { "qty": 100, "price": 13.5 },
               { "qty": 400, "price": 12.0 }
@@ -30,7 +30,7 @@
             "manufacturer_product_name": "Aluminum Frame",
             "external_product_id": 3,
             "unit_cost": 45.0,
-            "lead_time_days": 7,
+            "lead_time_days": 6,
             "quantity_breaks": [
               { "qty": 50, "price": 42.0 },
               { "qty": 200, "price": 38.0 }
@@ -40,7 +40,7 @@
             "manufacturer_product_name": "PLA Filament",
             "external_product_id": 4,
             "unit_cost": 25.0,
-            "lead_time_days": 4,
+            "lead_time_days": 3,
             "quantity_breaks": [
               { "qty": 100, "price": 22.5 },
               { "qty": 500, "price": 20.0 }
@@ -50,7 +50,7 @@
             "manufacturer_product_name": "ABS Filament",
             "external_product_id": 5,
             "unit_cost": 30.0,
-            "lead_time_days": 5,
+            "lead_time_days": 4,
             "quantity_breaks": [
               { "qty": 150, "price": 27.0 },
               { "qty": 600, "price": 24.0 }
@@ -60,7 +60,7 @@
             "manufacturer_product_name": "LCD Screen",
             "external_product_id": 6,
             "unit_cost": 50.0,
-            "lead_time_days": 6,
+            "lead_time_days": 5,
             "quantity_breaks": [
               { "qty": 50, "price": 47.0 },
               { "qty": 250, "price": 43.0 }

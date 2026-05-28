@@ -36,7 +36,7 @@ def test_create_order_picks_tier_price_and_computes_total(seeded_session: Sessio
     assert order.unit_price == Decimal("32.00")  # tier-20 break
     assert order.total_price == Decimal("1600.00")
     assert order.placed_day == 1
-    assert order.expected_delivery_day == 4  # ironclad rule: 1 + lead_time(3)
+    assert order.expected_delivery_day == 3  # ironclad rule: 1 + lead_time(2)
 
 
 def test_create_order_decrements_stock_and_writes_audit_events(seeded_session: Session) -> None:
@@ -117,8 +117,8 @@ def test_expected_delivery_day_honours_ironclad_rule(seeded_session: Session) ->
         buyer="manufacturer", product_id=product_id, quantity=5
     )
 
-    # Control Board has lead_time_days=3 → 7 + 3 = 10. Never sooner than placed + 1.
-    assert order.expected_delivery_day == 10
+    # Control Board has lead_time_days=2 -> 7 + 2 = 9. Never sooner than placed + 1.
+    assert order.expected_delivery_day == 9
     assert order.expected_delivery_day - order.placed_day >= 1
 
 
