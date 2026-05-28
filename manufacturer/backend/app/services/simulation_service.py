@@ -36,7 +36,7 @@ class SimulationService:
         self.production_service = ProductionService(db)
         self.inventory_service = InventoryService(db)
 
-    def advance_day(self) -> dict[str, Any]:
+    def advance_day(self, *, append_metrics: bool = True) -> dict[str, Any]:
         sim_date = self.config_service.advance_sim_date()
         config = self.config_service.get_config()
 
@@ -73,11 +73,12 @@ class SimulationService:
         self.db.add(event)
         self.db.commit()
 
-        # Append metrics snapshot so analytics charts update with manual day advances
-        try:
-            self._append_metrics_snapshot()
-        except Exception:
-            pass
+        if append_metrics:
+            # Append metrics snapshot so analytics charts update with manual day advances.
+            try:
+                self._append_metrics_snapshot()
+            except Exception:
+                pass
 
         return {
             "sim_date": sim_date,
@@ -118,7 +119,7 @@ class SimulationService:
         results["retailer"] = _post_advance(retailer_url, "retailer")
 
         # 2. Manufacturer (this instance)
-        results["manufacturer"] = self.advance_day()
+        results["manufacturer"] = self.advance_day(append_metrics=False)
 
         # 3. Each provider — and 4. optional retailer demand injection
         from app.models.models import SimulationConfig
@@ -219,6 +220,24 @@ class SimulationService:
         if p.exists():
             p.write_text("", encoding="utf-8")
 
+    def _fetch_retailer_event_counts(self, client: httpx.Client, url: str, day: int) -> dict[str, int] | None:
+        """Count daily customer outcomes from immutable retailer audit events."""
+
+        events_r = client.get(f"{url}/api/events?from_day={day}&to_day={day}&limit=100000")
+        if not events_r.is_success:
+            return None
+        events_raw = events_r.json()
+        if not isinstance(events_raw, list):
+            return None
+
+        counts = Counter(str(e.get("event_type", "")) for e in events_raw if isinstance(e, dict))
+        return {
+            "placed_today": counts.get("CUSTOMER_ORDER_PLACED", 0),
+            "fulfilled_today": counts.get("CUSTOMER_ORDER_FULFILLED", 0) + counts.get("BACKORDER_FULFILLED", 0),
+            "backordered_today": counts.get("CUSTOMER_ORDER_BACKORDERED", 0),
+            "cancelled_today": counts.get("CUSTOMER_ORDER_CANCELLED", 0),
+        }
+
     def _fetch_retailer_metrics(self, url: str, day: int) -> dict[str, Any]:
         try:
             with httpx.Client(timeout=5.0) as c:
@@ -226,6 +245,7 @@ class SimulationService:
                 catalog_r = c.get(f"{url}/api/catalog")
                 orders_r = c.get(f"{url}/api/orders")
                 purchases_r = c.get(f"{url}/api/purchases")
+                event_counts = self._fetch_retailer_event_counts(c, url, day)
 
             stock_data = stock_r.json() if stock_r.is_success else {}
             catalog_data = catalog_r.json() if catalog_r.is_success else {}
@@ -255,10 +275,10 @@ class SimulationService:
                 "prices": prices,
                 "customer_orders": {
                     "status_counts": dict(Counter(str(o.get("status", "?")) for o in customer_orders)),
-                    "placed_today": len(today_orders),
-                    "fulfilled_today": fulfilled_today,
-                    "backordered_today": today_counts.get("BACKORDERED", 0),
-                    "cancelled_today": today_counts.get("CANCELLED", 0),
+                    "placed_today": event_counts["placed_today"] if event_counts is not None else len(today_orders),
+                    "fulfilled_today": event_counts["fulfilled_today"] if event_counts is not None else fulfilled_today,
+                    "backordered_today": event_counts["backordered_today"] if event_counts is not None else today_counts.get("BACKORDERED", 0),
+                    "cancelled_today": event_counts["cancelled_today"] if event_counts is not None else today_counts.get("CANCELLED", 0),
                 },
                 "purchases": purchase_counts,
                 "errors": [],

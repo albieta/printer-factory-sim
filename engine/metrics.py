@@ -56,6 +56,27 @@ def _safe_get(url: str, logger: ApiLogger | None = None) -> Any:
         return {"error": str(exc)}
 
 
+def _event_counts_for_day(base_url: str, event_day: int, logger: ApiLogger | None = None) -> dict[str, int] | None:
+    """Count daily customer outcomes from immutable retailer audit events."""
+
+    events_data = _safe_get(
+        f"{base_url}/api/events?from_day={event_day}&to_day={event_day}&limit=100000",
+        logger,
+    )
+    if isinstance(events_data, dict) and "error" in events_data:
+        return None
+    if not isinstance(events_data, list):
+        return None
+
+    counts = Counter(str(row.get("event_type", "")) for row in events_data if isinstance(row, dict))
+    return {
+        "placed_today": counts.get("CUSTOMER_ORDER_PLACED", 0),
+        "fulfilled_today": counts.get("CUSTOMER_ORDER_FULFILLED", 0) + counts.get("BACKORDER_FULFILLED", 0),
+        "backordered_today": counts.get("CUSTOMER_ORDER_BACKORDERED", 0),
+        "cancelled_today": counts.get("CUSTOMER_ORDER_CANCELLED", 0),
+    }
+
+
 def _provider_snapshot(provider_cfg: dict[str, Any], logger: ApiLogger | None) -> dict[str, Any]:
     base_url = str(provider_cfg["url"]).rstrip("/")
     stock_data = _safe_get(f"{base_url}/api/stock", logger)
@@ -230,6 +251,7 @@ def _retailer_snapshot(
     # - Fulfilled after advance: fulfilled_day = day
     # Include both to capture orders fulfilled same day (placed before advance, fulfilled after)
     fulfilled_today = sum(1 for row in customer_orders if _to_int(row.get("fulfilled_day"), -1) in [day - 1, day] and _to_int(row.get("placed_day"), -1) == order_day)
+    event_counts = _event_counts_for_day(base_url, order_day, logger)
     purchase_orders = [row for row in purchases_data if isinstance(row, dict)] if isinstance(purchases_data, list) else []
 
     return {
@@ -238,10 +260,10 @@ def _retailer_snapshot(
         "prices": prices,
         "customer_orders": {
             "status_counts": _status_counts(customer_orders),
-            "placed_today": len(today_orders),
-            "fulfilled_today": fulfilled_today,
-            "backordered_today": today_counts.get("BACKORDERED", 0),
-            "cancelled_today": today_counts.get("CANCELLED", 0),
+            "placed_today": event_counts["placed_today"] if event_counts is not None else len(today_orders),
+            "fulfilled_today": event_counts["fulfilled_today"] if event_counts is not None else fulfilled_today,
+            "backordered_today": event_counts["backordered_today"] if event_counts is not None else today_counts.get("BACKORDERED", 0),
+            "cancelled_today": event_counts["cancelled_today"] if event_counts is not None else today_counts.get("CANCELLED", 0),
         },
         "purchases": _status_counts(purchase_orders),
         "errors": [

@@ -50,6 +50,51 @@ const SectionHeader: React.FC<{ title: string; subtitle: string; onDownload?: ()
   </div>
 );
 
+const mergeCustomerDemandForDay = (base: MetricsSnapshot, incoming: MetricsSnapshot): MetricsSnapshot => {
+  const retailers = (base.retailers ?? []).map((retailer) => ({
+    ...retailer,
+    customer_orders: {
+      ...retailer.customer_orders,
+      status_counts: { ...(retailer.customer_orders?.status_counts ?? {}) },
+    },
+  }));
+
+  (incoming.retailers ?? []).forEach((incomingRetailer) => {
+    const index = retailers.findIndex((retailer) => retailer.name === incomingRetailer.name);
+    if (index < 0) {
+      retailers.push({
+        ...incomingRetailer,
+        customer_orders: {
+          ...incomingRetailer.customer_orders,
+          status_counts: { ...(incomingRetailer.customer_orders?.status_counts ?? {}) },
+        },
+      });
+      return;
+    }
+
+    const current = retailers[index].customer_orders;
+    const next = incomingRetailer.customer_orders;
+    const statusKeys = new Set([...Object.keys(current?.status_counts ?? {}), ...Object.keys(next?.status_counts ?? {})]);
+    const status_counts: Record<string, number> = {};
+    statusKeys.forEach((key) => {
+      status_counts[key] = Math.max(current?.status_counts?.[key] ?? 0, next?.status_counts?.[key] ?? 0);
+    });
+
+    retailers[index] = {
+      ...retailers[index],
+      customer_orders: {
+        status_counts,
+        placed_today: Math.max(current?.placed_today ?? 0, next?.placed_today ?? 0),
+        fulfilled_today: Math.max(current?.fulfilled_today ?? 0, next?.fulfilled_today ?? 0),
+        backordered_today: Math.max(current?.backordered_today ?? 0, next?.backordered_today ?? 0),
+        cancelled_today: Math.max(current?.cancelled_today ?? 0, next?.cancelled_today ?? 0),
+      },
+    };
+  });
+
+  return { ...base, retailers };
+};
+
 // ── component ────────────────────────────────────────────────────────────────
 
 const Reports: React.FC = () => {
@@ -196,9 +241,14 @@ const Reports: React.FC = () => {
         return points;
       };
 
-      if (!existing || score(m) > score(existing)) {
+      if (!existing) {
         seen.set(day, m);
+        return;
       }
+
+      const preferredBase = score(m) > score(existing) ? m : existing;
+      const other = preferredBase === m ? existing : m;
+      seen.set(day, mergeCustomerDemandForDay(preferredBase, other));
     });
     return Array.from(seen.values()).sort((a, b) => (a.day ?? 0) - (b.day ?? 0));
   }, [metrics]);
