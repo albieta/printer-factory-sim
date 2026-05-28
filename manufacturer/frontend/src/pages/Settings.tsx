@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Button, Card, Form, Table } from 'react-bootstrap';
-import { FaCog, FaPlus, FaSave, FaTrash, FaUndo } from 'react-icons/fa';
+import { FaCog, FaDownload, FaPlus, FaSave, FaTrash, FaUndo } from 'react-icons/fa';
 import PageGuide from '../components/PageGuide';
 import { configAPI, exportAPI, getErrorMessage, materialsAPI, simulationAPI } from '../services/api';
 import type { BOMEntry, Product, SimulationConfig } from '../types';
@@ -233,6 +233,24 @@ const Settings: React.FC = () => {
     }
   };
 
+  const handleExport = async () => {
+    try {
+      const response = await exportAPI.exportFullState();
+      const blob = new Blob([JSON.stringify(response.data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `simulation-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setMessage('Backup downloaded successfully.');
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to export the simulator state.'));
+    }
+  };
+
   const handleImportFullState = async () => {
     if (!importFile) {
       return;
@@ -457,13 +475,27 @@ const Settings: React.FC = () => {
       </Card>
 
       <Card className="mb-4">
-        <Card.Header><FaUndo className="me-2" />Scenario restore</Card.Header>
+        <Card.Header><FaDownload className="me-2" />Backup simulator state</Card.Header>
         <Card.Body>
           <p className="text-muted">
-            Import a previously exported full-state JSON snapshot to restore the simulator configuration, master data, inventory, orders, purchase orders, and event history.
+            Download a complete snapshot of the simulator state including configuration, master data, inventory, orders, financials, wholesale prices, and metric history. Use this to create backups or checkpoints.
+          </p>
+          <div className="action-buttons">
+            <Button variant="primary" onClick={() => void handleExport()}>
+              <FaDownload className="me-2" />Download backup
+            </Button>
+          </div>
+        </Card.Body>
+      </Card>
+
+      <Card className="mb-4">
+        <Card.Header><FaUndo className="me-2" />Restore simulator state</Card.Header>
+        <Card.Body>
+          <p className="text-muted">
+            Import a previously exported backup JSON file to restore the simulator to a saved state. This will reset all current data and load the backup, including configuration, master data, inventory, orders, financials, and metric history.
           </p>
           <Form.Group className="mb-3">
-            <Form.Label>Full-state JSON file</Form.Label>
+            <Form.Label>Backup JSON file</Form.Label>
             <Form.Control
               ref={importInputRef}
               type="file"
@@ -474,13 +506,13 @@ const Settings: React.FC = () => {
               }}
             />
             <Form.Text>
-              Use a file exported from the full-state download in Analytics.
+              Select a backup file previously downloaded from the Backup section above.
             </Form.Text>
           </Form.Group>
           <div className="action-buttons">
             <Button variant="primary" onClick={handleImportFullState} disabled={!importFile || importing}>
               <FaUndo className="me-2" />
-              {importing ? 'Importing scenario...' : 'Import full state'}
+              {importing ? 'Restoring backup...' : 'Restore from backup'}
             </Button>
           </div>
         </Card.Body>

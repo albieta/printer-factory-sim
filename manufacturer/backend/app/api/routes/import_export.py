@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -13,6 +15,8 @@ from app.models.models import (
     BillOfMaterials,
     Event,
     EventType,
+    FinancialTransaction,
+    FinancialTransactionType,
     Inventory,
     ManufacturingOrder,
     OrderStatus,
@@ -20,8 +24,11 @@ from app.models.models import (
     ProductType,
     PurchaseOrder,
     PurchaseOrderStatus,
+    SalesOrder,
+    SalesOrderStatus,
     SimulationConfig,
     Supplier,
+    WholesalePrice,
 )
 from app.schemas.schemas import ImportResult
 from app.services.config_service import ConfigService
@@ -98,6 +105,48 @@ def serialize_event(event: Event) -> dict[str, Any]:
     }
 
 
+def serialize_sales_order(order: SalesOrder) -> dict[str, Any]:
+    return {
+        "id": order.id,
+        "reference_code": order.reference_code,
+        "retailer_name": order.retailer_name,
+        "product_id": order.product_id,
+        "product_name": order.product.name if order.product else None,
+        "quantity": order.quantity,
+        "status": order.status,
+        "status_reason": order.status_reason,
+        "unit_price": order.unit_price,
+        "total_price": order.total_price,
+        "placed_day": order.placed_day,
+        "expected_ship_day": order.expected_ship_day,
+        "in_progress_day": order.in_progress_day,
+        "shipped_day": order.shipped_day,
+        "delivered_day": order.delivered_day,
+        "linked_mfg_order_id": order.linked_mfg_order_id,
+        "created_at": order.created_at,
+    }
+
+
+def serialize_wholesale_price(wp: WholesalePrice) -> dict[str, Any]:
+    return {
+        "product_id": wp.product_id,
+        "product_name": wp.product.name if wp.product else None,
+        "price": wp.price,
+        "updated_at": wp.updated_at,
+    }
+
+
+def serialize_financial_transaction(txn: FinancialTransaction) -> dict[str, Any]:
+    return {
+        "id": txn.id,
+        "transaction_type": txn.transaction_type,
+        "amount": txn.amount,
+        "description": txn.description,
+        "sim_day": txn.sim_day,
+        "created_at": txn.created_at,
+    }
+
+
 @router.get("/export/full-state/")
 def export_full_state(db: Session = Depends(get_db)):
     inventory_service = InventoryService(db)
@@ -124,7 +173,29 @@ def export_full_state(db: Session = Depends(get_db)):
         .order_by(PurchaseOrder.issue_date.asc(), PurchaseOrder.reference_code.asc())
         .all()
     )
+    sales_orders = (
+        db.query(SalesOrder)
+        .options(joinedload(SalesOrder.product), joinedload(SalesOrder.linked_mfg_order))
+        .order_by(SalesOrder.created_at.asc())
+        .all()
+    )
+    wholesale_prices = db.query(WholesalePrice).options(joinedload(WholesalePrice.product)).all()
+    financial_transactions = db.query(FinancialTransaction).order_by(FinancialTransaction.created_at.asc()).all()
     events = db.query(Event).order_by(Event.timestamp.asc()).all()
+
+    # Load metrics snapshots from file
+    metrics_snapshots: list[Any] = []
+    # Navigate from manufacturer/backend/app/api/routes (6 levels) to repository root, then to logs
+    metrics_path = Path(__file__).parent.parent.parent.parent.parent.parent / "logs" / "metrics.jsonl"
+    if metrics_path.exists():
+        try:
+            with metrics_path.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        metrics_snapshots.append(json.loads(line))
+        except Exception:
+            pass
 
     payload = json_ready(
         {
@@ -135,7 +206,11 @@ def export_full_state(db: Session = Depends(get_db)):
             "inventory": inventory_service.get_inventory_snapshot(),
             "manufacturing_orders": [serialize_manufacturing_order(order) for order in manufacturing_orders],
             "purchase_orders": [serialize_purchase_order(order) for order in purchase_orders],
+            "sales_orders": [serialize_sales_order(order) for order in sales_orders],
+            "wholesale_prices": [serialize_wholesale_price(wp) for wp in wholesale_prices],
+            "financial_transactions": [serialize_financial_transaction(txn) for txn in financial_transactions],
             "events": [serialize_event(event) for event in events],
+            "metrics_snapshots": metrics_snapshots,
         }
     )
 
@@ -226,6 +301,9 @@ def ensure_required_sections(payload: dict[str, Any]) -> None:
         "inventory",
         "manufacturing_orders",
         "purchase_orders",
+        "sales_orders",
+        "wholesale_prices",
+        "financial_transactions",
         "events",
     ]
     missing = [section for section in required_sections if section not in payload]
@@ -246,7 +324,11 @@ def import_full_state_payload(db: Session, payload: dict[str, Any]) -> ImportRes
     inventory_payload = expect_list(payload, "inventory")
     manufacturing_orders_payload = expect_list(payload, "manufacturing_orders")
     purchase_orders_payload = expect_list(payload, "purchase_orders")
+    sales_orders_payload = expect_list(payload, "sales_orders")
+    wholesale_prices_payload = expect_list(payload, "wholesale_prices")
+    financial_transactions_payload = expect_list(payload, "financial_transactions")
     events_payload = expect_list(payload, "events")
+    metrics_snapshots = payload.get("metrics_snapshots", [])
 
     product_ids: set[str] = set()
     material_ids: set[str] = set()
@@ -270,6 +352,9 @@ def import_full_state_payload(db: Session, payload: dict[str, Any]) -> ImportRes
 
     try:
         db.query(Event).delete()
+        db.query(FinancialTransaction).delete()
+        db.query(SalesOrder).delete()
+        db.query(WholesalePrice).delete()
         db.query(PurchaseOrder).delete()
         db.query(ManufacturingOrder).delete()
         db.query(Inventory).delete()
@@ -424,7 +509,84 @@ def import_full_state_payload(db: Session, payload: dict[str, Any]) -> ImportRes
                 )
             )
 
+        for index, sales_order in enumerate(sales_orders_payload):
+            if sales_order.get("product_id") not in printer_ids:
+                raise ValueError(
+                    f"`sales_orders[{index}].product_id` must reference an imported printer product."
+                )
+            db.add(
+                SalesOrder(
+                    id=str(sales_order["id"]),
+                    reference_code=sales_order.get("reference_code"),
+                    retailer_name=str(sales_order["retailer_name"]),
+                    product_id=str(sales_order["product_id"]),
+                    quantity=int(sales_order["quantity"]),
+                    status=parse_enum_value(
+                        SalesOrderStatus,
+                        sales_order["status"],
+                        f"sales_orders[{index}].status",
+                    ),
+                    status_reason=sales_order.get("status_reason"),
+                    unit_price=parse_decimal_value(sales_order["unit_price"], f"sales_orders[{index}].unit_price"),
+                    total_price=parse_decimal_value(sales_order["total_price"], f"sales_orders[{index}].total_price"),
+                    placed_day=int(sales_order["placed_day"]),
+                    expected_ship_day=int(sales_order["expected_ship_day"]) if sales_order.get("expected_ship_day") is not None else None,
+                    in_progress_day=int(sales_order["in_progress_day"]) if sales_order.get("in_progress_day") is not None else None,
+                    shipped_day=int(sales_order["shipped_day"]) if sales_order.get("shipped_day") is not None else None,
+                    delivered_day=int(sales_order["delivered_day"]) if sales_order.get("delivered_day") is not None else None,
+                    linked_mfg_order_id=sales_order.get("linked_mfg_order_id"),
+                    created_at=parse_datetime_value(sales_order["created_at"], f"sales_orders[{index}].created_at")
+                    if sales_order.get("created_at")
+                    else datetime.utcnow(),
+                )
+            )
+
+        for index, wholesale_price in enumerate(wholesale_prices_payload):
+            if wholesale_price.get("product_id") not in printer_ids:
+                raise ValueError(
+                    f"`wholesale_prices[{index}].product_id` must reference an imported printer product."
+                )
+            db.add(
+                WholesalePrice(
+                    product_id=str(wholesale_price["product_id"]),
+                    price=parse_decimal_value(wholesale_price["price"], f"wholesale_prices[{index}].price"),
+                    updated_at=parse_datetime_value(wholesale_price["updated_at"], f"wholesale_prices[{index}].updated_at")
+                    if wholesale_price.get("updated_at")
+                    else datetime.utcnow(),
+                )
+            )
+
+        for index, transaction in enumerate(financial_transactions_payload):
+            db.add(
+                FinancialTransaction(
+                    id=str(transaction["id"]),
+                    transaction_type=parse_enum_value(
+                        FinancialTransactionType,
+                        transaction["transaction_type"],
+                        f"financial_transactions[{index}].transaction_type",
+                    ),
+                    amount=parse_decimal_value(transaction["amount"], f"financial_transactions[{index}].amount"),
+                    description=str(transaction["description"]),
+                    sim_day=int(transaction["sim_day"]),
+                    created_at=parse_datetime_value(transaction["created_at"], f"financial_transactions[{index}].created_at")
+                    if transaction.get("created_at")
+                    else datetime.utcnow(),
+                )
+            )
+
         db.commit()
+
+        # Restore metrics snapshots if present
+        if metrics_snapshots:
+            try:
+                # Navigate from manufacturer/backend/app/api/routes (6 levels) to repository root, then to logs
+                metrics_path = Path(__file__).parent.parent.parent.parent.parent.parent / "logs" / "metrics.jsonl"
+                metrics_path.parent.mkdir(exist_ok=True, parents=True)
+                with metrics_path.open("w", encoding="utf-8") as f:
+                    for snapshot in metrics_snapshots:
+                        f.write(json.dumps(snapshot, default=str) + "\n")
+            except Exception:
+                pass
     except Exception:
         db.rollback()
         raise
@@ -436,7 +598,11 @@ def import_full_state_payload(db: Session, payload: dict[str, Any]) -> ImportRes
             f"{len(products_payload)} products, "
             f"{len(manufacturing_orders_payload)} manufacturing orders, "
             f"{len(purchase_orders_payload)} purchase orders, "
-            f"and {len(events_payload)} events restored."
+            f"{len(sales_orders_payload)} sales orders, "
+            f"{len(wholesale_prices_payload)} wholesale prices, "
+            f"{len(financial_transactions_payload)} financial transactions, "
+            f"{len(events_payload)} events, "
+            f"and {len(metrics_snapshots)} metric snapshots restored."
         ),
     )
 

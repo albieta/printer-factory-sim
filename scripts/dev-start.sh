@@ -99,7 +99,9 @@ else
 
   (
     cd "$ROOT_DIR/manufacturer/backend"
-    exec "$ROOT_DIR/.venv/bin/python" -m uvicorn main:app --host 0.0.0.0 --port "$BACKEND_PORT" --reload --reload-dir "$ROOT_DIR/manufacturer/backend"
+    exec env \
+      PROVIDER_URL="http://localhost:${PROVIDER_PORT}" \
+      "$ROOT_DIR/.venv/bin/python" -m uvicorn main:app --host 0.0.0.0 --port "$BACKEND_PORT" --reload --reload-dir "$ROOT_DIR/manufacturer/backend"
   ) &
   backend_pid=$!
   backend_started=true

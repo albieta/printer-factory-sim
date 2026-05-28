@@ -452,11 +452,10 @@ const Reports: React.FC = () => {
       <div className="action-bar">
         <div>
           <div className="section-kicker">Data exports</div>
-          <h3 className="mb-1">Download simulator state</h3>
-          <p className="text-muted mb-0">Export the full state, inventory snapshot, or event history as JSON.</p>
+          <h3 className="mb-1">Export specialized snapshots</h3>
+          <p className="text-muted mb-0">Export inventory snapshot or event history as JSON. For full state backups, use the Backup feature in Configuration.</p>
         </div>
         <div className="action-buttons">
-          <Button variant="primary" onClick={() => void handleExport('full')}><FaDownload className="me-2" />Full state</Button>
           <Button variant="success" onClick={() => void handleExport('inventory')}><FaDownload className="me-2" />Inventory</Button>
           <Button variant="warning" onClick={() => void handleExport('events')}><FaDownload className="me-2" />Events</Button>
         </div>
