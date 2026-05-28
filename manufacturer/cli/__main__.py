@@ -264,6 +264,81 @@ def inventory() -> None:
         _echo_rows(["product", "on_hand", "inbound", "demand"], rows)
 
 
+@app.command()
+def inventory_trash(
+    items: list[str] = typer.Option(..., "--item", help="PRODUCT:QUANTITY (e.g., 'PLA Filament:50')")
+) -> None:
+    """Trash a specified amount of material from inventory.
+
+    Reduces inventory by the specified quantity. Use when cleaning up useless materials
+    that take up warehouse space.
+
+    Quantity rules:
+    - Minimum: 1 unit
+    - Maximum: current stock (cannot exceed available quantity)
+
+    Example: bin/manufacturer-cli inventory-trash --item "PLA Filament:50" --item "Stepper Motor:10"
+    """
+    if not items:
+        typer.echo("No items to trash.", err=True)
+        raise typer.Exit(1)
+
+    succeeded, failed = [], []
+    with _session() as db:
+        for item in items:
+            # Parse "PRODUCT:QUANTITY" format
+            parts = item.split(":")
+            if len(parts) != 2:
+                failed.append((item, "Invalid format (expected PRODUCT:QUANTITY)"))
+                typer.echo(f"✗ {item}: Invalid format (expected PRODUCT:QUANTITY)", err=True)
+                continue
+
+            product_name, qty_str = parts
+            try:
+                trash_qty = float(qty_str)
+            except ValueError:
+                failed.append((item, f"Invalid quantity: {qty_str!r}"))
+                typer.echo(f"✗ {item}: Invalid quantity {qty_str!r}", err=True)
+                continue
+
+            product_row = _find_product(db, product_name)
+            if product_row is None:
+                failed.append((item, f"Product {product_name!r} not found"))
+                typer.echo(f"✗ {item}: Product not found", err=True)
+                continue
+
+            try:
+                # Trash by sending the quantity to remove
+                response = httpx.post(
+                    "http://localhost:8002/api/inventory/trash",
+                    json={"product_id": product_row.id, "quantity": trash_qty},
+                    timeout=10.0,
+                )
+                response.raise_for_status()
+                result = response.json()
+                succeeded.append(f"{product_name} -{trash_qty:.0f}")
+                typer.echo(f"✓ {product_name}: trashed {trash_qty:.0f} units (new stock: {result.get('quantity', 0):.1f})")
+            except httpx.HTTPError as exc:
+                error_msg = str(exc)
+                try:
+                    error_detail = exc.response.json().get("detail", error_msg)
+                except Exception:
+                    error_detail = error_msg
+                failed.append((item, error_detail))
+                typer.echo(f"✗ {item}: {error_detail}", err=True)
+            except Exception as exc:
+                failed.append((item, str(exc)))
+                typer.echo(f"✗ {item}: {exc}", err=True)
+
+    summary = f"Trashed {len(succeeded)} / {len(items)} operations"
+    if failed:
+        summary += f" ({len(failed)} failed)"
+    typer.echo(summary)
+
+    if failed and len(failed) == len(items):
+        raise typer.Exit(1)
+
+
 @day_app.command("advance")
 def advance_day() -> None:
     """Advance the manufacturer by one simulated day."""

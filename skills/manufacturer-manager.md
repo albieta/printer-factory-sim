@@ -36,6 +36,13 @@ bin/manufacturer-cli hire-worker
 bin/manufacturer-cli fire-worker
 bin/manufacturer-cli close-assembly-line
 ```
+
+Emergency (deadlock recovery only):
+```
+bin/manufacturer-cli inventory-trash --item "PRODUCT:QTY" [--item "PRODUCT:QTY" ...]
+```
+Use **ONLY** when warehouse is full, critical orders are being rejected, and manufacturing is blocked. Quantity: 1 to current_stock.
+
 Financial Costs (operator-configured, you cannot change):
 - **Assembly line**: one-time setup cost when opening + daily maintenance per line
 - **Workers**: `hire-worker` adds 1 worker to EVERY line (not just one).
@@ -55,7 +62,7 @@ Financial Costs (operator-configured, you cannot change):
 - Do not choose a slower supplier when a faster valid one can meet the need.
 - Do not attempt to hire more than 10 workers per assembly line.
 - Do not make capacity decisions that lead to sustained losses (costs > revenue).
-- Do not manually adjust inventory — this is a human-only operation. Only place purchase orders when a shortage is expected.
+- Do not use `inventory-trash` unless warehouse is full AND critical orders are being rejected AND manufacturing is blocked.
 
 ## Command Syntax (Batch Operations)
 
@@ -138,7 +145,7 @@ Follow these steps (using only the state provided above):
 
    **Why one batch:** All decisions are independent. Decide releases → purchases → pricing in your head, then execute all at once. No waiting between steps.
 
-3. **Order Details** (reference only; commands go in batch above):
+3. **Order Details + Deadlock Recovery** (reference only; commands go in batch above):
    
    **Use the Inventory table provided in state** — it has three key columns per material:
    - **Stock**: Current inventory of this material
@@ -165,6 +172,49 @@ Follow these steps (using only the state provided above):
    - Aim for 250–400 units (balances bulk pricing and warehouse space)
    - If warehouse is tight (<500 free units), reduce to 200 units max
    - Consider bulk pricing tiers: 300+ units often have significant discounts
+   
+   **Deadlock Recovery** (EMERGENCY FUNCTION ONLY):
+   
+   **Deadlock condition**: Warehouse is **>80% full** AND incoming critical purchase orders are **rejected/cancelled on delivery**, or expected to be rejected/cancelled because there's no space AND at the same time sales orders are **BLOCKED (Material Shortage)** waiting for those materials to arrive.
+   
+   **To break deadlock**:
+   1. **Detect**: Sales orders show "BLOCKED — Material Shortage" AND inbound purchase orders are being rejected/cancelled or expected to be rejected due to space (check state for both conditions) AND warehouse usage >80%
+   2. **Identify**: Find excess materials taking up space that are NOT needed for pending orders (or the least critical materials if all are needed)
+   3. **Calculate**: Trash enough to make room for critical incoming materials (quantity = 1 to current_stock)
+   4. **Act**: Use `bin/manufacturer-cli inventory-trash --item "MATERIAL_NAME:QUANTITY"` immediately
+   5. **Result**: Critical materials can arrive, manufacturing resumes, orders proceed
+   
+   **Deadlock example scenario**:
+   ```
+   Warehouse usage: 8300/8400 (98.8% full) — CRITICAL
+   
+   Pending sales orders: 50 Elite700 printers
+   ├─ Status: BLOCKED — waiting for ABS Filament
+   └─ Need: 300 ABS Filament units
+   
+   Current inventory:
+   ├─ ABS Filament: 20 units (FAR SHORT, need 300) — CRITICAL SHORTAGE
+   └─ PLA Filament: 450 units (not needed for pending orders) — EXCESS
+   
+   Inbound purchase order: 400 ABS Filament from provider
+   └─ Status: WILL BE REJECTED on arrival (no warehouse space) and the delivery will be lost, leaving us with 20 ABS units and blocked orders
+   ```
+   
+   **Emergency action**: **TRASH PLA Filament:300**
+   - Frees 200 units → warehouse becomes 8000/8400 
+   - Incoming 400 ABS Filament CAN NOW ARRIVE (fits in freed space)
+   
+   **Immediate result**:
+   - ✓ ABS Filament order delivered successfully (400 units)
+   - ✓ Total ABS available: 20 + 400 = 420 units (need 300)
+   - ✓ Manufacturing resumes (unblocked)
+   - ✓ 50 Elite700 orders complete
+   
+   **CRITICAL**: This is an emergency function only. Use ONLY when:
+   - Warehouse is >80% full AND
+   - Critical purchase orders are rejected/cancelled due to space AND
+   - Sales orders are blocked waiting for those materials
+   - Never use for routine inventory management
 
 4. **Scale + Adjust + Summarize** (part of your single batch):
 
