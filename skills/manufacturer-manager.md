@@ -95,13 +95,18 @@ Follow these steps (using only the state provided above):
 
 
 1. **Assess**: Review the provided state above:
-   - Current capacity (lines, workers, daily hours)
+   - **Capacity metrics**: assembly_lines, workers_per_line, max_workers_per_line, daily_assembly_hours, queued_assembly_hours
+     - Calculate queue backlog in days: `queued_assembly_hours / daily_assembly_hours`
+     - This shows if you're backed up (>3 days = critical, >5 days = open new line)
+   - **Warehouse**: total_capacity, current_usage, available_free_space
+     - Critical: ensure all pending purchase orders PLUS any new orders fit within capacity
+     - Available space = total_capacity - current_usage
    - Inventory table: **Stock | Needed (accepted orders) | Ordered (not delivered) | Storage Status**
      - CRITICAL = stock below demand with nothing ordered → order immediately
      - LOW (ordered) = stock below demand but inbound → monitor
      - EXCESS = far more stock than needed → pause ordering
    - PENDING sales orders (all awaiting release)
-   - Inbound purchase orders (arriving materials)
+   - Inbound purchase orders (arriving materials + expected arrival dates)
    - Wholesale prices (current pricing)
    
    Decide based on this data (no API calls needed for state checks).
@@ -140,50 +145,70 @@ Follow these steps (using only the state provided above):
    - Example: 5 pending Basic300 orders need `5 × 2.5 = 12.5 units` of PLA Filament
    - Add all pending orders' demand for each material
    
+   **Warehouse Capacity Check** (CRITICAL to avoid rejection):
+   - Available free space = `warehouse_capacity - current_usage`
+   - For each material order, estimate volume needed (you may need to use supplier's package sizes or estimate)
+   - **IMPORTANT**: Consider that as orders are released and completed, space frees up while new orders are in transit
+     - Example: 100 units of inbound material arriving in 3 days, but 200 units will be consumed in those 3 days → net gain of 100 free space
+   - Conservative approach: ensure `new_order_qty ≤ available_free_space - (pending_inbound_arrivals - estimated_consumption_before_arrival)`
+   - Safer approach: order smaller quantities (250–350 units) that definitely fit, rather than max quantities that barely fit
+   
    **Order trigger:**
    - Stock PLUS inbound >= demand + 100 units safety stock? HOLD (sufficient for pending orders)
    - Stock PLUS inbound < demand + 100 units safety stock AND no order in-flight? ORDER immediately
-   - Order volume: Aim for 300–500 units to balance warehouse space and bulk pricing
-   - Check warehouse free space: `Stock + Ordered-inbound + New-order ≤ warehouse_capacity`.
-     Do NOT order more than the warehouse can fit.
+   - BUT: verify the order quantity fits in available warehouse space
+   - Order volume: Aim for 250–400 units to balance warehouse space, bulk pricing, and delivery timing
    - Consider bulk tiers: buying 300 units may cost less per unit than buying 100.
 
 4. **Scale + Adjust + Summarize** (part of your single batch):
 
-   **Assembly Queue Backlog Rules** (the state shows backlog_days — use it directly):
+   **Assembly Queue Backlog Rules** (use queued_assembly_hours from state):
+   - Calculate queue backlog in days: `backlog_days = queued_assembly_hours / daily_assembly_hours`
+   - **This is your primary scaling signal** — it directly shows production pressure
+   
+   **Worker/Line Flexibility Strategy** (focus on cost optimization):
+   - **Hiring preferred over opening lines**: 1 worker adds throughput at ~$400/day (wage), opening line costs $100/day maintenance
+     - Hire workers FIRST when backlog > 1.5 days; only open lines for > 5 days backlog with sustained demand
+   - **Firing preferred over closing lines**: When demand drops, fire workers first (reduces wages), keep lines open until forced to close
+   - **Max workers enforcement**: Do NOT hire beyond `max_workers_per_line` per line (hard limit, shown in state)
    
    **ROI check BEFORE any hire or open** (always do this first):
-   - Calculate daily wage cost of the change: `cost_per_worker_per_hour × shift_hours × num_lines`
-   - Forecast: Will we have enough sales orders to recover this cost?
-   - Only expand if: `daily_backlog_revenue > 1.5 × daily_expanded_cost` (payback within 20 days)
-   - Do NOT hire if already at max_workers_per_line (shown in state)
+   - Daily cost of 1 worker: `cost_per_worker_per_hour × shift_hours`
+   - Daily cost of 1 line: `cost_per_assembly_line_per_day` + workers on that line
+   - Forecast: Will the increased capacity be used (do you have pending/forecast orders)?
+   - Daily sales at full capacity (use price × qty of fulfilled orders as proxy)
+   - Only hire if: `expected_daily_revenue > 1.2 × new_worker_daily_cost` (payback in 20 days)
    
-   | Backlog | Demand Signal | Action |
-   |---------|--------------|--------|
-   | > 5 days | demand_modifier > 1.5 with event description showing sustained multi-day spike | Open a line AND hire workers if ROI passes (queue is critical + signal shows sustained demand) |
-   | > 3 days | demand_modifier > 1.2 | Hire one worker IF: ROI check passes (cheapest throughput boost) |
-   | 1.5–3 days | demand_modifier > 1.0 | Hire one worker only if: ROI passes AND backlog remained > 1.5 days last turn (signal of stability) |
-   | 0.5–1.5 days | — | HOLD; do not expand (borderline backlog, could be temporary spike) |
-   | < 0.5 days (2+ consecutive turns) | demand_modifier < 0.8 | Consider fire-worker or close line to cut losses |
+   | Backlog (days) | Demand Signal | Action |
+   |---|---|---|
+   | > 5 days | sustained (3+ day event) | CRITICAL: Open a line AND hire workers if ROI passes |
+   | 3–5 days | demand_modifier > 1.2 | Hire ONE worker (cheapest throughput boost) |
+   | 1.5–3 days | demand_modifier > 1.0 | Hire ONE worker IF: ROI passes AND backlog > 1.5 days last 2 turns |
+   | 0.5–1.5 days | — | HOLD; no changes (borderline backlog) |
+   | < 0.5 days (2+ turns) | demand_modifier < 0.8 | FIRE ONE worker per line to cut wage costs |
+   | Near $0 (idle) | demand_modifier < 0.5 | CLOSE lines if workers already at minimum per line |
 
-   **How to tell if demand is sustained** (agents CAN see this in the prompt):
-   - Look at the "Market signal for day N" section in your prompt—it includes `active_events` and `event_descriptions`.
-   - If event description says "over 3 days" or "sustained for 5 days", demand IS long-term; safe to expand.
-   - If description says "sudden spike" or "one day", it's temporary; do NOT expand.
-   - Example (day 8): `viral_moment: "...demand spike over 3 days"` → expand (days 8–10 are safe).
-   - Example (day 1): `quiet: "Below-average demand"` (no duration) → do NOT expand (could be all week).
+   **How to tell if demand is sustained** (you can see this in the prompt):
+   - Look at "Market signal for day N" section—check `active_events` and `event_descriptions`
+   - "over 3 days", "sustained for 5 days", "continuing" → long-term demand; safe to hire/open
+   - "sudden spike", "one-day event", "spike ends day X" → temporary; do NOT hire/open
+   - When in doubt, assume demand is temporary and use firings/closures instead
    
    **If expanding capacity**:
    ```bash
+   # First choice: hire ONE worker (cheaper, more flexible)
    bin/manufacturer-cli hire-worker
-   # or for critical backlog (> 5 days):
+   
+   # For critical backlog > 5 days with sustained demand signal only:
    bin/manufacturer-cli open-assembly-line && bin/manufacturer-cli hire-worker
    ```
    
-   **If reducing capacity** (when demand low and costs unsustainable):
+   **If reducing capacity** (when backlog < 0.5 days 2+ days in a row):
    ```bash
+   # First choice: fire ONE worker per line (cheaper, keeps lines open for recovery)
    bin/manufacturer-cli fire-worker
-   # or if workers already at min:
+   
+   # Only if workers already at 1 worker per line minimum:
    bin/manufacturer-cli close-assembly-line
    ```
    

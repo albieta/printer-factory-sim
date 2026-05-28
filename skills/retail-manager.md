@@ -139,6 +139,12 @@ Follow these steps (using state provided above):
 
 4. **Pricing** (batched with purchases above):
 
+   **Markup Floor**: Retail prices MUST BE AT LEAST manufacturer's wholesale price + 10%. This is the minimum margin floor.
+   - Check the manufacturer's wholesale price for each model (provided in prompt under "Manufacturer wholesale prices")
+   - Calculate minimum retail price: `wholesale_price × 1.10`
+   - Never set retail price below this floor
+   - Example: if manufacturer wholesale is $500, minimum retail is $550
+
    **Price Elasticity**: Customers are price-sensitive. High prices reduce demand proportionally.
    Profit maximization: `margin × volume` — don't raise so much that you lose more in volume than you gain in margin.
    
@@ -150,7 +156,7 @@ Follow these steps (using state provided above):
    | demand_modifier < 0.7 AND on_hand > 2× safety stock | Lower that model **5%** (soft demand + oversupply, reduce to stimulate) |
    | demand_modifier < 0.5 | Lower all prices **8%** (severe collapse; restore demand) |
 
-   Apply per-model (don't lower a backordered model). If `price_sensitivity: high`, cap all raises at **2%** (customers shopping around—aggressive pricing loses sales).
+   Apply per-model (don't lower a backordered model). **ALWAYS RESPECT THE 10% MARKUP FLOOR** — if a price adjustment would drop below wholesale + 10%, reduce the adjustment to stay above the floor. If `price_sensitivity: high`, cap all raises at **2%** (customers shopping around—aggressive pricing loses sales).
 
 5. **Summarize**
    - Print 3-5 bullets with counts and reasons.

@@ -535,6 +535,19 @@ class SimulationService:
         inventory_items = self.db.query(Product).filter(Product.type == ProductType.MATERIAL).count()
         total_events = self.db.query(Event).count()
 
+        # Calculate queued assembly hours
+        queued_assembly_hours = 0.0
+        try:
+            from sqlalchemy.orm import joinedload
+            released_orders_list = self.db.query(ManufacturingOrder).filter(
+                ManufacturingOrder.status == OrderStatus.RELEASED
+            ).options(joinedload(ManufacturingOrder.product)).all()
+            for order in released_orders_list:
+                if order.product and order.product.assembly_hours:
+                    queued_assembly_hours += float(order.product.assembly_hours) * order.quantity
+        except Exception:
+            pass
+
         return {
             "current_date": config.sim_date,
             "pending_orders": pending_orders,
@@ -553,7 +566,10 @@ class SimulationService:
             "usage_percentage": capacity["usage_percentage"],
             "assembly_lines": config.assembly_lines,
             "workers_per_line": config.workers_per_line,
+            "max_workers_per_line": config.max_workers_per_line,
             "shift_hours": config.shift_hours,
+            "daily_assembly_hours": capacity["daily_assembly_hours"],
+            "queued_assembly_hours": round(queued_assembly_hours, 1),
             "effective_daily_assembly_hours": self.config_service.get_effective_daily_assembly_hours(config),
             "workflow_stages": self.build_workflow_stages(),
         }
