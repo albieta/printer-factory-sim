@@ -21,7 +21,7 @@ const Settings: React.FC = () => {
   const importInputRef = useRef<HTMLInputElement | null>(null);
 
   const [formData, setFormData] = useState({
-    warehouse_capacity: '2200',
+    warehouse_capacity: '8400',
     assembly_lines: '1',
     workers_per_line: '1',
     shift_hours: '8',

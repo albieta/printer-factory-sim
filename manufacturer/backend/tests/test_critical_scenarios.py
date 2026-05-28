@@ -161,18 +161,18 @@ class TestWarehouseCapacityTracking:
         ), f"Available capacity calculation wrong: {capacity['available_capacity']} vs {expected_available}"
 
     def test_warehouse_starts_with_proper_utilization(self, db: Session) -> None:
-        """After reset, warehouse should be ~75% utilized (1650/2200)."""
+        """After reset, warehouse should be ~23% utilized (1950/8400)."""
         inventory_service = InventoryService(db)
         service = SimulationService(db)
         service.reset_to_default_config()
 
         capacity = inventory_service.get_capacity_info()
 
-        # Should be roughly 75% (1650 out of 2200)
+        # Should be roughly 23% (1950 out of 8400)
         usage_percent = capacity["usage_percentage"]
         assert (
-            70 < usage_percent < 80
-        ), f"Initial usage {usage_percent}% outside expected 70-80%"
+            20 < usage_percent < 25
+        ), f"Initial usage {usage_percent}% outside expected 20-25%"
 
 
 class TestFinancialTransactionConsistency:

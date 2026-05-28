@@ -85,8 +85,10 @@ Follow these steps, running the appropriate CLI commands:
    
    **Decide what to restock based on:**
    - Below 50% of starting stock? → restock up to starting level
-   - `demand_modifier > 1.5`? → restock below 75% (prepare for high demand)
-   - `supply_modifier < 0.7`? → restock conservatively, prioritize low stock
+   - Accepted or pending manufacturer orders exceed available stock? → restock enough to cover the order gap plus one normal day of demand
+   - `demand_modifier > 1.5`? → restock below 75% of target, or up to 100% if orders are already pending
+   - `lead_time_modifier > 1.0`? → restock earlier; treat 75% of target as the reorder point because replenishment will arrive slower
+   - `supply_modifier < 0.7`? → restock conservatively, prioritize products below 50% or tied to pending orders/supply pressure
    
    **Batch all restocks in one call (product:qty pairs):**
    ```bash

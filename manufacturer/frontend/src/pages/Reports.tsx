@@ -503,24 +503,28 @@ const Reports: React.FC = () => {
   // ── chart download handler ────────────────────────────────────────────────
 
   const downloadChartsAsZip = useCallback(
-    async (section: 'common' | 'retailer' | 'manufacturer' | 'supplier') => {
+    async (section: 'all' | 'common' | 'retailer' | 'manufacturer' | 'supplier') => {
       setDownloadingSection(section);
       try {
         const zip = new JSZip();
         const chartRefs: Array<{ ref: React.RefObject<HTMLDivElement | null>; name: string }> = [];
 
-        if (section === 'common') {
+        if (section === 'all' || section === 'common') {
           chartRefs.push(
             { ref: commonInventoryChartRef, name: 'Inventory across the chain' },
             { ref: commonPricesChartRef, name: 'Printer prices (wholesale vs retail)' },
             { ref: commonEventsChartRef, name: 'Scenario events timeline' }
           );
-        } else if (section === 'retailer') {
+        }
+
+        if (section === 'all' || section === 'retailer') {
           chartRefs.push(
             { ref: retailerDemandChartRef, name: 'Daily customer demand outcomes' },
             { ref: retailerStockChartRef, name: 'Retailer stock per product' }
           );
-        } else if (section === 'manufacturer') {
+        }
+
+        if (section === 'all' || section === 'manufacturer') {
           chartRefs.push(
             { ref: mfgCapacityChartRef, name: 'Assembly capacity expansion' },
             { ref: mfgHoursChartRef, name: 'Total daily assembly capacity' },
@@ -532,7 +536,9 @@ const Reports: React.FC = () => {
             { ref: mfgDailyFinancialsChartRef, name: 'Daily income, costs & profit' },
             { ref: mfgInventoryChartRef, name: 'Manufacturer raw material inventory per component' }
           );
-        } else if (section === 'supplier') {
+        }
+
+        if (section === 'all' || section === 'supplier') {
           chartRefs.push(
             { ref: supplierPriceChartRef, name: 'Material prices (provider components)' },
             { ref: supplierStockChartRef, name: 'Supplier stock per component' }
@@ -633,6 +639,10 @@ const Reports: React.FC = () => {
         <div className="action-buttons">
           <Button variant="success" onClick={() => void handleExport('inventory')}><FaDownload className="me-2" />Inventory</Button>
           <Button variant="warning" onClick={() => void handleExport('events')}><FaDownload className="me-2" />Events</Button>
+          <Button variant="outline-primary" onClick={() => void downloadChartsAsZip('all')} disabled={!hasMetrics || downloadingSection === 'all'}>
+            {downloadingSection === 'all' ? <Spinner animation="border" size="sm" className="me-2" /> : <FaDownload className="me-2" />}
+            All charts
+          </Button>
         </div>
       </div>
 

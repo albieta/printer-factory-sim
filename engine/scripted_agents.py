@@ -430,11 +430,11 @@ def run_scripted_manufacturer(
                 material_demand[material] = material_demand.get(material, 0) + (qty * req_qty)
 
     # Get warehouse capacity info
-    warehouse_capacity = 6400
+    warehouse_capacity = 8400
     current_usage = 0
     try:
         capacity_data = _get(f"{url}/api/capacity")
-        warehouse_capacity = int(capacity_data.get("warehouse_capacity", 6400))
+        warehouse_capacity = int(capacity_data.get("warehouse_capacity", 8400))
         current_usage = float(capacity_data.get("current_usage", 0))
     except Exception:
         pass

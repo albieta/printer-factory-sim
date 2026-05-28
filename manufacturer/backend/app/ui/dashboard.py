@@ -254,7 +254,7 @@ elif page == "Settings":
         st.subheader("Simulation Configuration")
         
         with st.form("config_form"):
-            warehouse_capacity = st.number_input("Warehouse Capacity", value=config.get('warehouse_capacity', 1000))
+            warehouse_capacity = st.number_input("Warehouse Capacity", value=config.get('warehouse_capacity', 8400))
             daily_assembly_hours = st.number_input("Daily Assembly Hours", value=config.get('daily_assembly_hours', 8.0))
             demand_mean = st.number_input("Demand Distribution Mean", value=config.get('demand_distribution_mean', 5.0))
             demand_variance = st.number_input("Demand Distribution Variance", value=config.get('demand_distribution_variance', 2.0))
