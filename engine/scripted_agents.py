@@ -261,7 +261,7 @@ def run_scripted_retailer(
     log_lines.append(f"Purchases placed: {', '.join(purchases_placed) if purchases_placed else 'none'}\n")
 
     # ── 3. Price adjustments ──────────────────────────────────────────────────
-    # Get manufacturer wholesale prices to enforce markup floor (retail >= wholesale × 1.10)
+    # Get manufacturer wholesale prices to enforce markup floor (retail >= wholesale × 1.15)
     manufacturer_wholesale: dict[str, float] = {}
     try:
         prices_resp = _get("http://localhost:8002/api/prices")
@@ -278,15 +278,17 @@ def run_scripted_retailer(
             continue
 
         wholesale = manufacturer_wholesale.get(model, 0)
-        floor = round(wholesale * 1.10, 2) if wholesale > 0 else 0
+        floor = round(wholesale * 1.15, 2) if wholesale > 0 else 0  # 15% minimum floor
+        target = round(wholesale * 1.30, 2) if wholesale > 0 else 0  # 30% target
 
-        # FIRST: Floor maintenance — if current price has fallen below floor, raise it immediately
+        # FIRST: Floor maintenance — ensure price is above floor
         new_price: float | None = None
         if floor > 0 and current_price < floor:
-            new_price = floor
-            log_lines.append(f"Floor maintenance for {model}: raising from {current_price:.2f} to {floor:.2f}\n")
+            # Below floor: raise to target if possible, else to floor
+            new_price = target if target > 0 else floor
+            log_lines.append(f"Floor maintenance for {model}: raising from {current_price:.2f} to {new_price:.2f}\n")
         else:
-            # SECOND: Demand-based adjustments (only if above or at floor)
+            # SECOND: Demand-based adjustments (only if above floor)
             if on_hand < min_stock and price_sensitivity != "high":
                 new_price = round(current_price * 1.05, 2)
             elif on_hand > min_stock * 5 and demand_mod < 0.8:
@@ -294,7 +296,7 @@ def run_scripted_retailer(
 
             # THIRD: Verify adjustment doesn't drop below floor
             if new_price is not None and floor > 0 and new_price < floor:
-                # Adjustment violates floor, skip it
+                # Adjustment would violate floor, skip it
                 new_price = None
 
         if new_price is not None:
@@ -303,7 +305,7 @@ def run_scripted_retailer(
                     f"{url}/api/catalog/{model}/price",
                     {"product_name": model, "retail_price": str(new_price)},
                 )
-                price_changes.append(f"{model}: {current_price:.2f}→{new_price:.2f}" + (f" (floor: {floor:.2f})" if floor > current_price else ""))
+                price_changes.append(f"{model}: {current_price:.2f}→{new_price:.2f}" + (f" (floor: {floor:.2f}, target: {target:.2f})" if floor > current_price else ""))
             except Exception as exc:
                 actions.append(f"Price change failed for {model}: {exc}")
 

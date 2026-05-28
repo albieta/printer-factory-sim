@@ -139,41 +139,47 @@ Follow these steps (using state provided above):
 
 4. **Pricing** (batched with purchases above):
 
-   **Markup Floor — CRITICAL REQUIREMENT**: Retail prices MUST NEVER GO BELOW manufacturer's wholesale price × 1.10.
-   - Check the manufacturer's wholesale price for each model (provided in prompt under "Manufacturer wholesale prices")
-   - Calculate minimum floor: `floor_price = wholesale_price × 1.10`
-   - Example: wholesale Basic300 = $1000 → floor = $1100 (never below $1100)
-   - **As wholesale prices change, the floor changes — you must maintain the floor every day**
-
-   **Floor Maintenance — FIRST STEP, BEFORE DEMAND-BASED ADJUSTMENTS**:
-   - For EACH model, check: `current_retail_price < (current_wholesale × 1.10)?`
-   - If YES, immediately raise retail price to `floor = wholesale × 1.10`
-   - **This is NON-NEGOTIABLE**: If wholesale went up and retail didn't follow, fix it immediately
-   - Example: 
-     - Day 1: wholesale=$1000, you set retail=$1100 ✓
-     - Day 3: wholesale=$1100, but your retail is still $1100 ✗ Floor is now $1210
-     - Action: Raise retail to $1210 immediately (or higher if demand conditions warrant)
-
-   **Price Elasticity**: Customers are price-sensitive. High prices reduce demand proportionally.
-   Profit maximization: `margin × volume` — don't raise so much that you lose more in volume than you gain in margin.
+   **Markup Floor & Target**: 
+   - **Absolute floor (non-negotiable)**: retail >= wholesale × 1.15 (15% minimum markup)
+   - **Default/target (when no demand pressure)**: retail = wholesale × 1.30 (30% markup for healthy margins)
+   - **Demand-based adjustments (PRIMARY DRIVER)**: Override the 30% target based on stock & demand conditions
    
-   | Condition | Action |
-   |-----------|--------|
-   | current_price < floor | Raise to floor IMMEDIATELY (mandatory, non-negotiable) |
-   | Still Short > 0 for any model | Raise that model **3%+** (then check floor) |
-   | demand_modifier > 2.0 and Still Short > 0 | Raise that model **5%+** (then check floor) |
-   | demand_modifier > 1.5 and no backlog | Raise that model **2%+** (then check floor) |
-   | demand_modifier < 0.7 AND on_hand > 2× safety stock | Lower that model **5%** (but NOT below floor) |
-   | demand_modifier < 0.5 | Lower all prices **8%** (but NOT below floor) |
+   Example: wholesale=$1000 → floor=$1150 (non-negotiable), default=$1300 (starting point), but demand signals may set it higher or lower.
+
+   **Floor Maintenance — FIRST STEP**: Ensure prices never fall below floor.
+   - For EACH model, check: `current_retail_price < (current_wholesale × 1.15)?`
+   - If YES, immediately raise to at least `floor = wholesale × 1.15`
+   - **Non-negotiable**: If wholesale went up and retail didn't follow, restore floor immediately
+   - Example: 
+     - Day 1: wholesale=$1000, retail=$1300 ✓
+     - Day 3: wholesale=$1100, retail=$1300 ✗ Floor now $1265, must raise retail to $1265+
+     - Action: Raise retail based on demand (see demand rules below), but ensure >= $1265
+
+   **DEMAND-BASED ADJUSTMENTS (PRIORITY)**: Applies AFTER floor is ensured. Demand signals have more weight than the 30% target.
+   
+   | Condition | Action | Rationale |
+   |-----------|--------|-----------|
+   | Still Short > 0 (any backordered demand) | Raise **5%+** above current | Constrained supply → higher price |
+   | demand_modifier > 2.0 AND Still Short > 0 | Raise **8%+** above current | Severe shortage + high demand → aggressive raise |
+   | demand_modifier > 1.5 AND no backlog | Raise **3%** above current | Strong demand, inventory healthy → modest raise |
+   | demand_modifier < 0.7 AND on_hand > 2× safety stock | Lower **5%** from current | Weak demand + surplus stock → price cut |
+   | demand_modifier < 0.5 | Lower **8%** from current | Very weak demand → aggressive cut |
+   | price_sensitivity: high | Cap all raises at **3%** | Customers shopping → be conservative |
+   | No demand pressure (baseline) | Move toward 30% target | Long-term margin optimization |
 
    **Application Rule** (in order):
-   1. Calculate the floor: `floor = current_wholesale_price × 1.10`
-   2. Check current retail price: `if current_retail < floor: raise to floor` (DONE — apply this now)
-   3. If already at/above floor, then apply demand-based adjustments (3%, 5%, 2%, -5%, -8%)
-   4. After adjustment, verify again: `if final_price < floor: keep current_price` (don't lower below floor)
-   5. Apply the final price
+   1. Calculate floor: `floor = current_wholesale_price × 1.15`
+   2. Calculate target: `target = current_wholesale_price × 1.30` (for reference, not requirement)
+   3. **Enforce floor**: If `current_retail < floor`, raise to floor
+   4. **Apply demand rules**: Modify price based on still-short, demand_modifier, stock levels (see table above)
+   5. **Verify floor after adjustment**: If final price < floor after adjustment, raise to floor
+   6. **Apply the final price**
+
+   **Demand-based adjustments override the 30% target**. Example:
+   - You have 100 units backordered → raise 5%+ even if it exceeds 30% margin
+   - You have 10× safety stock and weak demand → lower 8% even if it undercuts 30% target (but stays above 15% floor)
    
-   If `price_sensitivity: high`, cap raises at **2%** (customers shopping around). Still maintain the floor.
+   If no demand pressure AND price is between floor and target, move incrementally toward target (1-2% per turn).
 
 5. **Summarize**
    - Print 3-5 bullets with counts and reasons.

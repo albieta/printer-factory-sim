@@ -11,9 +11,9 @@ from app.schemas.schemas import (
 from app.services.catalog_service import CatalogService
 from app.services.manufacturer_client import ManufacturerClient, ManufacturerError
 from app.services.sim_state_service import SimStateService
-from app.services.starter_profile import SCHEMA_VERSION
+from app.services.starter_profile import SCHEMA_VERSION, MINIMUM_MARKUP_PCT
 from app.utils.database import get_db
-from app.utils.deps import get_manufacturer_client, get_markup_pct
+from app.utils.deps import get_manufacturer_client
 
 router = APIRouter()
 
@@ -33,8 +33,13 @@ def set_price(
     payload: PriceSetRequest,
     db: Session = Depends(get_db),
     client: ManufacturerClient = Depends(get_manufacturer_client),
-    markup_pct: int = Depends(get_markup_pct),
 ) -> CatalogResponse:
+    """Set retail price with validation against the minimum markup floor.
+
+    Uses MINIMUM_MARKUP_PCT for validation to allow the agent flexibility
+    in setting prices above the floor based on demand conditions. The agent
+    can set any price >= wholesale × (1 + MINIMUM_MARKUP_PCT/100).
+    """
     sim_day = SimStateService(db).get_current_day()
     try:
         wholesale = client.get_wholesale_price(product_name)
@@ -47,7 +52,7 @@ def set_price(
             product_name,
             payload.retail_price,
             wholesale_price=wholesale,
-            markup_pct=markup_pct,
+            markup_pct=MINIMUM_MARKUP_PCT,
             sim_day=sim_day,
         )
     except ValueError as exc:

@@ -459,8 +459,10 @@ def _format_state_for_prompt(state: dict[str, Any], role: str = "manufacturer") 
                         mfr_prices = mfr_data["prices"]
                         mfr_lines = []
                         for model, price in sorted(mfr_prices.items()):
-                            floor = float(price) * 1.10
-                            mfr_lines.append(f"- {model}: ${float(price):.2f} (min retail floor: ${floor:.2f})")
+                            price_num = float(price)
+                            floor = price_num * 1.15  # 15% minimum
+                            target = price_num * 1.30  # 30% default target
+                            mfr_lines.append(f"- {model}: ${price_num:.2f} (floor: ${floor:.2f}=+15%, target: ${target:.2f}=+30%)")
                         mfr_prices_text = "\n".join(mfr_lines)
         except Exception:
             pass

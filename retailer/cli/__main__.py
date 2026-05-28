@@ -73,7 +73,7 @@ from app.services.day_service import DayService  # noqa: E402
 from app.services.manufacturer_client import ManufacturerClient  # noqa: E402
 from app.services.purchase_order_service import PurchaseOrderService  # noqa: E402
 from app.services.sim_state_service import SimStateService  # noqa: E402
-from app.services.starter_profile import DEFAULT_MARKUP_PCT  # noqa: E402
+from app.services.starter_profile import MINIMUM_MARKUP_PCT  # noqa: E402
 from app.services.stock_service import StockService  # noqa: E402
 from app.utils.database import SessionLocal, bootstrap_database  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
@@ -94,7 +94,7 @@ app.add_typer(day_app, name="day")
 _RETAILER_NAME = os.environ.get("RETAILER_NAME", "PrinterWorld")
 _MANUFACTURER_NAME = os.environ.get("RETAILER_MANUFACTURER_NAME", "Factory")
 _MANUFACTURER_URL = os.environ.get("RETAILER_MANUFACTURER_URL", "http://localhost:8002")
-_MARKUP_PCT = int(os.environ.get("RETAILER_MARKUP_PCT", str(DEFAULT_MARKUP_PCT)))
+_MARKUP_PCT = MINIMUM_MARKUP_PCT
 
 
 # ── session helper ────────────────────────────────────────────────────────────

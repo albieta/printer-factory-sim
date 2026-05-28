@@ -33,9 +33,9 @@ INITIAL_DAY = 0
 DEFAULT_MARKUP_PCT = 30
 """Default retail markup over wholesale (percent). See PRD-week7 §4.4."""
 
-MINIMUM_MARKUP_PCT = 10
+MINIMUM_MARKUP_PCT = 15
 """Hard floor on markup. `price set` must reject anything below this.
-See PRD-week7 §4.4. Agent adjusts prices based on demand above this floor."""
+See PRD-week7 §4.4."""
 
 
 def seed_file_path() -> Path:
