@@ -420,6 +420,8 @@ export interface MetricsSnapshot {
       costs: number;
       net_profit: number;
     };
+    queued_assembly_hours: number;
+    queue_load_percentage: number;
     errors: string[];
   };
   providers: Array<{

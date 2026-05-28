@@ -69,6 +69,8 @@ const Reports: React.FC = () => {
   const retailerStockChartRef = useRef<HTMLDivElement | null>(null);
   const mfgCapacityChartRef = useRef<HTMLDivElement | null>(null);
   const mfgHoursChartRef = useRef<HTMLDivElement | null>(null);
+  const mfgQueuedHoursChartRef = useRef<HTMLDivElement | null>(null);
+  const mfgQueueLoadChartRef = useRef<HTMLDivElement | null>(null);
   const mfgFinancialChartRef = useRef<HTMLDivElement | null>(null);
   const mfgProfitChartRef = useRef<HTMLDivElement | null>(null);
   const mfgOrdersChartRef = useRef<HTMLDivElement | null>(null);
@@ -146,49 +148,59 @@ const Reports: React.FC = () => {
 
   // ── chart derivations ─────────────────────────────────────────────────────
 
-  const dayLabels = useMemo(() => metrics.map((m) => `D${m.day}`), [metrics]);
+  // Deduplicate metrics by day, keeping only the last metric for each day
+  const uniqueMetrics = useMemo(() => {
+    const seen = new Map<number, MetricsSnapshot>();
+    metrics.forEach((m) => {
+      const day = m.day ?? 0;
+      seen.set(day, m);
+    });
+    return Array.from(seen.values()).sort((a, b) => (a.day ?? 0) - (b.day ?? 0));
+  }, [metrics]);
+
+  const dayLabels = useMemo(() => uniqueMetrics.map((m) => `D${m.day}`), [uniqueMetrics]);
 
   // COMMON — aggregate inventory per service
   const inventoryChart = useMemo(() => {
-    if (!metrics.length) return null;
-    const mfg = metrics.map((m) => Object.values(m.manufacturer.inventory ?? {}).reduce((a, b) => a + Number(b || 0), 0));
-    const retailStock = metrics.map((m) => m.retailers.reduce((acc, r) => acc + Object.values(r.stock ?? {}).reduce((a, b) => a + Number(b || 0), 0), 0));
-    const providerStock = metrics.map((m) => m.providers.reduce((acc, p) => acc + Object.values(p.stock ?? {}).reduce((a, b) => a + Number(b || 0), 0), 0));
+    if (!uniqueMetrics.length) return null;
+    const mfg = uniqueMetrics.map((m) => Object.values(m.manufacturer.inventory ?? {}).reduce((a, b) => a + Number(b || 0), 0));
+    const retailStock = uniqueMetrics.map((m) => m.retailers.reduce((acc, r) => acc + Object.values(r.stock ?? {}).reduce((a, b) => a + Number(b || 0), 0), 0));
+    const providerStock = uniqueMetrics.map((m) => m.providers.reduce((acc, p) => acc + Object.values(p.stock ?? {}).reduce((a, b) => a + Number(b || 0), 0), 0));
     return { mfg, retailStock, providerStock };
-  }, [metrics]);
+  }, [uniqueMetrics]);
 
   // COMMON — printer prices: wholesale + retail per model
   const printerPriceChart = useMemo(() => {
-    if (!metrics.length) return null;
+    if (!uniqueMetrics.length) return null;
     const traces: Data[] = [];
     const productNames = new Set<string>();
-    metrics.forEach((m) => Object.keys(m.manufacturer?.prices ?? {}).forEach((k) => productNames.add(k)));
+    uniqueMetrics.forEach((m) => Object.keys(m.manufacturer?.prices ?? {}).forEach((k) => productNames.add(k)));
     productNames.forEach((product) => {
-      const vals = metrics.map((m) => { const p = m.manufacturer?.prices?.[product]; return p != null ? Number(p) : null; });
+      const vals = uniqueMetrics.map((m) => { const p = m.manufacturer?.prices?.[product]; return p != null ? Number(p) : null; });
       if (vals.some((v) => v != null)) {
         traces.push({ x: dayLabels, y: vals as number[], type: 'scatter', mode: 'lines+markers', name: `Wholesale: ${product}`, line: { dash: 'solid' }, connectgaps: true } as Data);
       }
     });
-    metrics[0]?.retailers.forEach((retailer, ri) => {
+    uniqueMetrics[0]?.retailers.forEach((retailer, ri) => {
       const rNames = new Set<string>();
-      metrics.forEach((m) => Object.keys(m.retailers[ri]?.prices ?? {}).forEach((k) => rNames.add(k)));
+      uniqueMetrics.forEach((m) => Object.keys(m.retailers[ri]?.prices ?? {}).forEach((k) => rNames.add(k)));
       rNames.forEach((product) => {
-        const vals = metrics.map((m) => { const p = m.retailers[ri]?.prices?.[product]; return p != null ? Number(p) : null; });
+        const vals = uniqueMetrics.map((m) => { const p = m.retailers[ri]?.prices?.[product]; return p != null ? Number(p) : null; });
         if (vals.some((v) => v != null)) {
           traces.push({ x: dayLabels, y: vals as number[], type: 'scatter', mode: 'lines+markers', name: `${retailer.name}: ${product}`, line: { dash: 'dot' }, connectgaps: true } as Data);
         }
       });
     });
     return traces.length ? traces : null;
-  }, [metrics, dayLabels]);
+  }, [uniqueMetrics, dayLabels]);
 
   // COMMON — scenario events overlay with day-by-day timeline
   const eventsOverlay = useMemo(() => {
     // Build a timeline for each day that has been run
-    if (!metrics.length) return null;
+    if (!uniqueMetrics.length) return null;
 
-    const maxDay = Math.max(...metrics.map((m) => m.day ?? 0), 0);
-    const lastScenarioName = metrics[0]?.scenario;
+    const maxDay = Math.max(...uniqueMetrics.map((m) => m.day ?? 0), 0);
+    const lastScenarioName = uniqueMetrics[0]?.scenario;
     const scenarioDetail = lastScenarioName && lastScenarioName !== 'manual'
       ? scenarios.find((s) => s.scenario_name === lastScenarioName || s.name.replace('.json', '') === lastScenarioName)
       : null;
@@ -206,119 +218,137 @@ const Reports: React.FC = () => {
       dayRows.push({ day, label, events: dayEvents });
     }
 
-    // Build shapes and annotations from events
+    // Build shapes and annotations from events, skipping any that don't fit in the current day range
     const shapes = events
       .filter((ev) => ev.start_day != null && ev.end_day != null)
       .map((ev, i) => {
         const yIndex = dayRows.findIndex((dr) => dr.events.includes(ev));
+        if (yIndex < 0) return null; // Event not in any day row, skip it
         return {
           type: 'rect' as const, xref: 'x' as const, yref: 'y' as const,
           x0: ev.start_day, x1: ev.end_day, y0: yIndex - 0.4, y1: yIndex + 0.4,
           fillcolor: `hsl(${(i * 67) % 360}, 60%, 55%)`, opacity: 0.75, line: { width: 0 },
         };
-      });
+      })
+      .filter((shape) => shape != null);
 
     const annotations = events
       .filter((ev) => ev.start_day != null)
       .map((ev, i) => {
         const yIndex = dayRows.findIndex((dr) => dr.events.includes(ev));
+        if (yIndex < 0) return null; // Event not in any day row, skip it
         return {
           x: ev.start_day ?? 0, y: yIndex, text: ev.name ?? `event ${i + 1}`,
           xanchor: 'left' as const, showarrow: false, font: { color: '#fff', size: 11 },
         };
-      });
+      })
+      .filter((ann) => ann != null);
 
     const yLabels = dayRows.map((dr) => dr.label);
     return { shapes, annotations, yLabels, eventCount: dayRows.length, maxDay };
-  }, [metrics, scenarios]);
+  }, [uniqueMetrics, scenarios]);
 
   // RETAILER — daily customer demand
   const demandChart = useMemo(() => {
-    if (!metrics.length) return null;
-    const placed = metrics.map((m) => m.retailers.reduce((acc, r) => acc + (r.customer_orders?.placed_today ?? 0), 0));
-    const fulfilled = metrics.map((m) => m.retailers.reduce((acc, r) => acc + (r.customer_orders?.fulfilled_today ?? 0), 0));
-    const backordered = metrics.map((m) => m.retailers.reduce((acc, r) => acc + (r.customer_orders?.backordered_today ?? 0), 0));
+    if (!uniqueMetrics.length) return null;
+    const placed = uniqueMetrics.map((m) => m.retailers.reduce((acc, r) => acc + (r.customer_orders?.placed_today ?? 0), 0));
+    const fulfilled = uniqueMetrics.map((m) => m.retailers.reduce((acc, r) => acc + (r.customer_orders?.fulfilled_today ?? 0), 0));
+    const backordered = uniqueMetrics.map((m) => m.retailers.reduce((acc, r) => acc + (r.customer_orders?.backordered_today ?? 0), 0));
     return { placed, fulfilled, backordered };
-  }, [metrics]);
+  }, [uniqueMetrics]);
 
   // RETAILER — stock per product
   const retailerStockChart = useMemo(() => {
-    if (!metrics.length) return null;
+    if (!uniqueMetrics.length) return null;
     const traces: Data[] = [];
     const modelNames = new Set<string>();
-    metrics.forEach((m) => m.retailers.forEach((r) => Object.keys(r.stock ?? {}).forEach((k) => modelNames.add(k))));
+    uniqueMetrics.forEach((m) => m.retailers.forEach((r) => Object.keys(r.stock ?? {}).forEach((k) => modelNames.add(k))));
     modelNames.forEach((model) => {
-      const vals = metrics.map((m) => m.retailers.reduce((acc, r) => acc + (r.stock?.[model] ?? 0), 0));
+      const vals = uniqueMetrics.map((m) => m.retailers.reduce((acc, r) => acc + (r.stock?.[model] ?? 0), 0));
       traces.push({ x: dayLabels, y: vals, type: 'scatter', mode: 'lines+markers', name: model, connectgaps: true } as Data);
     });
     return traces.length ? traces : null;
-  }, [metrics, dayLabels]);
+  }, [uniqueMetrics, dayLabels]);
 
   // MANUFACTURER — assembly capacity
   const capacityChart = useMemo(() => {
-    if (!metrics.length) return null;
-    const lines = metrics.map((m) => m.manufacturer?.capacity?.assembly_lines ?? 1);
-    const workers = metrics.map((m) => m.manufacturer?.capacity?.workers_per_line ?? 1);
-    const dailyHours = metrics.map((m) => m.manufacturer?.capacity?.daily_assembly_hours ?? 8);
+    if (!uniqueMetrics.length) return null;
+    const lines = uniqueMetrics.map((m) => m.manufacturer?.capacity?.assembly_lines ?? 1);
+    const workers = uniqueMetrics.map((m) => m.manufacturer?.capacity?.workers_per_line ?? 1);
+    const dailyHours = uniqueMetrics.map((m) => m.manufacturer?.capacity?.daily_assembly_hours ?? 8);
     return { lines, workers, dailyHours };
-  }, [metrics]);
+  }, [uniqueMetrics]);
+
+  // MANUFACTURER — queued assembly hours evolution
+  const queuedHoursChart = useMemo(() => {
+    if (!uniqueMetrics.length) return null;
+    const queuedHours = uniqueMetrics.map((m) => m.manufacturer?.queued_assembly_hours ?? 0);
+    const dailyCapacity = uniqueMetrics.map((m) => m.manufacturer?.capacity?.daily_assembly_hours ?? 8);
+    return { queuedHours, dailyCapacity };
+  }, [uniqueMetrics]);
+
+  // MANUFACTURER — queue load percentage evolution
+  const queueLoadChart = useMemo(() => {
+    if (!uniqueMetrics.length) return null;
+    return uniqueMetrics.map((m) => m.manufacturer?.queue_load_percentage ?? 0);
+  }, [uniqueMetrics]);
 
   // MANUFACTURER — financials
   const financialChart = useMemo(() => {
-    if (!metrics.length) return null;
-    const costs = metrics.map((m) => m.manufacturer?.financials?.total_costs ?? 0);
-    const revenue = metrics.map((m) => m.manufacturer?.financials?.total_revenue ?? 0);
-    const profit = metrics.map((m) => m.manufacturer?.financials?.net_profit ?? 0);
+    if (!uniqueMetrics.length) return null;
+    const costs = uniqueMetrics.map((m) => m.manufacturer?.financials?.total_costs ?? 0);
+    const revenue = uniqueMetrics.map((m) => m.manufacturer?.financials?.total_revenue ?? 0);
+    const profit = uniqueMetrics.map((m) => m.manufacturer?.financials?.net_profit ?? 0);
     return { costs, revenue, profit };
-  }, [metrics]);
+  }, [uniqueMetrics]);
 
   // MANUFACTURER — daily sales order activity
   const mfgOrdersChart = useMemo(() => {
-    if (!metrics.length) return null;
+    if (!uniqueMetrics.length) return null;
     const sot = (m: MetricsSnapshot) => m.manufacturer?.sales_orders_today ?? {};
     return {
-      placed: metrics.map((m) => sot(m).placed ?? 0),
-      in_progress: metrics.map((m) => sot(m).in_progress ?? 0),
-      shipped: metrics.map((m) => sot(m).shipped ?? 0),
-      rejected: metrics.map((m) => sot(m).rejected ?? 0),
+      placed: uniqueMetrics.map((m) => sot(m).placed ?? 0),
+      in_progress: uniqueMetrics.map((m) => sot(m).in_progress ?? 0),
+      shipped: uniqueMetrics.map((m) => sot(m).shipped ?? 0),
+      rejected: uniqueMetrics.map((m) => sot(m).rejected ?? 0),
     };
-  }, [metrics]);
+  }, [uniqueMetrics]);
 
   // MANUFACTURER — daily financials
   const dailyFinancialsChart = useMemo(() => {
-    if (!metrics.length) return null;
+    if (!uniqueMetrics.length) return null;
     const df = (m: MetricsSnapshot) => m.manufacturer?.daily_financials ?? {};
     return {
-      revenue: metrics.map((m) => df(m).revenue ?? 0),
-      costs: metrics.map((m) => df(m).costs ?? 0),
-      net_profit: metrics.map((m) => df(m).net_profit ?? 0),
+      revenue: uniqueMetrics.map((m) => df(m).revenue ?? 0),
+      costs: uniqueMetrics.map((m) => df(m).costs ?? 0),
+      net_profit: uniqueMetrics.map((m) => df(m).net_profit ?? 0),
     };
-  }, [metrics]);
+  }, [uniqueMetrics]);
 
   // MANUFACTURER — inventory per material
   const mfgInventoryChart = useMemo(() => {
-    if (!metrics.length) return null;
+    if (!uniqueMetrics.length) return null;
     const traces: Data[] = [];
     const materialNames = new Set<string>();
-    metrics.forEach((m) => Object.keys(m.manufacturer?.inventory ?? {}).forEach((k) => materialNames.add(k)));
+    uniqueMetrics.forEach((m) => Object.keys(m.manufacturer?.inventory ?? {}).forEach((k) => materialNames.add(k)));
     materialNames.forEach((material) => {
-      const vals = metrics.map((m) => m.manufacturer?.inventory?.[material] ?? null);
+      const vals = uniqueMetrics.map((m) => m.manufacturer?.inventory?.[material] ?? null);
       if (vals.some((v) => v != null)) {
         traces.push({ x: dayLabels, y: vals as number[], type: 'scatter', mode: 'lines+markers', name: material, connectgaps: true } as Data);
       }
     });
     return traces.length ? traces : null;
-  }, [metrics, dayLabels]);
+  }, [uniqueMetrics, dayLabels]);
 
   // SUPPLIER — material prices (cheapest tier)
   const materialPriceChart = useMemo(() => {
-    if (!metrics.length) return null;
+    if (!uniqueMetrics.length) return null;
     const traces: Data[] = [];
     const providerProductNames = new Set<string>();
-    metrics.forEach((m) => m.providers.forEach((p) => Object.keys(p.prices ?? {}).forEach((k) => providerProductNames.add(k))));
-    metrics[0]?.providers.forEach((provider, pi) => {
+    uniqueMetrics.forEach((m) => m.providers.forEach((p) => Object.keys(p.prices ?? {}).forEach((k) => providerProductNames.add(k))));
+    uniqueMetrics[0]?.providers.forEach((provider, pi) => {
       providerProductNames.forEach((product) => {
-        const vals = metrics.map((m) => {
+        const vals = uniqueMetrics.map((m) => {
           const tiers = m.providers[pi]?.prices?.[product];
           if (!tiers || typeof tiers !== 'object') return null;
           const tierVals = Object.values(tiers).map(Number).filter((v) => !isNaN(v));
@@ -330,24 +360,24 @@ const Reports: React.FC = () => {
       });
     });
     return traces.length ? traces : null;
-  }, [metrics, dayLabels]);
+  }, [uniqueMetrics, dayLabels]);
 
   // SUPPLIER — stock per component
   const supplierStockChart = useMemo(() => {
-    if (!metrics.length) return null;
+    if (!uniqueMetrics.length) return null;
     const traces: Data[] = [];
     const componentNames = new Set<string>();
-    metrics.forEach((m) => m.providers.forEach((p) => Object.keys(p.stock ?? {}).forEach((k) => componentNames.add(k))));
-    metrics[0]?.providers.forEach((provider, pi) => {
+    uniqueMetrics.forEach((m) => m.providers.forEach((p) => Object.keys(p.stock ?? {}).forEach((k) => componentNames.add(k))));
+    uniqueMetrics[0]?.providers.forEach((provider, pi) => {
       componentNames.forEach((component) => {
-        const vals = metrics.map((m) => m.providers[pi]?.stock?.[component] ?? null);
+        const vals = uniqueMetrics.map((m) => m.providers[pi]?.stock?.[component] ?? null);
         if (vals.some((v) => v != null)) {
           traces.push({ x: dayLabels, y: vals as number[], type: 'scatter', mode: 'lines+markers', name: `${provider.name}: ${component}`, connectgaps: true } as Data);
         }
       });
     });
     return traces.length ? traces : null;
-  }, [metrics, dayLabels]);
+  }, [uniqueMetrics, dayLabels]);
 
   // ── event log (existing) ──────────────────────────────────────────────────
 
@@ -380,6 +410,8 @@ const Reports: React.FC = () => {
           chartRefs.push(
             { ref: mfgCapacityChartRef, name: 'Assembly capacity expansion' },
             { ref: mfgHoursChartRef, name: 'Total daily assembly capacity' },
+            { ref: mfgQueuedHoursChartRef, name: 'Queued assembly hours evolution' },
+            { ref: mfgQueueLoadChartRef, name: 'Queue load percentage evolution' },
             { ref: mfgFinancialChartRef, name: 'Financial performance' },
             { ref: mfgProfitChartRef, name: 'Net profit evolution' },
             { ref: mfgOrdersChartRef, name: 'Daily order activity (MFG + sales orders)' },
@@ -606,6 +638,34 @@ const Reports: React.FC = () => {
             <ResponsivePlot
               data={[{ x: dayLabels, y: capacityChart.dailyHours, type: 'scatter', mode: 'lines+markers', name: 'Daily assembly hours', marker: { color: '#228B22' } }]}
               layout={{ title: { text: 'Total daily assembly capacity' }, xaxis: { title: { text: 'Simulated day' } }, yaxis: { title: { text: 'Hours' } }, margin: { t: 56, r: 24, b: 56, l: 56 } }}
+              minHeight={300}
+            />
+          ) : <EmptyChart label={noMetricsMsg} />}
+        </div>
+      </div>
+
+      <div className="data-grid mb-3">
+        <div className="chart-container" ref={mfgQueuedHoursChartRef}>
+          {hasMetrics && queuedHoursChart ? (
+            <ResponsivePlot
+              data={[
+                { x: dayLabels, y: queuedHoursChart.queuedHours, type: 'scatter', mode: 'lines+markers', name: 'Queued hours', marker: { color: '#ff9900' } },
+                { x: dayLabels, y: queuedHoursChart.dailyCapacity, type: 'scatter', mode: 'lines', name: 'Daily capacity', line: { color: '#cccccc', dash: 'dash' } },
+              ]}
+              layout={{ title: { text: 'Queued assembly hours evolution' }, xaxis: { title: { text: 'Simulated day' } }, yaxis: { title: { text: 'Hours' } }, margin: { t: 56, r: 24, b: 56, l: 56 } }}
+              minHeight={300}
+            />
+          ) : <EmptyChart label={noMetricsMsg} />}
+        </div>
+
+        <div className="chart-container" ref={mfgQueueLoadChartRef}>
+          {hasMetrics && queueLoadChart ? (
+            <ResponsivePlot
+              data={[
+                { x: dayLabels, y: queueLoadChart, type: 'scatter', mode: 'lines+markers', name: 'Queue load %', marker: { color: '#ff6b6b' } },
+                { x: dayLabels, y: Array(dayLabels.length).fill(100), type: 'scatter', mode: 'lines', name: 'Capacity limit', line: { color: '#cccccc', dash: 'dash' } },
+              ]}
+              layout={{ title: { text: 'Queue load percentage evolution' }, xaxis: { title: { text: 'Simulated day' } }, yaxis: { title: { text: 'Load %' } }, margin: { t: 56, r: 24, b: 56, l: 56 } }}
               minHeight={300}
             />
           ) : <EmptyChart label={noMetricsMsg} />}

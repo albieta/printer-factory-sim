@@ -390,15 +390,38 @@ class SimulationService:
         except Exception:
             pass
 
-        # Per-day financial activity. Transactions are recorded with the new sim_day inside
-        # advance_day() (after the increment), so querying by sim_day gives today's totals.
-        # Costs are stored as negative values; take absolute value for reporting.
+        # Per-day financial activity. When we advance the day, sim_day is incremented first, then
+        # transactions are recorded with the NEW sim_day. The metrics snapshot is captured AFTER
+        # advancing, so we're now at the start of the new day. We need to look at transactions from
+        # the day that just finished (sim_day - 1) plus any config changes made today that have
+        # already been recorded with the current sim_day.
         daily_financials: dict[str, float] = {"revenue": 0.0, "costs": 0.0, "net_profit": 0.0}
         try:
-            txns = self.db.query(FinancialTransaction).filter(FinancialTransaction.sim_day == sim_day).all()
+            # Query transactions from both the previous day (config/user actions) and current day (advance_day operations)
+            prev_day = max(0, sim_day - 1)
+            txns = self.db.query(FinancialTransaction).filter(
+                FinancialTransaction.sim_day.in_([prev_day, sim_day])
+            ).all()
             rev = sum(float(t.amount) for t in txns if t.transaction_type == FinancialTransactionType.PRODUCT_SOLD)
             cost = abs(sum(float(t.amount) for t in txns if t.transaction_type != FinancialTransactionType.PRODUCT_SOLD))
             daily_financials = {"revenue": rev, "costs": cost, "net_profit": rev - cost}
+        except Exception:
+            pass
+
+        # Calculate queued assembly hours and queue load percentage
+        queued_assembly_hours = 0.0
+        queue_load_percentage = 0.0
+        try:
+            from sqlalchemy.orm import joinedload
+            released_orders = self.db.query(ManufacturingOrder).filter(
+                ManufacturingOrder.status == OrderStatus.RELEASED
+            ).options(joinedload(ManufacturingOrder.product)).all()
+            for order in released_orders:
+                if order.product and order.product.assembly_hours:
+                    queued_assembly_hours += float(order.product.assembly_hours) * order.quantity
+            daily_assembly_hours = capacity_data.get("daily_assembly_hours", 8.0)
+            if daily_assembly_hours > 0:
+                queue_load_percentage = (queued_assembly_hours / daily_assembly_hours) * 100
         except Exception:
             pass
 
@@ -412,6 +435,8 @@ class SimulationService:
             "financials": financials,
             "sales_orders_today": sales_orders_today,
             "daily_financials": daily_financials,
+            "queued_assembly_hours": round(queued_assembly_hours, 1),
+            "queue_load_percentage": round(queue_load_percentage, 1),
             "errors": [],
         }
 
