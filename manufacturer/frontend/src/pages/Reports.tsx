@@ -148,12 +148,21 @@ const Reports: React.FC = () => {
 
   // ── chart derivations ─────────────────────────────────────────────────────
 
-  // Deduplicate metrics by day, keeping only the last metric for each day
+  // Deduplicate metrics by day, keeping the one with most complete data
+  // When two snapshots exist for the same day (manual + scenario), prefer the one
+  // with queued_assembly_hours populated (manual), as scenario metrics lack these fields
   const uniqueMetrics = useMemo(() => {
     const seen = new Map<number, MetricsSnapshot>();
     metrics.forEach((m) => {
       const day = m.day ?? 0;
-      seen.set(day, m);
+      const existing = seen.get(day);
+
+      // Keep the new metric if:
+      // 1. No existing metric for this day
+      // 2. Existing has NULL queued hours but new has actual data
+      if (!existing || (existing.manufacturer?.queued_assembly_hours == null && m.manufacturer?.queued_assembly_hours != null)) {
+        seen.set(day, m);
+      }
     });
     return Array.from(seen.values()).sort((a, b) => (a.day ?? 0) - (b.day ?? 0));
   }, [metrics]);
@@ -210,7 +219,7 @@ const Reports: React.FC = () => {
     const dayRows: Array<{ day: number; label: string; events: Array<any> }> = [];
     for (let day = 0; day <= maxDay; day++) {
       const dayEvents = events.filter((ev) =>
-        ev.start_day != null && ev.start_day <= day && (ev.end_day ?? ev.start_day) >= day
+        ev && ev.start_day != null && ev.start_day <= day && (ev.end_day ?? ev.start_day) >= day
       );
       const label = dayEvents.length > 0
         ? dayEvents.map((ev) => ev.name ?? `event`).join(', ')
@@ -251,9 +260,9 @@ const Reports: React.FC = () => {
   // RETAILER — daily customer demand
   const demandChart = useMemo(() => {
     if (!uniqueMetrics.length) return null;
-    const placed = uniqueMetrics.map((m) => m.retailers.reduce((acc, r) => acc + (r.customer_orders?.placed_today ?? 0), 0));
-    const fulfilled = uniqueMetrics.map((m) => m.retailers.reduce((acc, r) => acc + (r.customer_orders?.fulfilled_today ?? 0), 0));
-    const backordered = uniqueMetrics.map((m) => m.retailers.reduce((acc, r) => acc + (r.customer_orders?.backordered_today ?? 0), 0));
+    const placed = uniqueMetrics.map((m) => (m.retailers ?? []).reduce((acc, r) => acc + (r.customer_orders?.placed_today ?? 0), 0));
+    const fulfilled = uniqueMetrics.map((m) => (m.retailers ?? []).reduce((acc, r) => acc + (r.customer_orders?.fulfilled_today ?? 0), 0));
+    const backordered = uniqueMetrics.map((m) => (m.retailers ?? []).reduce((acc, r) => acc + (r.customer_orders?.backordered_today ?? 0), 0));
     return { placed, fulfilled, backordered };
   }, [uniqueMetrics]);
 
