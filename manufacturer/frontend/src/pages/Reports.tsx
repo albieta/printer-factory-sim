@@ -149,18 +149,40 @@ const Reports: React.FC = () => {
   // ── chart derivations ─────────────────────────────────────────────────────
 
   // Deduplicate metrics by day, keeping the one with most complete data
-  // When two snapshots exist for the same day (manual + scenario), prefer the one
-  // with queued_assembly_hours populated (manual), as scenario metrics lack these fields
   const uniqueMetrics = useMemo(() => {
     const seen = new Map<number, MetricsSnapshot>();
     metrics.forEach((m) => {
       const day = m.day ?? 0;
       const existing = seen.get(day);
 
-      // Keep the new metric if:
-      // 1. No existing metric for this day
-      // 2. Existing has NULL queued hours but new has actual data
-      if (!existing || (existing.manufacturer?.queued_assembly_hours == null && m.manufacturer?.queued_assembly_hours != null)) {
+      // Score completeness: prefer non-manual scenarios, then most complete data
+      const score = (metric: MetricsSnapshot) => {
+        let points = 0;
+
+        // Strongly prefer non-manual scenarios (they have events and are intentional)
+        if (metric.scenario && metric.scenario !== 'manual') points += 10000;
+
+        // Retailer demand (most important for charts)
+        const retailers = metric.retailers ?? [];
+        const placedToday = retailers.reduce((acc, r) => acc + (r.customer_orders?.placed_today ?? 0), 0);
+        const fulfilledToday = retailers.reduce((acc, r) => acc + (r.customer_orders?.fulfilled_today ?? 0), 0);
+        const backordered = retailers.reduce((acc, r) => acc + (r.customer_orders?.backordered_today ?? 0), 0);
+
+        // Count which demand fields have data (even if zero in some cases, having the field matters)
+        // We also check the sum as a tiebreaker
+        const totalDemand = placedToday + fulfilledToday + backordered;
+        if (totalDemand > 0 || placedToday >= 0) points += 1000 + totalDemand;
+
+        // Only use secondary data if no retailer data
+        if (totalDemand === 0) {
+          if (metric.manufacturer?.queued_assembly_hours != null && metric.manufacturer.queued_assembly_hours > 0) points += 5;
+          if (metric.manufacturer?.daily_financials?.costs != null && metric.manufacturer.daily_financials.costs > 0) points += 5;
+        }
+
+        return points;
+      };
+
+      if (!existing || score(m) > score(existing)) {
         seen.set(day, m);
       }
     });
