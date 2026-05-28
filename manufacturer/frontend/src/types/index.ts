@@ -168,6 +168,7 @@ export interface SimulationConfig {
   internal_demand_enabled: boolean;
   sim_date?: string;
   cost_per_assembly_line: number;
+  cost_per_assembly_line_per_day: number;
   cost_per_worker_per_hour: number;
   max_workers_per_line: number;
   total_costs: number;
@@ -277,6 +278,7 @@ export interface ScenarioSummary {
   };
   recommended_costs?: {
     cost_per_assembly_line: number;
+    cost_per_assembly_line_per_day?: number;
     cost_per_worker_per_hour: number;
     max_workers_per_line: number;
   };

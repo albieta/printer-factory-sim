@@ -132,7 +132,7 @@ def apply_scenario_costs(costs: dict, db: Session = Depends(get_db)):
     config_service = ConfigService(db)
     update_data = {
         k: v for k, v in costs.items()
-        if k in ["cost_per_assembly_line", "cost_per_worker_per_hour", "max_workers_per_line"]
+        if k in ["cost_per_assembly_line", "cost_per_assembly_line_per_day", "cost_per_worker_per_hour", "max_workers_per_line"]
     }
     if not update_data:
         return config_service.serialize_config()

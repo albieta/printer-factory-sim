@@ -561,8 +561,8 @@ const Scenarios: React.FC = () => {
                       <h6 className="mb-2">Costs</h6>
                       {currentConfig && (
                         <div className="text-muted small">
-                          <div>Current: ${currentConfig.cost_per_assembly_line}/line, ${currentConfig.cost_per_worker_per_hour}/hr, max {currentConfig.max_workers_per_line}/line</div>
-                          <div>Recommended: ${scenarioDetail.recommended_costs.cost_per_assembly_line}/line, ${scenarioDetail.recommended_costs.cost_per_worker_per_hour}/hr, max {scenarioDetail.recommended_costs.max_workers_per_line}/line</div>
+                          <div>Current: ${currentConfig.cost_per_assembly_line}/line opening, ${currentConfig.cost_per_assembly_line_per_day}/line daily, ${currentConfig.cost_per_worker_per_hour}/hr, max {currentConfig.max_workers_per_line}/line</div>
+                          <div>Recommended: ${scenarioDetail.recommended_costs.cost_per_assembly_line}/line opening, ${scenarioDetail.recommended_costs.cost_per_assembly_line_per_day || 'N/A'}/line daily, ${scenarioDetail.recommended_costs.cost_per_worker_per_hour}/hr, max {scenarioDetail.recommended_costs.max_workers_per_line}/line</div>
                         </div>
                       )}
                     </div>
@@ -570,6 +570,7 @@ const Scenarios: React.FC = () => {
                       {(() => {
                         const isSame = !!(currentConfig &&
                           currentConfig.cost_per_assembly_line === scenarioDetail.recommended_costs!.cost_per_assembly_line &&
+                          currentConfig.cost_per_assembly_line_per_day === scenarioDetail.recommended_costs!.cost_per_assembly_line_per_day &&
                           currentConfig.cost_per_worker_per_hour === scenarioDetail.recommended_costs!.cost_per_worker_per_hour &&
                           currentConfig.max_workers_per_line === scenarioDetail.recommended_costs!.max_workers_per_line);
                         return (

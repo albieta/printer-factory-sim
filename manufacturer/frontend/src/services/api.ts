@@ -216,6 +216,7 @@ export interface FinancialSummary {
   total_revenue: number;
   net_profit: number;
   cost_per_assembly_line: number;
+  cost_per_assembly_line_per_day: number;
   cost_per_worker_per_hour: number;
   max_workers_per_line: number;
 }

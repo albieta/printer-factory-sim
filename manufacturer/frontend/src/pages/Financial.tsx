@@ -10,6 +10,7 @@ import { announceSimulationUpdate, onSimulationUpdate } from '../utils/simulatio
 
 interface FormData {
   cost_per_assembly_line: string;
+  cost_per_assembly_line_per_day: string;
   cost_per_worker_per_hour: string;
   max_workers_per_line: string;
 }
@@ -24,6 +25,7 @@ const Financial: React.FC = () => {
 
   const [formData, setFormData] = useState<FormData>({
     cost_per_assembly_line: '50000',
+    cost_per_assembly_line_per_day: '100',
     cost_per_worker_per_hour: '50',
     max_workers_per_line: '10',
   });
@@ -40,6 +42,7 @@ const Financial: React.FC = () => {
       setTransactions(transactionsRes.data);
       setFormData({
         cost_per_assembly_line: String(summaryRes.data.cost_per_assembly_line),
+        cost_per_assembly_line_per_day: String(summaryRes.data.cost_per_assembly_line_per_day),
         cost_per_worker_per_hour: String(summaryRes.data.cost_per_worker_per_hour),
         max_workers_per_line: String(summaryRes.data.max_workers_per_line),
       });
@@ -69,6 +72,7 @@ const Financial: React.FC = () => {
       setSaving(true);
       await financialAPI.updateConfig({
         cost_per_assembly_line: parseFloat(formData.cost_per_assembly_line),
+        cost_per_assembly_line_per_day: parseFloat(formData.cost_per_assembly_line_per_day),
         cost_per_worker_per_hour: parseFloat(formData.cost_per_worker_per_hour),
         max_workers_per_line: parseInt(formData.max_workers_per_line, 10),
       });
@@ -87,6 +91,7 @@ const Financial: React.FC = () => {
     if (!summary) return;
     setFormData({
       cost_per_assembly_line: String(summary.cost_per_assembly_line),
+      cost_per_assembly_line_per_day: String(summary.cost_per_assembly_line_per_day),
       cost_per_worker_per_hour: String(summary.cost_per_worker_per_hour),
       max_workers_per_line: String(summary.max_workers_per_line),
     });
@@ -217,6 +222,19 @@ const Financial: React.FC = () => {
                     step="1000"
                   />
                   <Form.Text className="text-muted">Cost incurred when opening a new assembly line</Form.Text>
+                </Form.Group>
+
+                <Form.Group className="mb-3">
+                  <Form.Label>Daily Assembly Line Cost ($)</Form.Label>
+                  <Form.Control
+                    type="number"
+                    name="cost_per_assembly_line_per_day"
+                    value={formData.cost_per_assembly_line_per_day}
+                    onChange={handleInputChange}
+                    min="0"
+                    step="10"
+                  />
+                  <Form.Text className="text-muted">Daily operating/maintenance cost per assembly line</Form.Text>
                 </Form.Group>
 
                 <Form.Group className="mb-3">

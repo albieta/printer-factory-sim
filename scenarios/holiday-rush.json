@@ -11,8 +11,9 @@
     "shift_hours": 10.0
   },
   "recommended_costs": {
-    "cost_per_assembly_line": 50000,
-    "cost_per_worker_per_hour": 30,
+    "cost_per_assembly_line": 80000,
+    "cost_per_worker_per_hour": 60,
+    "cost_per_assembly_line_per_day": 500,
     "max_workers_per_line": 10
   },
   "events": [
