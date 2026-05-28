@@ -37,11 +37,11 @@ bin/manufacturer-cli fire-worker
 bin/manufacturer-cli close-assembly-line
 ```
 
-Emergency (deadlock recovery only):
+Emergency (warehouse recovery only):
 ```
 bin/manufacturer-cli inventory-trash --item "PRODUCT:QTY" [--item "PRODUCT:QTY" ...]
 ```
-Use **ONLY** when warehouse is full, critical orders are being rejected, and manufacturing is blocked. Quantity: 1 to current_stock.
+Use when warehouse is full, critical orders are about to be rejected because the warehouse has not enough space to accommodate them, or manufacturing is blocked. Quantity: from 1 to current_stock.
 
 Financial Costs (operator-configured, you cannot change):
 - **Assembly line**: one-time setup cost when opening + daily maintenance per line
@@ -55,14 +55,18 @@ Financial Costs (operator-configured, you cannot change):
 
 ## DO NOT
 - Do not call `day advance`.
-- Try to avoid state-check commands when you have the data in the prompt; they waste iterations.
-- Do not release beyond daily capacity shown by `capacity` (use the value in the provided state).
-- Do not order parts without taking into account the orders inbound as PENDING (check the state table).
+- Do not wait for CRITICAL/BLOCKED status — order when demand_modifier rises or events hint sustained demand.
+- Do not under-order high-lead-time materials (4+ days) — shortages stop production.
+- Do not assume warehouse free space is wasted — it's your buffer against long lead times.
+- Do not rely on PENDING orders alone — use demand_modifier + events to forecast demand shifts.
+- Do not release beyond daily capacity.
+- Do not order without accounting for inbound PENDING purchase orders.
 - Do not invent flags, product names, supplier names, or order IDs.
-- Do not choose a slower supplier when a faster valid one can meet the need.
-- Do not attempt to hire more than 10 workers per assembly line.
-- Do not make capacity decisions that lead to sustained losses (costs > revenue).
-- Do not use `inventory-trash` unless warehouse is full AND critical orders are being rejected AND manufacturing is blocked.
+- Do not choose slower suppliers when faster ones work.
+- Do not hire beyond max_workers_per_line.
+- Do not sustain losses (costs > revenue).
+- Do not use `inventory-trash` unless warehouse full OR orders blocked OR inbound purchase order about to arrive and would be rejected if you did not use it OR manufacturing stopped.
+- Do not pause ordering when demand_modifier > 1.0 — build safety stock during high demand.
 
 ## Command Syntax (Batch Operations)
 
@@ -95,6 +99,17 @@ bin/manufacturer-cli price set --item "Model:Price"
 
 Best practice: Read the provided state once, decide all actions, then chain them together. This minimizes iterations and keeps the log clean.
 
+## Proactive Inventory Strategy
+
+**Order BEFORE shortages occur, not after. Warehouse free space is your buffer against long lead times.**
+
+- **High lead-time materials** (4+ days) are shortage-prone — build a safety stock proactively
+- **Safety stock target** = lead_time_days × (daily_demand × demand_modifier) + 100 units buffer
+- **Order trigger**: When `Stock + Ordered < (lead_time_days × expected_daily_demand)`, order immediately
+- **When demand_modifier > 1.0**: Assume sustained demand; order 300+ units for high-lead-time materials now
+- **Never wait for CRITICAL status** — order when demand_modifier rises or event descriptions hint at sustained demand
+- **Batch by supplier** for bulk pricing (high units per order)
+
 ## Decision Framework
 
 Follow these steps (using only the state provided above):
@@ -108,11 +123,29 @@ Follow these steps (using only the state provided above):
    - **Warehouse**: total_capacity, current_usage, available_free_space
      - Critical: ensure all pending purchase orders PLUS any new orders fit within capacity
      - Available space = total_capacity - current_usage
+     - **OPPORTUNITY: If >1500 free space exists, use it for proactive safety stock of long-lead-time materials**
+     
+   - **Proactive Material Check** (do FIRST):
+     1. Identify materials with lead_time >= 4 days from inventory table
+     2. For each: Is `Days of stock < lead_time_days + 2`? → Order immediately
+     3. Check demand_modifier + events: Sustained demand ahead? → Increase order qty 20–30%
+     4. Check warehouse space: Order 300+ units if possible; prioritize longest-lead-time materials
    - Inventory table: **Stock | Needed (accepted orders) | Ordered (not delivered) | Storage Status**
-     - CRITICAL = stock below demand with nothing ordered → order immediately
-     - LOW (ordered) = stock below demand but inbound → monitor
-     - EXCESS = far more stock than needed → pause ordering
-     - Lead-time buffer target: `Needed + expected demand through the longest supplier lead time + 1 safety day`
+     - **CRITICAL = stock approaching zero OR stock < needed + (lead_time × expected_daily_demand)**
+       - Order immediately at 300+ units to build safety stock
+       - Do NOT wait for shortage warning
+     - **LOW (ordered) = stock < needed but inbound materials are coming**
+       - Monitor arrival dates — if arriving > 2 days away, order additional safety stock now
+     - **MODERATE = stock >= needed but < (needed + lead_time × expected_daily_demand)**
+       - Order proactively to build safety buffer
+       - This is where most shortages happen — don't let inventory drop here
+     - **ADEQUATE = stock >= (needed + lead_time × expected_daily_demand)**
+       - Pause ordering unless demand_modifier is rising (indicates demand shift)
+     - **EXCESS = stock > (needed × 1.5) with nothing ordered soon**
+       - Pause ordering temporarily
+     - **Lead-time coverage formula** (use this for EVERY material):
+       - `Target stock = Needed + (lead_time_days × expected_daily_demand × demand_modifier) + 30 unit safety buffer`
+       - If `Stock + Ordered < Target` → order enough to reach `Target + 200` (the +200 is contingency for unexpected demand spikes)
    - PENDING sales orders (all awaiting release)
    - Inbound purchase orders (arriving materials + expected arrival dates)
    - Wholesale prices (current pricing)
@@ -145,21 +178,26 @@ Follow these steps (using only the state provided above):
 
    **Why one batch:** All decisions are independent. Decide releases → purchases → pricing in your head, then execute all at once. No waiting between steps.
 
-3. **Order Details + Deadlock Recovery** (reference only; commands go in batch above):
+3. **Order Details + Proactive Shortage Prevention** (reference only; commands go in batch above):
    
    **Use the Inventory table provided in state** — it has three key columns per material:
    - **Stock**: Current inventory of this material
    - **Needed (accepted orders)**: Total BOM demand from all PENDING sales orders
    - **Ordered (not delivered)**: Inbound materials not yet arrived
+   - **Supplier lead_time_days**: How long this material takes to arrive (critical to ordering decision)
    
-   **Order trigger — lead-time coverage, simple and strict**:
-   - Estimate demand across the supplier lead-time horizon, not just today's PENDING orders.
-   - `Coverage target = Needed + expected lead-time demand + 1 safety day`
-   - Use recent PENDING order volume and `demand_modifier` as the expected daily demand signal. If demand is unclear, assume at least 1 normal day of demand for every supplier lead-time day.
-   - If `Stock + Ordered >= Coverage target` → no order needed (sufficient coverage)
-   - If `Stock + Ordered < Coverage target` → order immediately, before the shortage reaches production
-   - **BUT CRITICAL: Do NOT order if `Stock + new_order > warehouse_capacity`**
-   - Check the warehouse free space: if free space is tight, order conservative quantities (200–300 units max except for critical shortages or very demanded materials)
+   **MATERIAL ORDERING BY LEAD TIME**:
+   - **High lead_time (4+ days)**: Order when `Stock + Ordered < 7 × daily_demand`. Target: 500–800 units.
+   - **Medium lead_time (2–3 days)**: Order when `Stock + Ordered < 5 × daily_demand`. Target: 200–300 units.
+   - **Low lead_time (1 day)**: Order when `Stock + Ordered < 3 × daily_demand`. Target: 100–200 units.
+
+   WARNING: The target stock levels above are general guidelines. If you detect a material is proportionally more demanded than others, or if demand_modifier is rising, you may want to order more or less aggressively.
+   
+   **Order Trigger**:
+   - Calculate: `Target = Needed + (lead_time_days × expected_daily_demand × demand_modifier) + 200 buffer`
+   - If `Stock + Ordered < Target` → Order immediately
+   - If `demand_modifier > 1.2` → Order 400+ units regardless of current stock (demand surge)
+   - **Never order more than warehouse capacity allows**. If space tight, reduce qty to 200–300 units.
    
    **Warehouse Capacity Check** (CRITICAL to avoid "Receipt rejected because warehouse would exceed capacity"):
    - `Available free space = warehouse_capacity - current_usage`
@@ -172,9 +210,11 @@ Follow these steps (using only the state provided above):
    - If warehouse is tight (<500 free units), reduce to 200 units max if possible
    - Consider bulk pricing tiers: 300+ units often have significant discounts
    
-   **Deadlock Recovery** (EMERGENCY FUNCTION ONLY):
+   **Warehouse Recovery** (EMERGENCY FUNCTION):
    
    **Deadlock condition**: Incoming critical purchase orders are **rejected/cancelled on delivery**, or expected to be rejected/cancelled because there's no enough space for them AND there is the risk at the same time sales orders become **BLOCKED (Material Shortage)** waiting for those materials to arrive.
+
+   If an inbound purchase order is rejected/cancelled due to space, the materials won't arrive, which causes pending sales orders that need those materials to become BLOCKED. This creates a deadlock where you can't free up space because the critical materials never arrive, and the orders never release because they're waiting for those materials.
    
    **To break deadlock**:
    1. **Detect**: Sales orders show "BLOCKED — Material Shortage" AND inbound purchase orders are being rejected/cancelled or expected to be rejected due to space (check state for both conditions)
@@ -209,10 +249,11 @@ Follow these steps (using only the state provided above):
    - ✓ Manufacturing resumes (unblocked)
    - ✓ 50 Elite700 orders complete
    
-   **CRITICAL**: This is an emergency function. Use ONLY when:
-   - Critical purchase orders are about to be rejected/cancelled due to space OR
+   **CRITICAL**: This is an emergency function. Use when:
+   - Purchase orders are about to be rejected/cancelled due to space OR
    - Sales orders are blocked waiting for those materials
-   - Do not use for routine inventory management
+
+   **CRITICAL**: Do not hesitate to use the trash function if necessary to accommodate incoming materials. It's better to trash excess materials than to let critical orders be blocked indefinitely or lose important incoming materials.
 
 4. **Scale + Adjust + Summarize** (part of your single batch):
 
@@ -288,8 +329,15 @@ Follow these steps (using only the state provided above):
    
    That's typically just 1–2 iterations total instead of 4–6.
 
-## Market Signals
-`demand_modifier`: 1.0 normal, >1.0 stronger demand, <1.0 weaker demand. Treat 0.9–1.1 as steady. Combine with backlog_days for pricing decisions — a rising backlog at demand_modifier 1.2 is a clear signal to raise prices.
+## Demand Forecasting & Market Signals
+
+**Use demand_modifier + events to predict shortage windows:**
+
+- `demand_modifier 0.9–1.1` = steady; `>1.2` = sustained demand surge (order 300+ units for long-lead materials)
+- `demand_modifier rising` = demand acceleration signal (order aggressively day 1 of rise; don't wait for peak)
+- `demand_modifier < 0.8` = prepare to reduce orders and fire workers
+- **Event keywords** ("sustained", "days X–Y", "holiday") = multi-day demand (order before event starts, not after)
+- **Combined signal**: demand_modifier > 1.3 + backlog > 3 days = critical surge (build 50+ days stock for high-lead materials)
 
 ## When Done
 
