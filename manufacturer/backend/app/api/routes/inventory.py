@@ -51,7 +51,7 @@ def trash_inventory(adjust: ManualAdjust, db: Session = Depends(get_db)):
     """Delete a specified amount of material from inventory.
 
     Agents should only use this to clean up useless materials when warehouse
-    is not under pressure (usage <80% as a reference). Trashing reduces warehouse clutter
+    is under pressure. Trashing reduces warehouse clutter
     and frees space for future operations.
 
     The quantity parameter specifies how much to trash:

@@ -159,28 +159,27 @@ Follow these steps (using only the state provided above):
    - If `Stock + Ordered >= Coverage target` → no order needed (sufficient coverage)
    - If `Stock + Ordered < Coverage target` → order immediately, before the shortage reaches production
    - **BUT CRITICAL: Do NOT order if `Stock + new_order > warehouse_capacity`**
-   - Check the warehouse free space: if free space is tight, order conservative quantities (200–300 units max)
+   - Check the warehouse free space: if free space is tight, order conservative quantities (200–300 units max except for critical shortages or very demanded materials)
    
    **Warehouse Capacity Check** (CRITICAL to avoid "Receipt rejected because warehouse would exceed capacity"):
    - `Available free space = warehouse_capacity - current_usage`
    - **Simple rule**: Do NOT place an order if `(Stock + new_order_qty) > warehouse_capacity`
    - Example: Stock=1000, warehouse_capacity=8400, new_order=600 → Check: 1000+600=1600 ≤ 8400 ✓ OK to order
    - Example: Stock=8200, warehouse_capacity=8400, new_order=300 → Check: 8200+300=8500 > 8400 ✗ DO NOT order
-   - If order won't fit: skip it entirely; do NOT attempt reduced quantities
    
    **Order size**: 
-   - Aim for 250–400 units (balances bulk pricing and warehouse space)
-   - If warehouse is tight (<500 free units), reduce to 200 units max
+   - Aim for 250–400 units (balances bulk pricing, material need, and warehouse space)
+   - If warehouse is tight (<500 free units), reduce to 200 units max if possible
    - Consider bulk pricing tiers: 300+ units often have significant discounts
    
    **Deadlock Recovery** (EMERGENCY FUNCTION ONLY):
    
-   **Deadlock condition**: Warehouse is **>80% full** AND incoming critical purchase orders are **rejected/cancelled on delivery**, or expected to be rejected/cancelled because there's no space AND at the same time sales orders are **BLOCKED (Material Shortage)** waiting for those materials to arrive.
+   **Deadlock condition**: Incoming critical purchase orders are **rejected/cancelled on delivery**, or expected to be rejected/cancelled because there's no enough space for them AND there is the risk at the same time sales orders become **BLOCKED (Material Shortage)** waiting for those materials to arrive.
    
    **To break deadlock**:
-   1. **Detect**: Sales orders show "BLOCKED — Material Shortage" AND inbound purchase orders are being rejected/cancelled or expected to be rejected due to space (check state for both conditions) AND warehouse usage >80%
+   1. **Detect**: Sales orders show "BLOCKED — Material Shortage" AND inbound purchase orders are being rejected/cancelled or expected to be rejected due to space (check state for both conditions)
    2. **Identify**: Find excess materials taking up space that are NOT needed for pending orders (or the least critical materials if all are needed)
-   3. **Calculate**: Trash enough to make room for critical incoming materials (quantity = 1 to current_stock)
+   3. **Calculate**: Trash enough to make room for critical incoming materials (quantity = from 1 to current_stock)
    4. **Act**: Use `bin/manufacturer-cli inventory-trash --item "MATERIAL_NAME:QUANTITY"` immediately
    5. **Result**: Critical materials can arrive, manufacturing resumes, orders proceed
    
@@ -210,11 +209,10 @@ Follow these steps (using only the state provided above):
    - ✓ Manufacturing resumes (unblocked)
    - ✓ 50 Elite700 orders complete
    
-   **CRITICAL**: This is an emergency function only. Use ONLY when:
-   - Warehouse is >80% full AND
-   - Critical purchase orders are rejected/cancelled due to space AND
+   **CRITICAL**: This is an emergency function. Use ONLY when:
+   - Critical purchase orders are about to be rejected/cancelled due to space OR
    - Sales orders are blocked waiting for those materials
-   - Never use for routine inventory management
+   - Do not use for routine inventory management
 
 4. **Scale + Adjust + Summarize** (part of your single batch):
 
