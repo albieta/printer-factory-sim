@@ -321,12 +321,40 @@ def _format_state_for_prompt(state: dict[str, Any], role: str = "manufacturer") 
         if pending_count > 5:
             pending_sample += f"\n- ... and {pending_count - 5} more"
 
-        inbound = purchase_orders.get("inbound", [])
-        inbound_lines = [
-            f"- {p['product']}: {p['quantity']} units (due day {p.get('expected_arrival_day', '?')})"
-            for p in inbound
-        ]
+        # Format inbound orders: arriving today and arriving future
+        arriving_today = purchase_orders.get("arriving_today", [])
+        arriving_future = purchase_orders.get("arriving_future", [])
+        rejected_today = purchase_orders.get("rejected_today", [])
+
+        inbound_lines = []
+
+        # Arriving today (show status: RECEIVED, PENDING, or REJECTED)
+        if arriving_today:
+            inbound_lines.append("**TODAY:**")
+            for p in arriving_today:
+                status = p.get("status", "UNKNOWN")
+                inbound_lines.append(f"- {p['product']}: {p['quantity']} units — {status}")
+
+        # Arriving in future (show days until arrival)
+        if arriving_future:
+            if arriving_today:
+                inbound_lines.append("")
+            inbound_lines.append("**FUTURE:**")
+            for p in arriving_future:
+                days = p.get("days_until", "?")
+                inbound_lines.append(f"- {p['product']}: {p['quantity']} units (day +{days})")
+
         inbound_text = "\n".join(inbound_lines) if inbound_lines else "None"
+
+        # Show rejected orders (deadlock indicator)
+        if rejected_today:
+            if inbound_lines:
+                inbound_text += "\n\n"
+            inbound_text += "**REJECTED TODAY (warehouse capacity exceeded):**\n"
+            inbound_text += "\n".join([
+                f"- ⚠️ {p['product']}: {p['quantity']} units"
+                for p in rejected_today
+            ])
 
         price_lines = [f"- {model}: ${price}" for model, price in prices.items()]
         prices_text = "\n".join(price_lines)

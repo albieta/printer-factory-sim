@@ -27,7 +27,7 @@ def get_all_state(session: Session = Depends(get_db)) -> dict[str, Any]:
     try:
         from app.models.models import (
             SimulationConfig, Inventory, ManufacturingOrder, OrderStatus,
-            SalesOrder, PurchaseOrder, Product, WholesalePrice
+            SalesOrder, PurchaseOrder, PurchaseOrderStatus, Product, WholesalePrice
         )
 
         # Get simulation date
@@ -107,22 +107,59 @@ def get_all_state(session: Session = Depends(get_db)) -> dict[str, Any]:
         except Exception:
             pass
 
-        # Get inbound purchase orders
-        inbound_list = []
+        # Get inbound purchase orders (arriving today or later, with their delivery status)
+        arriving_today = []
+        arriving_future = []
+        rejected_today = []
         try:
+            from datetime import date as date_type
+            sim_date_obj = sim_date if isinstance(sim_date, date_type) else sim_date
+
+            # All orders with expected_delivery >= today (pending, delivered, or rejected)
             inbound_rows = session.query(PurchaseOrder).filter(
-                PurchaseOrder.status.in_(["PENDING", "CONFIRMED", "IN_PROGRESS"])
+                PurchaseOrder.expected_delivery >= sim_date_obj
             ).all()
+
             for purchase in inbound_rows:
                 if purchase.supplier and purchase.supplier.product:
-                    inbound_list.append({
+                    # Calculate expected arrival day relative to simulation date
+                    days_until_delivery = (purchase.expected_delivery - sim_date_obj).days
+
+                    order_info = {
                         "id": purchase.id,
                         "product": purchase.supplier.product.name,
                         "quantity": float(purchase.quantity or 0),
                         "supplier": purchase.supplier.name,
-                        "status": purchase.status,
-                        "expected_arrival_day": purchase.expected_arrival_day or 999,
-                    })
+                        "expected_delivery_date": str(purchase.expected_delivery),
+                        "days_until": days_until_delivery,
+                    }
+
+                    # Categorize by delivery date and status
+                    if days_until_delivery == 0:
+                        # Arriving today
+                        if purchase.status == PurchaseOrderStatus.REJECTED:
+                            rejected_today.append({
+                                **order_info,
+                                "status": "REJECTED",
+                                "reason": "Warehouse capacity exceeded on delivery",
+                            })
+                        elif purchase.status == PurchaseOrderStatus.DELIVERED:
+                            arriving_today.append({
+                                **order_info,
+                                "status": "RECEIVED TODAY",
+                            })
+                        else:  # PENDING
+                            arriving_today.append({
+                                **order_info,
+                                "status": "PENDING (arriving today)",
+                            })
+                    else:
+                        # Arriving in future (only show PENDING, since future deliveries haven't happened yet)
+                        if purchase.status == PurchaseOrderStatus.PENDING:
+                            arriving_future.append({
+                                **order_info,
+                                "status": "PENDING",
+                            })
         except Exception:
             pass
 
@@ -145,8 +182,10 @@ def get_all_state(session: Session = Depends(get_db)) -> dict[str, Any]:
                 "pending": pending_orders[:20],  # Limit to first 20
             },
             "purchase_orders": {
-                "inbound_count": len(inbound_list),
-                "inbound": inbound_list,
+                "arriving_today": arriving_today,
+                "arriving_future": arriving_future,
+                "rejected_today": rejected_today,
+                "total_inbound": len(arriving_today) + len(arriving_future),
             },
             "products": product_dict,
         }
