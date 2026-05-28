@@ -155,29 +155,43 @@ const Reports: React.FC = () => {
       const day = m.day ?? 0;
       const existing = seen.get(day);
 
-      // Score completeness: prefer non-manual scenarios, then most complete data
+      // Score based on critical data fields first, then completeness
       const score = (metric: MetricsSnapshot) => {
         let points = 0;
 
-        // Strongly prefer non-manual scenarios (they have events and are intentional)
-        if (metric.scenario && metric.scenario !== 'manual') points += 10000;
-
-        // Retailer demand (most important for charts)
+        // Count all data fields
         const retailers = metric.retailers ?? [];
         const placedToday = retailers.reduce((acc, r) => acc + (r.customer_orders?.placed_today ?? 0), 0);
         const fulfilledToday = retailers.reduce((acc, r) => acc + (r.customer_orders?.fulfilled_today ?? 0), 0);
         const backordered = retailers.reduce((acc, r) => acc + (r.customer_orders?.backordered_today ?? 0), 0);
+        const queuedHours = metric.manufacturer?.queued_assembly_hours ?? 0;
+        const queueLoad = metric.manufacturer?.queue_load_percentage ?? 0;
+        const costs = metric.manufacturer?.daily_financials?.costs ?? 0;
+        const revenue = metric.manufacturer?.daily_financials?.revenue ?? 0;
 
-        // Count which demand fields have data (even if zero in some cases, having the field matters)
-        // We also check the sum as a tiebreaker
+        // CRITICAL fields (required for queued hours, queue load, and financial charts)
+        let criticalFields = 0;
+        if (queuedHours > 0) criticalFields++;
+        if (queueLoad > 0) criticalFields++;
+        if (costs > 0) criticalFields++;
+        if (revenue > 0) criticalFields++;
+
+        // Score critical fields very heavily (they fix 3 broken charts)
+        points += criticalFields * 5000;
+
+        // Then count secondary fields (demand data for 1 chart)
+        let demandFields = 0;
+        if (placedToday > 0) demandFields++;
+        if (fulfilledToday > 0) demandFields++;
+        if (backordered > 0) demandFields++;
+        points += demandFields * 100;
+
+        // Tiebreaker 1: prefer non-manual scenarios (they have event context)
+        if (metric.scenario && metric.scenario !== 'manual') points += 50;
+
+        // Tiebreaker 2: use total demand as final tiebreaker
         const totalDemand = placedToday + fulfilledToday + backordered;
-        if (totalDemand > 0 || placedToday >= 0) points += 1000 + totalDemand;
-
-        // Only use secondary data if no retailer data
-        if (totalDemand === 0) {
-          if (metric.manufacturer?.queued_assembly_hours != null && metric.manufacturer.queued_assembly_hours > 0) points += 5;
-          if (metric.manufacturer?.daily_financials?.costs != null && metric.manufacturer.daily_financials.costs > 0) points += 5;
-        }
+        points += totalDemand;
 
         return points;
       };
@@ -231,9 +245,11 @@ const Reports: React.FC = () => {
     if (!uniqueMetrics.length) return null;
 
     const maxDay = Math.max(...uniqueMetrics.map((m) => m.day ?? 0), 0);
-    const lastScenarioName = uniqueMetrics[0]?.scenario;
-    const scenarioDetail = lastScenarioName && lastScenarioName !== 'manual'
-      ? scenarios.find((s) => s.scenario_name === lastScenarioName || s.name.replace('.json', '') === lastScenarioName)
+
+    // Find the first non-manual scenario in the metrics (for event display)
+    const scenarioName = metrics.find((m) => m.scenario && m.scenario !== 'manual')?.scenario;
+    const scenarioDetail = scenarioName
+      ? scenarios.find((s) => s.scenario_name === scenarioName || s.name.replace('.json', '') === scenarioName)
       : null;
     const events = scenarioDetail?.events ?? [];
 
