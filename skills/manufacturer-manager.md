@@ -153,8 +153,8 @@ Follow these steps (using only the state provided above):
    **Warehouse Capacity Check** (CRITICAL to avoid "Receipt rejected because warehouse would exceed capacity"):
    - `Available free space = warehouse_capacity - current_usage`
    - **Simple rule**: Do NOT place an order if `(Stock + new_order_qty) > warehouse_capacity`
-   - Example: Stock=1000, warehouse_capacity=4400, new_order=600 → Check: 1000+600=1600 ≤ 4400 ✓ OK to order
-   - Example: Stock=4200, warehouse_capacity=4400, new_order=300 → Check: 4200+300=4500 > 4400 ✗ DO NOT order
+   - Example: Stock=1000, warehouse_capacity=6400, new_order=600 → Check: 1000+600=1600 ≤ 6400 ✓ OK to order
+   - Example: Stock=6200, warehouse_capacity=6400, new_order=300 → Check: 6200+300=6500 > 6400 ✗ DO NOT order
    - If order won't fit: skip it entirely; do NOT attempt reduced quantities
    
    **Order size**: 

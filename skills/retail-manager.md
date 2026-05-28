@@ -37,6 +37,7 @@ bin/retailer-cli price set --item "MODEL:PRICE" [--item ...]
 - Do not invent model names, order IDs, flags, or a `price list` command.
 - Do not set a retail price below manufacturer wholesale plus the enforced markup floor; the CLI will reject unsafe prices.
 - Do not place duplicate replenishment orders for a model that already has enough pending inbound stock.
+- Do not request more than 50 units of any single model in one purchase order; split into multiple orders when needed.
 - Do not leave a PENDING customer order unexplained. Most new orders are auto-fulfilled or auto-backordered by the app, so investigate if PENDING appears.
 
 ## Command Syntax (Batch Operations)
@@ -53,9 +54,15 @@ Backorder customer orders:
 bin/retailer-cli backorder --order 2001 --order 2002
 ```
 
-Purchase from manufacturer (model:qty pairs):
+Purchase from manufacturer (model:qty pairs, max 50 units per model per order):
 ```bash
 bin/retailer-cli purchase create --item "Basic300:50" --item "Pro450:30" --item "Elite700:10"
+```
+
+If a model needs more than 50 units, split into multiple purchase orders:
+```bash
+bin/retailer-cli purchase create --item "Basic300:50" && \
+bin/retailer-cli purchase create --item "Basic300:50"
 ```
 
 Set retail prices (model:price pairs):
