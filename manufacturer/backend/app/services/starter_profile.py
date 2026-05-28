@@ -14,6 +14,7 @@ STARTER_CONFIG: dict[str, Any] = {
     "internal_demand_enabled": False,
     "sim_day": 0,
     "cost_per_assembly_line": 50000.0,
+    "cost_per_assembly_line_per_day": 100.0,
     "cost_per_worker_per_hour": 50.0,
     "max_workers_per_line": 10,
     "total_costs": 0.0,

@@ -29,6 +29,7 @@ const Settings: React.FC = () => {
     demand_distribution_variance: '2',
     internal_demand_enabled: false,
     cost_per_assembly_line: '50000',
+    cost_per_assembly_line_per_day: '100',
     cost_per_worker_per_hour: '50',
     max_workers_per_line: '10',
   });
@@ -58,6 +59,7 @@ const Settings: React.FC = () => {
         demand_distribution_variance: String(configRes.data.demand_distribution_variance),
         internal_demand_enabled: configRes.data.internal_demand_enabled ?? true,
         cost_per_assembly_line: String(configRes.data.cost_per_assembly_line),
+        cost_per_assembly_line_per_day: String(configRes.data.cost_per_assembly_line_per_day),
         cost_per_worker_per_hour: String(configRes.data.cost_per_worker_per_hour),
         max_workers_per_line: String(configRes.data.max_workers_per_line),
       });
@@ -101,6 +103,7 @@ const Settings: React.FC = () => {
       demand_distribution_variance: String(config.demand_distribution_variance),
       internal_demand_enabled: config.internal_demand_enabled ?? true,
       cost_per_assembly_line: String(config.cost_per_assembly_line),
+      cost_per_assembly_line_per_day: String(config.cost_per_assembly_line_per_day),
       cost_per_worker_per_hour: String(config.cost_per_worker_per_hour),
       max_workers_per_line: String(config.max_workers_per_line),
     });
@@ -118,6 +121,7 @@ const Settings: React.FC = () => {
         demand_distribution_variance: Number(formData.demand_distribution_variance),
         internal_demand_enabled: formData.internal_demand_enabled,
         cost_per_assembly_line: Number(formData.cost_per_assembly_line),
+        cost_per_assembly_line_per_day: Number(formData.cost_per_assembly_line_per_day),
         cost_per_worker_per_hour: Number(formData.cost_per_worker_per_hour),
         max_workers_per_line: Number(formData.max_workers_per_line),
       });
@@ -357,6 +361,11 @@ const Settings: React.FC = () => {
               <Form.Label>Cost per assembly line ($)</Form.Label>
               <Form.Control type="number" min="0" step="1000" value={formData.cost_per_assembly_line} onChange={(event) => setFormData({ ...formData, cost_per_assembly_line: event.target.value })} />
               <Form.Text>Fixed cost incurred when opening a new assembly line.</Form.Text>
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label>Daily assembly line cost ($)</Form.Label>
+              <Form.Control type="number" min="0" step="10" value={formData.cost_per_assembly_line_per_day} onChange={(event) => setFormData({ ...formData, cost_per_assembly_line_per_day: event.target.value })} />
+              <Form.Text>Daily operating/maintenance cost per assembly line.</Form.Text>
             </Form.Group>
             <Form.Group className="mb-3">
               <Form.Label>Cost per worker per hour ($)</Form.Label>
