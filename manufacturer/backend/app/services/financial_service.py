@@ -139,12 +139,15 @@ class FinancialService:
         """Get financial transactions, optionally filtered by engine day.
 
         When sim_day is provided, it's interpreted as an engine day number.
-        After day advance, sim_day is incremented, and transactions are recorded with the new sim_day.
-        So engine day N gets transactions recorded with sim_day = N (after that day's advance).
+        Transactions for engine day N can be recorded with two different sim_day values:
+        - sim_day = N-1: transactions from agent actions before day advance
+        - sim_day = N: transactions from day advance operations (daily costs, etc.)
+        Both should be included in daily financials for that day.
         """
         query = self.db.query(FinancialTransaction)
         if sim_day is not None:
-            query = query.filter(FinancialTransaction.sim_day == sim_day)
+            prev_day = max(0, sim_day - 1)
+            query = query.filter(FinancialTransaction.sim_day.in_([prev_day, sim_day]))
         transactions = query.order_by(FinancialTransaction.created_at).all()
         return [
             {

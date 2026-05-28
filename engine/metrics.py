@@ -225,8 +225,11 @@ def _retailer_snapshot(
     order_day = day - 1
     today_orders = [row for row in customer_orders if _to_int(row.get("placed_day"), -1) == order_day]
     today_counts = _status_counts(today_orders)
-    # fulfilled_day is set to previous_day inside the retailer's advance_day(), so it equals day-1
-    fulfilled_today = sum(1 for row in customer_orders if _to_int(row.get("fulfilled_day"), -1) == day - 1)
+    # Orders placed on engine_day can be fulfilled either before or after the retailer's advance:
+    # - Fulfilled before advance: fulfilled_day = day - 1
+    # - Fulfilled after advance: fulfilled_day = day
+    # Include both to capture orders fulfilled same day (placed before advance, fulfilled after)
+    fulfilled_today = sum(1 for row in customer_orders if _to_int(row.get("fulfilled_day"), -1) in [day - 1, day] and _to_int(row.get("placed_day"), -1) == order_day)
     purchase_orders = [row for row in purchases_data if isinstance(row, dict)] if isinstance(purchases_data, list) else []
 
     return {

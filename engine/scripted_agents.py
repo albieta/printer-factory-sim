@@ -429,12 +429,11 @@ def run_scripted_manufacturer(
         if available < needed:
             order_qty = max(0, int(replenish_target - available))
 
-            # Warehouse capacity check: don't order if it won't fit
-            # Conservative: assume 1 unit ≈ 1 unit of warehouse space (rough estimate)
-            if order_qty > available_free_space:
-                # Reduce order to fit in available space
-                order_qty = int(max(0, available_free_space * 0.8))  # Use 80% of free space to be safe
-                log_lines.append(f"Warehouse capacity constraint for {material}: reduced order to {order_qty}\n")
+            # Warehouse capacity check: strict check to prevent rejections on delivery
+            # Do NOT order if (current_usage + order_qty) would exceed warehouse_capacity
+            if current_usage + order_qty > warehouse_capacity:
+                log_lines.append(f"Warehouse capacity full for {material}: cannot order {order_qty} (usage {current_usage}/{warehouse_capacity})\n")
+                continue
 
             if order_qty > 0:
                 try:
@@ -447,7 +446,7 @@ def run_scripted_manufacturer(
                         }
                     )
                     purchases_placed.append(f"{material} ×{order_qty} (have {qty}+{already_inbound} inbound, need {needed:.0f})")
-                    available_free_space -= order_qty
+                    current_usage += order_qty
                 except Exception as exc:
                     log_lines.append(f"Purchase order creation failed for {material}: {exc}\n")
 
