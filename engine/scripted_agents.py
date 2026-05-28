@@ -277,21 +277,25 @@ def run_scripted_retailer(
         if not current_price:
             continue
 
-        # Calculate proposed new price based on demand/stock
-        new_price: float | None = None
-        if on_hand < min_stock and price_sensitivity != "high":
-            new_price = round(current_price * 1.05, 2)
-        elif on_hand > min_stock * 5 and demand_mod < 0.8:
-            new_price = round(current_price * 0.95, 2)
+        wholesale = manufacturer_wholesale.get(model, 0)
+        floor = round(wholesale * 1.10, 2) if wholesale > 0 else 0
 
-        # Enforce markup floor: retail must be >= wholesale × 1.10
-        if new_price is not None:
-            wholesale = manufacturer_wholesale.get(model, 0)
-            if wholesale > 0:
-                min_retail = round(wholesale * 1.10, 2)
-                if new_price < min_retail:
-                    # Can't go below floor, so skip price adjustment
-                    new_price = None
+        # FIRST: Floor maintenance — if current price has fallen below floor, raise it immediately
+        new_price: float | None = None
+        if floor > 0 and current_price < floor:
+            new_price = floor
+            log_lines.append(f"Floor maintenance for {model}: raising from {current_price:.2f} to {floor:.2f}\n")
+        else:
+            # SECOND: Demand-based adjustments (only if above or at floor)
+            if on_hand < min_stock and price_sensitivity != "high":
+                new_price = round(current_price * 1.05, 2)
+            elif on_hand > min_stock * 5 and demand_mod < 0.8:
+                new_price = round(current_price * 0.95, 2)
+
+            # THIRD: Verify adjustment doesn't drop below floor
+            if new_price is not None and floor > 0 and new_price < floor:
+                # Adjustment violates floor, skip it
+                new_price = None
 
         if new_price is not None:
             try:
@@ -299,7 +303,7 @@ def run_scripted_retailer(
                     f"{url}/api/catalog/{model}/price",
                     {"product_name": model, "retail_price": str(new_price)},
                 )
-                price_changes.append(f"{model}: {current_price:.2f}→{new_price:.2f}")
+                price_changes.append(f"{model}: {current_price:.2f}→{new_price:.2f}" + (f" (floor: {floor:.2f})" if floor > current_price else ""))
             except Exception as exc:
                 actions.append(f"Price change failed for {model}: {exc}")
 

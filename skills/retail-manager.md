@@ -143,27 +143,37 @@ Follow these steps (using state provided above):
    - Check the manufacturer's wholesale price for each model (provided in prompt under "Manufacturer wholesale prices")
    - Calculate minimum floor: `floor_price = wholesale_price × 1.10`
    - Example: wholesale Basic300 = $1000 → floor = $1100 (never below $1100)
-   - **Before changing any retail price, verify: new_price >= floor_price**
-   - **If proposed adjustment drops below floor, DO NOT apply the adjustment — keep current price instead**
+   - **As wholesale prices change, the floor changes — you must maintain the floor every day**
+
+   **Floor Maintenance — FIRST STEP, BEFORE DEMAND-BASED ADJUSTMENTS**:
+   - For EACH model, check: `current_retail_price < (current_wholesale × 1.10)?`
+   - If YES, immediately raise retail price to `floor = wholesale × 1.10`
+   - **This is NON-NEGOTIABLE**: If wholesale went up and retail didn't follow, fix it immediately
+   - Example: 
+     - Day 1: wholesale=$1000, you set retail=$1100 ✓
+     - Day 3: wholesale=$1100, but your retail is still $1100 ✗ Floor is now $1210
+     - Action: Raise retail to $1210 immediately (or higher if demand conditions warrant)
 
    **Price Elasticity**: Customers are price-sensitive. High prices reduce demand proportionally.
    Profit maximization: `margin × volume` — don't raise so much that you lose more in volume than you gain in margin.
    
    | Condition | Action |
    |-----------|--------|
-   | Still Short > 0 for any model | Raise that model **3%** (tight supply but elasticity limits benefit of raising further) |
-   | demand_modifier > 2.0 and Still Short > 0 | Raise that model **5%** (very tight, but no more—elasticity kicks in hard) |
-   | demand_modifier > 1.5 and no backlog | Raise that model **2%** max (demand is high but not constrained; don't risk volume) |
-   | demand_modifier < 0.7 AND on_hand > 2× safety stock | Lower that model **5%** (soft demand + oversupply, reduce to stimulate) |
-   | demand_modifier < 0.5 | Lower all prices **8%** (severe collapse; restore demand) |
+   | current_price < floor | Raise to floor IMMEDIATELY (mandatory, non-negotiable) |
+   | Still Short > 0 for any model | Raise that model **3%+** (then check floor) |
+   | demand_modifier > 2.0 and Still Short > 0 | Raise that model **5%+** (then check floor) |
+   | demand_modifier > 1.5 and no backlog | Raise that model **2%+** (then check floor) |
+   | demand_modifier < 0.7 AND on_hand > 2× safety stock | Lower that model **5%** (but NOT below floor) |
+   | demand_modifier < 0.5 | Lower all prices **8%** (but NOT below floor) |
 
-   **Application Rule**:
-   1. For each model, calculate the proposed new price based on conditions above
-   2. Calculate the floor: `floor = wholesale_price × 1.10`
-   3. Check: `if new_price < floor: new_price = current_price` (skip the adjustment)
-   4. Apply the adjusted (or unchanged) price
+   **Application Rule** (in order):
+   1. Calculate the floor: `floor = current_wholesale_price × 1.10`
+   2. Check current retail price: `if current_retail < floor: raise to floor` (DONE — apply this now)
+   3. If already at/above floor, then apply demand-based adjustments (3%, 5%, 2%, -5%, -8%)
+   4. After adjustment, verify again: `if final_price < floor: keep current_price` (don't lower below floor)
+   5. Apply the final price
    
-   If `price_sensitivity: high`, cap all raises at **2%** (customers shopping around—aggressive pricing loses sales). Still respect the floor.
+   If `price_sensitivity: high`, cap raises at **2%** (customers shopping around). Still maintain the floor.
 
 5. **Summarize**
    - Print 3-5 bullets with counts and reasons.
