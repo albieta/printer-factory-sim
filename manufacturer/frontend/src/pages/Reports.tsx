@@ -237,16 +237,33 @@ const Reports: React.FC = () => {
       : null;
     const events = scenarioDetail?.events ?? [];
 
-    // Create day rows for all days from 0 to maxDay
-    const dayRows: Array<{ day: number; label: string; events: Array<any> }> = [];
+    // Create unique event combination rows (consolidate duplicate events)
+    const eventCombinations = new Map<string, { label: string; events: Array<any> }>();
     for (let day = 0; day <= maxDay; day++) {
       const dayEvents = events.filter((ev) =>
         ev && ev.start_day != null && ev.start_day <= day && (ev.end_day ?? ev.start_day) >= day
       );
-      const label = dayEvents.length > 0
-        ? dayEvents.map((ev) => ev.name ?? `event`).join(', ')
-        : `Day ${day}`;
-      dayRows.push({ day, label, events: dayEvents });
+      const key = dayEvents.length > 0
+        ? dayEvents.map((ev) => ev.name ?? 'event').sort().join('|')
+        : '';
+      if (!eventCombinations.has(key)) {
+        const label = dayEvents.length > 0
+          ? dayEvents.map((ev) => ev.name ?? `event`).join(', ')
+          : `Day ${day}`;
+        eventCombinations.set(key, { label, events: dayEvents });
+      }
+    }
+
+    // Build day rows from unique combinations
+    const dayRows: Array<{ day: number; label: string; events: Array<any> }> = [];
+    let rowIndex = 0;
+    const eventToRowIndex = new Map<string, number>();
+    for (const [key, { label, events: evts }] of eventCombinations) {
+      if (evts.length > 0) {
+        eventToRowIndex.set(key, rowIndex);
+        dayRows.push({ day: rowIndex, label, events: evts });
+        rowIndex++;
+      }
     }
 
     // Build shapes and annotations from events, skipping any that don't fit in the current day range

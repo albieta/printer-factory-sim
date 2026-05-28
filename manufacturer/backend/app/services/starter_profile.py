@@ -4,7 +4,7 @@ from datetime import date
 from typing import Any
 
 STARTER_CONFIG: dict[str, Any] = {
-    "warehouse_capacity": 2200,
+    "warehouse_capacity": 4400,
     "assembly_lines": 1,
     "workers_per_line": 1,
     "shift_hours": 8.0,
@@ -61,7 +61,7 @@ STARTER_INVENTORY: dict[str, float] = {
     "PLA Filament": 500.0,
     "ABS Filament": 400.0,
     "Aluminum Frame": 200.0,
-    "Stepper Motor": 300.0,
+    "Stepper Motor": 600.0,
     "Control Board": 150.0,
     "LCD Screen": 100.0,
 }
