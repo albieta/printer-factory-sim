@@ -292,8 +292,9 @@ def _format_state_for_prompt(state: dict[str, Any], role: str = "manufacturer") 
                 if name:
                     inv_detail[name] = item
 
+        STOCK_FLOOR = 300.0
         inv_lines = [
-            "| Material | Stock | Needed (accepted orders) | Surplus (trashable) | Ordered (not delivered) | Storage Status |",
+            "| Material | Stock | Needed (accepted orders) | Trashable (floor=300) | Ordered (not delivered) | Storage Status |",
             "|-|-|-|-|-|-|",
         ]
         for mat, qty in inventory.items():
@@ -301,18 +302,24 @@ def _format_state_for_prompt(state: dict[str, Any], role: str = "manufacturer") 
             detail = inv_detail.get(mat, {})
             needed = float(detail.get("accepted_order_demand", 0))
             in_transit = float(detail.get("pending_inbound_quantity", 0))
-            surplus = max(0.0, qty_num - needed)
-            if qty_num < needed and in_transit == 0:
+            # trashable = how much can be removed while keeping the 300-unit floor
+            trashable = max(0.0, qty_num - STOCK_FLOOR)
+            surplus_above_needed = max(0.0, qty_num - needed)
+            if qty_num < STOCK_FLOOR and in_transit == 0:
+                status = "🚨 FLOOR BREACH"     # below 300 minimum, nothing inbound
+            elif qty_num < STOCK_FLOOR:
+                status = "⚠️ FLOOR (ordered)"  # below 300 minimum, pipeline exists
+            elif qty_num < needed and in_transit == 0:
                 status = "⚠️ CRITICAL"
             elif qty_num < needed:
                 status = "⚠️ LOW (ordered)"
-            elif surplus > 500 or (surplus > 0 and surplus > needed * 0.5):
+            elif surplus_above_needed > 500 or (surplus_above_needed > 0 and surplus_above_needed > needed * 0.5):
                 status = "⚡ EXCESS"
             else:
                 status = "OK"
-            surplus_str = f"+{surplus:.0f}" if surplus > 0 else "0"
+            trashable_str = f"+{trashable:.0f}" if trashable > 0 else "0"
             inv_lines.append(
-                f"| {mat} | {qty_num:.0f} | {needed:.0f} | {surplus_str} | {in_transit:.0f} | {status} |"
+                f"| {mat} | {qty_num:.0f} | {needed:.0f} | {trashable_str} | {in_transit:.0f} | {status} |"
             )
         inv_table = "\n".join(inv_lines)
 
@@ -379,25 +386,56 @@ def _format_state_for_prompt(state: dict[str, Any], role: str = "manufacturer") 
             for p in arriving_today
             if "PENDING" in str(p.get("status", ""))
         )
+        # Identify which pending-today materials are below the 300-unit floor (highest priority)
+        floor_breach_incoming = []
+        for p in arriving_today:
+            if "PENDING" in str(p.get("status", "")):
+                mat_name = p.get("product", "")
+                mat_stock = float(inventory.get(mat_name, 0) or 0)
+                if mat_stock < STOCK_FLOOR:
+                    floor_breach_incoming.append((mat_name, mat_stock, float(p.get("quantity", 0))))
+
         if pending_today_qty > 0 and pending_today_qty > avail_float:
             overflow = pending_today_qty - avail_float
-            # Identify materials with surplus (stock > needed) for trashing candidates
-            surplus_candidates = []
+            # Identify trashable amounts using floor=300 (not stock-needed)
+            trash_candidates: list[tuple[str, float]] = []
             for mat, qty in inventory.items():
-                detail = inv_detail.get(mat, {})
                 stock = float(qty or 0)
-                needed = float(detail.get("accepted_order_demand", 0))
-                s = stock - needed
-                if s > 0:
-                    surplus_candidates.append((mat, s))
-            surplus_candidates.sort(key=lambda x: -x[1])
-            surplus_text = ", ".join(f"{m} (+{s:.0f})" for m, s in surplus_candidates[:4])
+                t = max(0.0, stock - STOCK_FLOOR)
+                if t > 0:
+                    trash_candidates.append((mat, t))
+            trash_candidates.sort(key=lambda x: -x[1])
+            trash_text = ", ".join(f"{m} (trash up to {t:.0f})" for m, t in trash_candidates[:4])
+            floor_note = ""
+            if floor_breach_incoming:
+                names = ", ".join(f"{m} (stock={s:.0f})" for m, s, _ in floor_breach_incoming)
+                floor_note = f"\nPRIORITY: {names} are below 300-unit floor — MUST receive their delivery."
             deadlock_alert = (
                 f"\n\n🚨 **DELIVERY REJECTION IMMINENT**: {pending_today_qty:.0f} units are arriving TODAY "
                 f"but warehouse only has {avail_float:.0f} units free — overflow by {overflow:.0f} units. "
-                f"These deliveries WILL BE REJECTED unless you trash at least {overflow:.0f} units NOW.\n"
-                f"Materials with surplus (stock − needed): {surplus_text or 'none'}\n"
-                f"→ Use `inventory-trash` immediately on the material with the highest surplus."
+                f"These deliveries WILL BE REJECTED unless you trash at least {overflow:.0f} units NOW.{floor_note}\n"
+                f"Trashable (keeping each material's 300-unit floor): {trash_text or 'none — all materials near floor'}\n"
+                f"→ Use `inventory-trash` immediately. Trash the material with the most trashable units first."
+            )
+        elif floor_breach_incoming and avail_float < sum(q for _, _, q in floor_breach_incoming):
+            # Floor breach materials have inbound but they won't all fit → warn
+            total_floor_inbound = sum(q for _, _, q in floor_breach_incoming)
+            overflow = total_floor_inbound - avail_float
+            trash_candidates = []
+            for mat, qty in inventory.items():
+                stock = float(qty or 0)
+                t = max(0.0, stock - STOCK_FLOOR)
+                if t > 0:
+                    trash_candidates.append((mat, t))
+            trash_candidates.sort(key=lambda x: -x[1])
+            trash_text = ", ".join(f"{m} (trash up to {t:.0f})" for m, t in trash_candidates[:4])
+            names = ", ".join(f"{m}" for m, _, _ in floor_breach_incoming)
+            deadlock_alert = (
+                f"\n\n⚠️ **FLOOR BREACH DELIVERY AT RISK**: {names} are below 300-unit minimum and have "
+                f"inbound deliveries today ({total_floor_inbound:.0f} units), but only {avail_float:.0f} free. "
+                f"Trash at least {overflow:.0f} units to guarantee receipt.\n"
+                f"Trashable (keeping 300-unit floor): {trash_text or 'none'}\n"
+                f"→ Use `inventory-trash` immediately."
             )
         else:
             deadlock_alert = ""

@@ -7,7 +7,7 @@ from typing import Any, List
 import httpx
 from sqlalchemy.orm import Session
 
-from app.models.models import Event, EventType, PurchaseOrder, PurchaseOrderStatus, Supplier
+from app.models.models import Event, EventType, Inventory, PurchaseOrder, PurchaseOrderStatus, Supplier
 from app.schemas.schemas import PurchaseOrderCreate, SupplierCreate, SupplierUpdate
 from app.services.presentation_service import serialize_purchase_order
 from app.services.reference_service import next_reference_code
@@ -223,7 +223,17 @@ class PurchaseOrderService:
         inventory_service = InventoryService(self.db)
         delivered_any = False
 
-        for po in [*due_pos, *external_pos]:
+        # Sort deliveries: lowest current stock first so critical materials always
+        # get warehouse space before oversupplied ones can fill it.
+        def _current_stock(po: PurchaseOrder) -> float:
+            inv = self.db.query(Inventory).filter(
+                Inventory.product_id == po.product_id
+            ).first()
+            return float(inv.quantity) if inv and inv.quantity else 0.0
+
+        all_pos = sorted([*due_pos, *external_pos], key=_current_stock)
+
+        for po in all_pos:
             if po.supplier.external_provider_url and po.external_order_id is not None:
                 external_order = self._get_external_order(po.supplier, po.external_order_id)
                 external_status = str(external_order.get("status"))

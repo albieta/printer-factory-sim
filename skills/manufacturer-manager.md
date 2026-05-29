@@ -53,6 +53,16 @@ Financial Costs (operator-configured, you cannot change):
 - Daily costs are automatically deducted each day advance
 - Check actual costs with `bin/manufacturer-cli financial summary`
 
+## Minimum Stock Floor
+
+**Every material must maintain a minimum of 300 units in stock at all times.**
+
+- This is the absolute floor, regardless of Needed, demand_modifier, or order pipeline.
+- The **Trashable (floor=300)** column in the inventory table = `max(0, stock − 300)` — this is how many units can be safely trashed from that material without breaking the floor.
+- **When any material is below 300 and has an inbound delivery today**, that delivery MUST be received. If the warehouse is too full, trash other materials down to their 300-floor to make room.
+- When a material shows `🚨 FLOOR BREACH` (stock < 300, nothing inbound): order it immediately at provider max, every day, until it reaches 300+.
+- When a material shows `⚠️ FLOOR (ordered)` (stock < 300, pipeline exists): continue daily ordering AND verify incoming deliveries will have space.
+
 ## DO NOT
 - Do not call `day advance`.
 - Do not wait for CRITICAL/BLOCKED status — order when demand_modifier rises or events hint sustained demand.
@@ -70,6 +80,7 @@ Financial Costs (operator-configured, you cannot change):
 - Do not assume "inbound POs will arrive" when warehouse is >95% full — they will be REJECTED unless you first trash surplus materials to make room.
 - Do not stop ordering a critical material just because the warehouse is full — trash surplus first, then order immediately after.
 - Do not pause ordering when demand_modifier > 1.0 — build safety stock during high demand.
+- Do not let any material sit at stock < 300 without immediate action (order + ensure incoming deliveries have space).
 
 ## Command Syntax (Batch Operations)
 
@@ -104,13 +115,15 @@ Best practice: Read the provided state once, decide all actions, then chain them
 
 ## Proactive Inventory Strategy
 
-**Order BEFORE shortages occur, not after. Warehouse free space is your buffer against long lead times.**
+**Order BEFORE shortages occur, not after. Warehouse free space is your safety buffer — fill it with the most critical materials.**
 
 - **High lead-time materials** (4+ days) are shortage-prone — order the max provider stock EVERY single day they are CRITICAL or LOW, regardless of how much is already "Ordered". The pipeline fills one batch per day; today's order is for lead_time days from now.
 - **⚡ EXCESS materials**: NEVER order. Their pipeline is oversupplied. Use the warehouse budget for bottlenecks.
+- **When warehouse has free space (>1500 units)**: Build demand-weighted safety stock. Materials with high Needed AND long lead time get the largest buffer. Do NOT leave the warehouse mostly empty.
 - **When demand_modifier > 1.0**: Assume sustained demand; continue daily ordering of bottleneck materials.
 - **Never wait for CRITICAL status** — order when demand_modifier rises or event descriptions hint at sustained demand.
 - **Batch by supplier** for bulk pricing (high units per order).
+- **Always order provider max for non-EXCESS materials when warehouse has room** — never under-order a material just because the formula says it could fit a smaller order.
 
 ## Decision Framework
 
@@ -127,17 +140,20 @@ Follow these steps (using only the state provided above):
      - Available space = total_capacity - current_usage
      - **OPPORTUNITY: If >1500 free space exists, use it for proactive safety stock of long-lead-time materials**
      
-   - **Proactive Material Check** (do FIRST — scan all materials, 30 seconds):
+   - **Proactive Material Check** (do FIRST — scan all materials):
      1. **Skip ⚡ EXCESS immediately** — do not order, full stop.
-     2. **Order CRITICAL and LOW every day** — do not let a large "Ordered" total stop you. The pipeline fills one batch per lead_time day; today's order is the slot for lead_time days from now.
-     3. Prioritize by lead time: longest-lead first (Aluminum Frame 6d > LCD 5d > Stepper/ABS 4d > PLA 3d > Control Board 2d)
-     4. Check warehouse space: `current_usage + sum(all_new_orders) ≤ warehouse_capacity`
-   - Inventory table: **Stock | Needed | Surplus (trashable) | Ordered | Status**
-     - **⚡ EXCESS**: DO NOT ORDER. Pipeline oversupplied. Skip.
-     - **⚠️ CRITICAL** (stock=0 or stock << needed, nothing/little ordered): Order provider max immediately, every day
-     - **⚠️ LOW (ordered)** (stock < needed, pipeline exists): Order provider max today — the existing pipeline is tomorrow's stock, not today's. Today's order covers the slot lead_time days out.
-     - **OK** (stock ≥ needed, small/no surplus): Order only if lead_time ≥ 4d AND demand_modifier > 1.2 (surge ahead)
-     - **⚡ EXCESS**: SKIP — do not order under any circumstance
+     2. **Order CRITICAL and LOW at provider max every day** — do not let a large "Ordered" total stop you. The pipeline fills one batch per lead_time day.
+     3. **If warehouse still has >1500 free after step 2**: build demand-weighted safety stock for OK materials too. Rank by `Needed × lead_time_days` — highest first.
+     4. Prioritize by lead time and demand: `demand_score = Needed × lead_time_days`
+     5. Check warehouse space: `current_usage + sum(all_new_orders) ≤ warehouse_capacity × 0.90`
+   - Inventory table: **Stock | Needed | Trashable (floor=300) | Ordered | Status**
+     - **🚨 FLOOR BREACH**: Stock < 300, nothing inbound — ORDER IMMEDIATELY at provider max.
+     - **⚠️ FLOOR (ordered)**: Stock < 300, pipeline exists — keep ordering AND verify incoming will fit.
+     - **⚠️ CRITICAL**: Stock << Needed, stock ≥ 300 — order provider max every day.
+     - **⚠️ LOW (ordered)**: Stock < Needed, stock ≥ 300, pipeline exists — order provider max.
+     - **OK**: Stock ≥ Needed, stock ≥ 300 — order only if Tier 2 safety stock formula says to.
+     - **⚡ EXCESS**: SKIP — do not order under any circumstance.
+     - **Trashable (floor=300)** = `max(0, stock − 300)`. This is how much can be trashed from this material. Even "CRITICAL" and "LOW" materials can be trashed if their stock is above 300.
    - PENDING sales orders (all awaiting release)
    - Inbound purchase orders (arriving materials + expected arrival dates)
    - Wholesale prices (current pricing)
@@ -179,25 +195,46 @@ Follow these steps (using only the state provided above):
    - **Ordered (not delivered)**: Total units in the pipeline, arriving across multiple future days
    - **Storage Status**: ⚡ EXCESS, OK, ⚠️ LOW (ordered), ⚠️ CRITICAL
 
-   **Two-tier ordering decision (apply in this order):**
+   **Three-tier ordering decision (apply in this order):**
 
-   **Tier 1 — SKIP ordering these:**
-   - Status = ⚡ EXCESS → do NOT order more. Their pipeline is already oversupplied. Use that warehouse budget for bottleneck materials.
-   - Status = OK AND Surplus > 0 AND significant inbound already ordered → skip unless warehouse has >2000 free and demand_modifier > 1.5.
+   **Tier 0 — ALWAYS SKIP:**
+   - Status = ⚡ EXCESS → do NOT order more under any circumstances. Pipeline oversupplied.
 
-   **Tier 2 — ORDER every day these are available:**
-   - Status = ⚠️ CRITICAL or ⚠️ LOW (ordered) → order the maximum provider stock (check the Provider Available Stock section) as long as `current_usage + qty ≤ warehouse_capacity`.
-   - **Why order even if "Ordered" total is large?** The pipeline fills one batch per day at the lead time lag. Aluminum Frame (6d lead) ordered today arrives 6 days from now. If you have 3300 already ordered, those arrive gradually at 300/day. Today's 300 is the slot for day +6 — which is ALWAYS needed when stock is critical. Never stop daily ordering of bottleneck materials.
-   - **Lead-time priority**: Longest lead-time first. Aluminum Frame (6d) > Stepper Motor (4d) > ABS Filament (4d) > LCD Screen (5d) > PLA Filament (3d) > Control Board (2d).
-   
-   **Order size per status:**
-   - ⚠️ CRITICAL: Order provider max every day (don't skip a single day)
-   - ⚠️ LOW (ordered): Order provider max unless you already ordered this material within the last 2 days AND Ordered > Needed × 3
-   - OK / ⚡ EXCESS: No order
-   
-   **Warehouse space check before ordering** (applies to all):
+   **Tier 1 — ORDER MAX every day (regardless of Ordered total):**
+   - Status = ⚠️ CRITICAL or ⚠️ LOW (ordered) → order the maximum provider stock (check Provider Available Stock section).
+   - **Why order even if "Ordered" total is large?** The pipeline fills one batch per day at the lead time lag. Aluminum Frame (6d lead) ordered today arrives 6 days from now. If 3300 already ordered, those arrive at 300/day — today's 300 is the slot for day +6, which is ALWAYS needed when stock is critical. Never stop daily ordering.
+   - **Lead-time priority**: Longest lead-time first: Aluminum Frame (6d) > LCD (5d) > Stepper Motor (4d) = ABS Filament (4d) > PLA Filament (3d) > Control Board (2d).
+
+   **Tier 2 — FREE-SPACE SAFETY STOCK (when warehouse has room):**
+   When `available_free_space > 1500 units` after Tier 1 orders, build demand-weighted safety buffers:
+   1. For each material (including OK ones, excluding EXCESS):
+      - Compute `demand_score = Needed × lead_time_days` — higher = larger buffer needed
+      - Compute `target_pipeline = Stock + Ordered + new_orders_today`
+      - Compute `safety_target = Needed × lead_time_days × 0.5` (half a full lead-cycle of buffer)
+      - If `target_pipeline < safety_target` AND provider has stock AND warehouse fits → order `min(provider_max, safety_target - target_pipeline)`
+   2. Sort by `demand_score` descending — Stepper Motor (Needed=4000, lead=4d → score 16000) beats Control Board (Needed=1500, lead=2d → score 3000)
+   3. Cap total Tier 2 orders so `current_usage + tier1_orders + tier2_orders ≤ warehouse_capacity × 0.90` (leave 10% headroom for incoming deliveries)
+
+   **Example (warehouse 7469 free, demand surge):**
+   ```
+   Stepper Motor: Needed=4359, lead=4d → score=17436, safety_target=4359×4×0.5=8718
+     Current pipeline (20 + 2400) = 2420 → gap = 8718-2420 = 6298 → order 800 (provider max)
+   ABS Filament: Needed=3570, lead=4d → score=14280, safety_target=7140
+     Current pipeline (22 + 3800) = 3822 → gap = 7140-3822 = 3318 → order 600 (provider max)
+   Aluminum Frame: Needed=2048, lead=6d → score=12288, safety_target=6144
+     Current pipeline (402 + 1800) = 2202 → gap = 6144-2202 = 3942 → order 300 (provider max)
+   PLA Filament: Needed=658, lead=3d → score=1974, safety_target=987
+     Current pipeline (140 + 2000) = 2140 → 2140 > 987 → SKIP (already beyond safety target)
+   ```
+
+   **Order size rules:**
+   - Always order provider max when the material needs more (never reduce to a smaller number just because the gap is partially covered)
+   - If warehouse tight (<500 free): drop Tier 2, keep Tier 1 at full size
+   - Consider bulk pricing tiers: ordering at or above tier thresholds saves cost
+
+   **Warehouse space check before ordering** (applies to all tiers):
    - Only order if `current_usage + sum(all_new_orders_today) ≤ warehouse_capacity`
-   - If tight, drop EXCESS and OK orders first, keep CRITICAL/LOW orders at full quantity
+   - If tight, drop Tier 2 and EXCESS/OK first; keep CRITICAL/LOW orders at full quantity
    
    **Warehouse Capacity Check** (CRITICAL to avoid "Receipt rejected because warehouse would exceed capacity"):
    - `Available free space = warehouse_capacity - current_usage`
@@ -208,9 +245,10 @@ Follow these steps (using only the state provided above):
    - **INCOMING delivery check**: If state shows "300 units PENDING (arriving today)" and warehouse has only 39.5 free — those 300 units WILL BE REJECTED. You must trash at least 261 units BEFORE day advance.
    
    **Order size**:
-   - For CRITICAL/LOW materials: always target provider max (300 or 800 units per the Provider Available Stock section). Do not reduce below 200 unless warehouse truly can't fit it.
-   - Consider bulk pricing tiers: 300+ units often have significant discounts
-   - If warehouse is tight (<500 free units): drop EXCESS/OK orders entirely; keep CRITICAL orders at full size; trash surplus first if needed.
+   - **Always use provider max** for CRITICAL/LOW materials — the Provider Available Stock section shows the ceiling. Do not order a smaller number out of conservatism when the warehouse has room.
+   - **For Tier 2 safety stock**: order `min(provider_max, safety_target - current_pipeline)`. If the gap is larger than provider_max, just order provider_max (you'll continue filling it on future days).
+   - Consider bulk pricing tiers: ordering at or above tier thresholds (e.g., 300+ for Aluminum Frame at $38 vs $45) saves cost.
+   - If warehouse is tight (<500 free units): drop Tier 2 entirely; keep Tier 1 CRITICAL/LOW orders at provider max; trash surplus first if needed to create room.
    
    **Warehouse Recovery** (EMERGENCY FUNCTION):
    
@@ -225,38 +263,37 @@ Follow these steps (using only the state provided above):
    - Formula: if `current_usage + pending_today_qty > warehouse_capacity` → today's delivery WILL be rejected.
    
    **To break deadlock**:
-   1. **Detect**: Warehouse near full (>95%) AND a critical material (stock ≈ 0) has inbound deliveries arriving soon
-   2. **Identify surplus**: Use the **Surplus (trashable)** column — it shows `stock − needed` per material. Trash the material with the highest surplus first.
-   3. **Calculate**: Trash enough to make room: `trash_qty = pending_incoming_qty − available_free_space + 50` (50 unit buffer)
-   4. **Act**: Use `bin/manufacturer-cli inventory-trash --item "MATERIAL_NAME:QUANTITY"` immediately
-   5. **Re-order**: After trashing, immediately order the critical material to replenish the pipeline
-   5. **Result**: Critical materials can arrive, manufacturing resumes, orders proceed
+   1. **Detect**: State shows `🚨 DELIVERY REJECTION IMMINENT` OR `⚠️ FLOOR BREACH DELIVERY AT RISK` OR warehouse >95% full AND inbound today > available space.
+   2. **Identify trashable**: Use the **Trashable (floor=300)** column — `max(0, stock − 300)` per material. Even CRITICAL/LOW materials can be trashed if their stock is above 300.
+   3. **Calculate**: `trash_qty = incoming_qty − available_free_space + 50` (50-unit buffer). Trash from the material with the highest Trashable value first.
+   4. **Act**: Use `bin/manufacturer-cli inventory-trash --item "MATERIAL_NAME:QUANTITY"` immediately — BEFORE day advance.
+   5. **Re-order**: After trashing, immediately order the critical material to replenish the pipeline.
+   6. **Priority rule**: If the inbound material has stock < 300 (FLOOR BREACH/FLOOR status), it MUST receive its delivery. Trash whatever is needed from above-floor materials to guarantee it fits.
    
    **Deadlock example scenario**:
    ```
    Warehouse: 8361/8400 (100%) ⚠️ NEAR FULL — 39 units free
-   🚨 DELIVERY REJECTION IMMINENT: 300 units arriving TODAY but only 39 free — overflow by 261 units.
-   Materials with surplus: Control Board (+1335), PLA Filament (+0), ABS Filament (+0)
+   🚨 DELIVERY REJECTION IMMINENT: 300 units arriving TODAY but only 39 free — overflow 261 units.
+   PRIORITY: Aluminum Frame (stock=0) is below 300-unit floor — MUST receive its delivery.
+   Trashable (keeping 300-unit floor): Control Board (trash up to 2765), ABS Filament (trash up to 1336)
 
    Inventory:
-   | Material       | Stock | Needed | Surplus | Ordered | Status       |
-   | Control Board  | 3065  | 1730   | +1335   | 0       | ⚡ EXCESS    |
-   | Aluminum Frame | 0     | 1878   | 0       | 1800    | ⚠️ CRITICAL  |
-   | ABS Filament   | 1636  | 2320   | 0       | 600     | ⚠️ LOW       |
+   | Material       | Stock | Needed | Trashable (floor=300) | Ordered | Status         |
+   | Control Board  | 3065  | 1730   | +2765                 | 0       | ⚡ EXCESS      |
+   | Aluminum Frame | 0     | 1878   | 0                     | 1800    | 🚨 FLOOR BREACH|
+   | ABS Filament   | 1636  | 2320   | +1336                 | 600     | ⚠️ LOW (ordered)|
    
-   Inbound today: Aluminum Frame 300 units PENDING
-   → With 39 free, these 300 units WILL BE REJECTED on delivery.
+   Inbound today: Aluminum Frame 300 units PENDING (stock=0, MUST be received)
+   → With only 39 free, this delivery WILL BE REJECTED.
    ```
    
    **Emergency action**: **TRASH Control Board:350** (261 overflow + 89 buffer)
    - Frees 350 units → warehouse drops to 8011/8400 (390 free)
    - Incoming 300 Aluminum Frames CAN NOW ARRIVE
+   - Control Board still has 2715 units (well above its 300 floor)
    - Then ORDER 300 more Aluminum Frames from ChipSupply Co for the pipeline
    
-   **Immediate result**:
-   - ✓ Aluminum Frame delivery accepted (300 units → stock goes to 300)
-   - ✓ Manufacturing resumes (orders unblocked)
-   - ✓ Control Board still has 985 units — well above the 1730 needed once inbound POs arrive
+   **Key insight**: ABS Filament (stock=1636) is LOW relative to needed (2320), but its Trashable = 1336 (1636−300). It can be trashed if Control Board isn't enough — CRITICAL/LOW status does NOT mean non-trashable as long as stock > 300.
    
    **CRITICAL**: This is an emergency function. Use when:
    - Purchase orders are about to be rejected/cancelled due to space OR
