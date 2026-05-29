@@ -139,6 +139,7 @@ const Reports: React.FC = () => {
     try {
       const response = await eventsAPI.getEvents({ limit: 500 });
       setEvents(response.data);
+      setError(null);
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to load event analytics.'));
     }
@@ -174,7 +175,13 @@ const Reports: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    Promise.all([loadEvents(), loadMetrics(), loadScenarios()]).finally(() => setLoading(false));
+    void (async () => {
+      try {
+        await Promise.all([loadEvents(), loadMetrics(), loadScenarios()]);
+      } finally {
+        setLoading(false);
+      }
+    })();
     const clear = onSimulationUpdate(() => {
       void loadEvents();
       void loadMetrics();
