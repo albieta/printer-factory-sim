@@ -60,7 +60,8 @@ Financial Costs (operator-configured, you cannot change):
 - Do not assume warehouse free space is wasted — it's your buffer against long lead times.
 - Do not rely on PENDING orders alone — use demand_modifier + events to forecast demand shifts.
 - Do not release beyond daily capacity.
-- Do not order without accounting for inbound PENDING purchase orders.
+- Do not order materials that show ⚡ EXCESS status — their pipeline is already oversupplied; redirect that order budget to bottleneck materials instead.
+- Do not treat a large "Ordered" total as a reason to skip ordering a CRITICAL/LOW material. "Ordered" is spread across future delivery days — today's order fills a slot lead_time days from now, which is always needed when stock is below demand.
 - Do not invent flags, product names, supplier names, or order IDs.
 - Do not choose slower suppliers when faster ones work.
 - Do not hire beyond max_workers_per_line.
@@ -105,12 +106,11 @@ Best practice: Read the provided state once, decide all actions, then chain them
 
 **Order BEFORE shortages occur, not after. Warehouse free space is your buffer against long lead times.**
 
-- **High lead-time materials** (4+ days) are shortage-prone — build a safety stock proactively
-- **Safety stock target** = lead_time_days × (daily_demand × demand_modifier) + 100 units buffer
-- **Order trigger**: When `Stock + Ordered < (lead_time_days × expected_daily_demand)`, order immediately
-- **When demand_modifier > 1.0**: Assume sustained demand; order 300+ units for high-lead-time materials now
-- **Never wait for CRITICAL status** — order when demand_modifier rises or event descriptions hint at sustained demand
-- **Batch by supplier** for bulk pricing (high units per order)
+- **High lead-time materials** (4+ days) are shortage-prone — order the max provider stock EVERY single day they are CRITICAL or LOW, regardless of how much is already "Ordered". The pipeline fills one batch per day; today's order is for lead_time days from now.
+- **⚡ EXCESS materials**: NEVER order. Their pipeline is oversupplied. Use the warehouse budget for bottlenecks.
+- **When demand_modifier > 1.0**: Assume sustained demand; continue daily ordering of bottleneck materials.
+- **Never wait for CRITICAL status** — order when demand_modifier rises or event descriptions hint at sustained demand.
+- **Batch by supplier** for bulk pricing (high units per order).
 
 ## Decision Framework
 
@@ -127,27 +127,17 @@ Follow these steps (using only the state provided above):
      - Available space = total_capacity - current_usage
      - **OPPORTUNITY: If >1500 free space exists, use it for proactive safety stock of long-lead-time materials**
      
-   - **Proactive Material Check** (do FIRST):
-     1. Identify materials with lead_time >= 4 days from inventory table
-     2. For each: Is `Days of stock < lead_time_days + 2`? → Order immediately
-     3. Check demand_modifier + events: Sustained demand ahead? → Increase order qty 20–30%
-     4. Check warehouse space: Order 300+ units if possible; prioritize longest-lead-time materials
-   - Inventory table: **Stock | Needed (accepted orders) | Ordered (not delivered) | Storage Status**
-     - **CRITICAL = stock approaching zero OR stock < needed + (lead_time × expected_daily_demand)**
-       - Order immediately at 300+ units to build safety stock
-       - Do NOT wait for shortage warning
-     - **LOW (ordered) = stock < needed but inbound materials are coming**
-       - Monitor arrival dates — if arriving > 2 days away, order additional safety stock now
-     - **MODERATE = stock >= needed but < (needed + lead_time × expected_daily_demand)**
-       - Order proactively to build safety buffer
-       - This is where most shortages happen — don't let inventory drop here
-     - **ADEQUATE = stock >= (needed + lead_time × expected_daily_demand)**
-       - Pause ordering unless demand_modifier is rising (indicates demand shift)
-     - **EXCESS = stock > (needed × 1.5) with nothing ordered soon**
-       - Pause ordering temporarily
-     - **Lead-time coverage formula** (use this for EVERY material):
-       - `Target stock = Needed + (lead_time_days × expected_daily_demand × demand_modifier) + 30 unit safety buffer`
-       - If `Stock + Ordered < Target` → order enough to reach `Target + 200` (the +200 is contingency for unexpected demand spikes)
+   - **Proactive Material Check** (do FIRST — scan all materials, 30 seconds):
+     1. **Skip ⚡ EXCESS immediately** — do not order, full stop.
+     2. **Order CRITICAL and LOW every day** — do not let a large "Ordered" total stop you. The pipeline fills one batch per lead_time day; today's order is the slot for lead_time days from now.
+     3. Prioritize by lead time: longest-lead first (Aluminum Frame 6d > LCD 5d > Stepper/ABS 4d > PLA 3d > Control Board 2d)
+     4. Check warehouse space: `current_usage + sum(all_new_orders) ≤ warehouse_capacity`
+   - Inventory table: **Stock | Needed | Surplus (trashable) | Ordered | Status**
+     - **⚡ EXCESS**: DO NOT ORDER. Pipeline oversupplied. Skip.
+     - **⚠️ CRITICAL** (stock=0 or stock << needed, nothing/little ordered): Order provider max immediately, every day
+     - **⚠️ LOW (ordered)** (stock < needed, pipeline exists): Order provider max today — the existing pipeline is tomorrow's stock, not today's. Today's order covers the slot lead_time days out.
+     - **OK** (stock ≥ needed, small/no surplus): Order only if lead_time ≥ 4d AND demand_modifier > 1.2 (surge ahead)
+     - **⚡ EXCESS**: SKIP — do not order under any circumstance
    - PENDING sales orders (all awaiting release)
    - Inbound purchase orders (arriving materials + expected arrival dates)
    - Wholesale prices (current pricing)
@@ -182,24 +172,32 @@ Follow these steps (using only the state provided above):
 
 3. **Order Details + Proactive Shortage Prevention** (reference only; commands go in batch above):
    
-   **Use the Inventory table provided in state** — it has three key columns per material:
-   - **Stock**: Current inventory of this material
-   - **Needed (accepted orders)**: Total BOM demand from all PENDING sales orders
-   - **Ordered (not delivered)**: Inbound materials not yet arrived
-   - **Supplier lead_time_days**: How long this material takes to arrive (critical to ordering decision)
-   
-   **MATERIAL ORDERING BY LEAD TIME**:
-   - **High lead_time (4+ days)**: Order when `Stock + Ordered < 7 × daily_demand`. Target: 500–1200 units.
-   - **Medium lead_time (2–3 days)**: Order when `Stock + Ordered < 5 × daily_demand`. Target: 200–300 units.
-   - **Low lead_time (1 day)**: Order when `Stock + Ordered < 3 × daily_demand`. Target: 100–200 units.
+   **Use the Inventory table provided in state** — five columns per material:
+   - **Stock**: Current on-hand inventory
+   - **Needed**: Total BOM demand from all accepted sales orders
+   - **Surplus (trashable)**: Stock − Needed (> 0 means you have more than needed right now)
+   - **Ordered (not delivered)**: Total units in the pipeline, arriving across multiple future days
+   - **Storage Status**: ⚡ EXCESS, OK, ⚠️ LOW (ordered), ⚠️ CRITICAL
 
-   WARNING: The target stock levels above are general guidelines. If you detect a material is proportionally more demanded than others, or if demand_modifier is rising, you may want to order more aggressively.
+   **Two-tier ordering decision (apply in this order):**
+
+   **Tier 1 — SKIP ordering these:**
+   - Status = ⚡ EXCESS → do NOT order more. Their pipeline is already oversupplied. Use that warehouse budget for bottleneck materials.
+   - Status = OK AND Surplus > 0 AND significant inbound already ordered → skip unless warehouse has >2000 free and demand_modifier > 1.5.
+
+   **Tier 2 — ORDER every day these are available:**
+   - Status = ⚠️ CRITICAL or ⚠️ LOW (ordered) → order the maximum provider stock (check the Provider Available Stock section) as long as `current_usage + qty ≤ warehouse_capacity`.
+   - **Why order even if "Ordered" total is large?** The pipeline fills one batch per day at the lead time lag. Aluminum Frame (6d lead) ordered today arrives 6 days from now. If you have 3300 already ordered, those arrive gradually at 300/day. Today's 300 is the slot for day +6 — which is ALWAYS needed when stock is critical. Never stop daily ordering of bottleneck materials.
+   - **Lead-time priority**: Longest lead-time first. Aluminum Frame (6d) > Stepper Motor (4d) > ABS Filament (4d) > LCD Screen (5d) > PLA Filament (3d) > Control Board (2d).
    
-   **Order Trigger**:
-   - Calculate: `Target = Needed + (lead_time_days × expected_daily_demand × demand_modifier) + 200 buffer`
-   - If `Stock + Ordered < Target` → Order immediately
-   - If `demand_modifier > 1.2` → Order 400+ units regardless of current stock (demand surge)
-   - **Never order more than warehouse capacity allows**. If space tight, reduce qty to 200–300 units.
+   **Order size per status:**
+   - ⚠️ CRITICAL: Order provider max every day (don't skip a single day)
+   - ⚠️ LOW (ordered): Order provider max unless you already ordered this material within the last 2 days AND Ordered > Needed × 3
+   - OK / ⚡ EXCESS: No order
+   
+   **Warehouse space check before ordering** (applies to all):
+   - Only order if `current_usage + sum(all_new_orders_today) ≤ warehouse_capacity`
+   - If tight, drop EXCESS and OK orders first, keep CRITICAL/LOW orders at full quantity
    
    **Warehouse Capacity Check** (CRITICAL to avoid "Receipt rejected because warehouse would exceed capacity"):
    - `Available free space = warehouse_capacity - current_usage`
@@ -209,10 +207,10 @@ Follow these steps (using only the state provided above):
    - Example: current_usage=8200, warehouse_capacity=8400, new_order=300 → Check: 8200+300=8500 > 8400 ✗ DO NOT order (reduce to 200 max)
    - **INCOMING delivery check**: If state shows "300 units PENDING (arriving today)" and warehouse has only 39.5 free — those 300 units WILL BE REJECTED. You must trash at least 261 units BEFORE day advance.
    
-   **Order size**: 
-   - Aim for 250–400 units (balances bulk pricing, material need, and warehouse space)
-   - If warehouse is tight (<500 free units), reduce to 200 units max if possible
+   **Order size**:
+   - For CRITICAL/LOW materials: always target provider max (300 or 800 units per the Provider Available Stock section). Do not reduce below 200 unless warehouse truly can't fit it.
    - Consider bulk pricing tiers: 300+ units often have significant discounts
+   - If warehouse is tight (<500 free units): drop EXCESS/OK orders entirely; keep CRITICAL orders at full size; trash surplus first if needed.
    
    **Warehouse Recovery** (EMERGENCY FUNCTION):
    
