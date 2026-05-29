@@ -293,25 +293,26 @@ def _format_state_for_prompt(state: dict[str, Any], role: str = "manufacturer") 
                     inv_detail[name] = item
 
         inv_lines = [
-            "| Material | Stock | Needed (accepted orders) | Ordered (not delivered) | Storage Status |",
-            "|-|-|-|-|-|",
+            "| Material | Stock | Needed (accepted orders) | Surplus (trashable) | Ordered (not delivered) | Storage Status |",
+            "|-|-|-|-|-|-|",
         ]
         for mat, qty in inventory.items():
             qty_num = float(qty or 0)
             detail = inv_detail.get(mat, {})
             needed = float(detail.get("accepted_order_demand", 0))
             in_transit = float(detail.get("pending_inbound_quantity", 0))
-            net_after_delivery = qty_num - needed + in_transit
+            surplus = max(0.0, qty_num - needed)
             if qty_num < needed and in_transit == 0:
                 status = "⚠️ CRITICAL"
             elif qty_num < needed:
                 status = "⚠️ LOW (ordered)"
-            elif net_after_delivery > qty_num * 2 and qty_num > 200:
+            elif surplus > 500 or (surplus > 0 and surplus > needed * 0.5):
                 status = "⚡ EXCESS"
             else:
                 status = "OK"
+            surplus_str = f"+{surplus:.0f}" if surplus > 0 else "0"
             inv_lines.append(
-                f"| {mat} | {qty_num:.0f} | {needed:.0f} | {in_transit:.0f} | {status} |"
+                f"| {mat} | {qty_num:.0f} | {needed:.0f} | {surplus_str} | {in_transit:.0f} | {status} |"
             )
         inv_table = "\n".join(inv_lines)
 
@@ -367,6 +368,39 @@ def _format_state_for_prompt(state: dict[str, Any], role: str = "manufacturer") 
         wh_pct = wh.get("usage_percentage", 0)
         wh_flag = " ⚠️ NEAR FULL" if float(wh_pct or 0) > 80 else ""
         wh_line = f"{wh_used}/{wh_total} units used ({wh_pct:.0f}%){wh_flag} — {wh_avail} units free"
+
+        # Deadlock detection: compute if today's pending deliveries exceed free space
+        try:
+            avail_float = float(wh_avail or 0)
+        except (TypeError, ValueError):
+            avail_float = 0.0
+        pending_today_qty = sum(
+            float(p.get("quantity", 0))
+            for p in arriving_today
+            if "PENDING" in str(p.get("status", ""))
+        )
+        if pending_today_qty > 0 and pending_today_qty > avail_float:
+            overflow = pending_today_qty - avail_float
+            # Identify materials with surplus (stock > needed) for trashing candidates
+            surplus_candidates = []
+            for mat, qty in inventory.items():
+                detail = inv_detail.get(mat, {})
+                stock = float(qty or 0)
+                needed = float(detail.get("accepted_order_demand", 0))
+                s = stock - needed
+                if s > 0:
+                    surplus_candidates.append((mat, s))
+            surplus_candidates.sort(key=lambda x: -x[1])
+            surplus_text = ", ".join(f"{m} (+{s:.0f})" for m, s in surplus_candidates[:4])
+            deadlock_alert = (
+                f"\n\n🚨 **DELIVERY REJECTION IMMINENT**: {pending_today_qty:.0f} units are arriving TODAY "
+                f"but warehouse only has {avail_float:.0f} units free — overflow by {overflow:.0f} units. "
+                f"These deliveries WILL BE REJECTED unless you trash at least {overflow:.0f} units NOW.\n"
+                f"Materials with surplus (stock − needed): {surplus_text or 'none'}\n"
+                f"→ Use `inventory-trash` immediately on the material with the highest surplus."
+            )
+        else:
+            deadlock_alert = ""
 
         # Supplier pricing tiers for proactive bulk decisions
         suppliers_raw = state.get("suppliers", [])
@@ -431,8 +465,8 @@ def _format_state_for_prompt(state: dict[str, Any], role: str = "manufacturer") 
 - Backlog > 1.5 days → monitor; hire only if revenue > daily costs
 - Backlog < 0.5 days for 2+ turns → consider fire-worker to cut costs
 
-**Warehouse**: {wh_line}
-*(Do NOT order more than warehouse free space; check available before ordering)*
+**Warehouse**: {wh_line}{deadlock_alert}
+*(Do NOT order more than warehouse free space; use `current_usage + new_order_qty ≤ warehouse_capacity` to check)*
 
 **Inventory Levels**:
 {inv_table}

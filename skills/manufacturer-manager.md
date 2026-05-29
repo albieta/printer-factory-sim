@@ -66,6 +66,8 @@ Financial Costs (operator-configured, you cannot change):
 - Do not hire beyond max_workers_per_line.
 - Do not sustain losses (costs > revenue).
 - Do not use `inventory-trash` unless warehouse full OR orders blocked OR inbound purchase order about to arrive and would be rejected if you did not use it OR manufacturing stopped.
+- Do not assume "inbound POs will arrive" when warehouse is >95% full — they will be REJECTED unless you first trash surplus materials to make room.
+- Do not stop ordering a critical material just because the warehouse is full — trash surplus first, then order immediately after.
 - Do not pause ordering when demand_modifier > 1.0 — build safety stock during high demand.
 
 ## Command Syntax (Batch Operations)
@@ -201,9 +203,11 @@ Follow these steps (using only the state provided above):
    
    **Warehouse Capacity Check** (CRITICAL to avoid "Receipt rejected because warehouse would exceed capacity"):
    - `Available free space = warehouse_capacity - current_usage`
-   - **Simple rule**: Do NOT place an order if `(Stock + new_order_qty) > warehouse_capacity`
-   - Example: Stock=1000, warehouse_capacity=8400, new_order=600 → Check: 1000+600=1600 ≤ 8400 ✓ OK to order
-   - Example: Stock=8200, warehouse_capacity=8400, new_order=300 → Check: 8200+300=8500 > 8400 ✗ DO NOT order
+   - **Simple rule**: Do NOT place an order if `current_usage + new_order_qty > warehouse_capacity`
+   - Example: current_usage=6000, warehouse_capacity=8400, new_order=600 → Check: 6000+600=6600 ≤ 8400 ✓ OK to order
+   - Example: current_usage=8100, warehouse_capacity=8400, new_order=300 → Check: 8100+300=8400 = 8400 ✓ OK (barely fits)
+   - Example: current_usage=8200, warehouse_capacity=8400, new_order=300 → Check: 8200+300=8500 > 8400 ✗ DO NOT order (reduce to 200 max)
+   - **INCOMING delivery check**: If state shows "300 units PENDING (arriving today)" and warehouse has only 39.5 free — those 300 units WILL BE REJECTED. You must trash at least 261 units BEFORE day advance.
    
    **Order size**: 
    - Aim for 250–400 units (balances bulk pricing, material need, and warehouse space)
@@ -212,42 +216,49 @@ Follow these steps (using only the state provided above):
    
    **Warehouse Recovery** (EMERGENCY FUNCTION):
    
-   **Deadlock condition**: Incoming critical purchase orders are **rejected/cancelled on delivery**, or expected to be rejected/cancelled because there's no enough space for them AND there is the risk at the same time sales orders become **BLOCKED (Material Shortage)** waiting for those materials to arrive.
+   **Deadlock condition**: Incoming critical purchase orders are **rejected/cancelled on delivery**, or expected to be rejected/cancelled because there's no enough space for them AND at the same time sales orders become **BLOCKED (Material Shortage)** waiting for those materials to arrive.
 
    If an inbound purchase order is rejected/cancelled due to space, the materials won't arrive, which causes pending sales orders that need those materials to become BLOCKED. This creates a deadlock where you can't free up space because the critical materials never arrive, and the orders never release because they're waiting for those materials.
+
+   **Detect deadlock automatically from state**:
+   - If the state shows `🚨 DELIVERY REJECTION IMMINENT` → ACT NOW, do not wait.
+   - If state shows `REJECTED TODAY (warehouse capacity exceeded)` for any material → deadlock is already active.
+   - If any material has `Surplus (trashable) = 0` AND `Stock = 0` AND inbound POs exist → imminent deadlock.
+   - Formula: if `current_usage + pending_today_qty > warehouse_capacity` → today's delivery WILL be rejected.
    
    **To break deadlock**:
-   1. **Detect**: Sales orders show "BLOCKED — Material Shortage" AND inbound purchase orders are being rejected/cancelled or expected to be rejected due to space (check state for both conditions)
-   2. **Identify**: Find excess materials taking up space that are NOT needed for pending orders (or the least critical materials if all are needed)
-   3. **Calculate**: Trash enough to make room for critical incoming materials (quantity = from 1 to current_stock)
+   1. **Detect**: Warehouse near full (>95%) AND a critical material (stock ≈ 0) has inbound deliveries arriving soon
+   2. **Identify surplus**: Use the **Surplus (trashable)** column — it shows `stock − needed` per material. Trash the material with the highest surplus first.
+   3. **Calculate**: Trash enough to make room: `trash_qty = pending_incoming_qty − available_free_space + 50` (50 unit buffer)
    4. **Act**: Use `bin/manufacturer-cli inventory-trash --item "MATERIAL_NAME:QUANTITY"` immediately
+   5. **Re-order**: After trashing, immediately order the critical material to replenish the pipeline
    5. **Result**: Critical materials can arrive, manufacturing resumes, orders proceed
    
    **Deadlock example scenario**:
    ```
-   Warehouse usage: 8300/8400 (98.8% full) — CRITICAL
+   Warehouse: 8361/8400 (100%) ⚠️ NEAR FULL — 39 units free
+   🚨 DELIVERY REJECTION IMMINENT: 300 units arriving TODAY but only 39 free — overflow by 261 units.
+   Materials with surplus: Control Board (+1335), PLA Filament (+0), ABS Filament (+0)
+
+   Inventory:
+   | Material       | Stock | Needed | Surplus | Ordered | Status       |
+   | Control Board  | 3065  | 1730   | +1335   | 0       | ⚡ EXCESS    |
+   | Aluminum Frame | 0     | 1878   | 0       | 1800    | ⚠️ CRITICAL  |
+   | ABS Filament   | 1636  | 2320   | 0       | 600     | ⚠️ LOW       |
    
-   Pending sales orders: 50 Elite700 printers
-   ├─ Status: BLOCKED — waiting for ABS Filament
-   └─ Need: 300 ABS Filament units
-   
-   Current inventory:
-   ├─ ABS Filament: 20 units (FAR SHORT, need 300) — CRITICAL SHORTAGE
-   └─ PLA Filament: 450 units (not needed for pending orders) — EXCESS
-   
-   Inbound purchase order: 400 ABS Filament from provider
-   └─ Status: WILL BE REJECTED on arrival (no warehouse space) and the delivery will be lost, leaving us with 20 ABS units and blocked orders
+   Inbound today: Aluminum Frame 300 units PENDING
+   → With 39 free, these 300 units WILL BE REJECTED on delivery.
    ```
    
-   **Emergency action**: **TRASH PLA Filament:300**
-   - Frees 200 units → warehouse becomes 8000/8400 
-   - Incoming 400 ABS Filament CAN NOW ARRIVE (fits in freed space)
+   **Emergency action**: **TRASH Control Board:350** (261 overflow + 89 buffer)
+   - Frees 350 units → warehouse drops to 8011/8400 (390 free)
+   - Incoming 300 Aluminum Frames CAN NOW ARRIVE
+   - Then ORDER 300 more Aluminum Frames from ChipSupply Co for the pipeline
    
    **Immediate result**:
-   - ✓ ABS Filament order delivered successfully (400 units)
-   - ✓ Total ABS available: 20 + 400 = 420 units (need 300)
-   - ✓ Manufacturing resumes (unblocked)
-   - ✓ 50 Elite700 orders complete
+   - ✓ Aluminum Frame delivery accepted (300 units → stock goes to 300)
+   - ✓ Manufacturing resumes (orders unblocked)
+   - ✓ Control Board still has 985 units — well above the 1730 needed once inbound POs arrive
    
    **CRITICAL**: This is an emergency function. Use when:
    - Purchase orders are about to be rejected/cancelled due to space OR

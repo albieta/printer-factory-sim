@@ -112,12 +112,13 @@ def get_all_state(session: Session = Depends(get_db)) -> dict[str, Any]:
         arriving_future = []
         rejected_today = []
         try:
-            from datetime import date as date_type
+            from datetime import date as date_type, timedelta as timedelta_type
             sim_date_obj = sim_date if isinstance(sim_date, date_type) else sim_date
+            yesterday = sim_date_obj - timedelta_type(days=1)
 
-            # All orders with expected_delivery >= today (pending, delivered, or rejected)
+            # All orders with expected_delivery >= yesterday (to catch yesterday's rejections)
             inbound_rows = session.query(PurchaseOrder).filter(
-                PurchaseOrder.expected_delivery >= sim_date_obj
+                PurchaseOrder.expected_delivery >= yesterday
             ).all()
 
             for purchase in inbound_rows:
@@ -134,8 +135,15 @@ def get_all_state(session: Session = Depends(get_db)) -> dict[str, Any]:
                         "days_until": days_until_delivery,
                     }
 
-                    # Categorize by delivery date and status
-                    if days_until_delivery == 0:
+                    if days_until_delivery < 0:
+                        # Yesterday (or earlier) — only show if rejected
+                        if purchase.status == PurchaseOrderStatus.REJECTED:
+                            rejected_today.append({
+                                **order_info,
+                                "status": "REJECTED",
+                                "reason": "Warehouse capacity exceeded on delivery",
+                            })
+                    elif days_until_delivery == 0:
                         # Arriving today
                         if purchase.status == PurchaseOrderStatus.REJECTED:
                             rejected_today.append({
@@ -154,7 +162,7 @@ def get_all_state(session: Session = Depends(get_db)) -> dict[str, Any]:
                                 "status": "PENDING (arriving today)",
                             })
                     else:
-                        # Arriving in future (only show PENDING, since future deliveries haven't happened yet)
+                        # Arriving in future (only show PENDING)
                         if purchase.status == PurchaseOrderStatus.PENDING:
                             arriving_future.append({
                                 **order_info,
