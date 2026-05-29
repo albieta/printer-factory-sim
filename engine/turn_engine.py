@@ -334,6 +334,13 @@ def _format_state_for_prompt(state: dict[str, Any], role: str = "manufacturer") 
         arriving_future = purchase_orders.get("arriving_future", [])
         rejected_today = purchase_orders.get("rejected_today", [])
 
+        # Compute pending_today_qty early — used both in warehouse line and deadlock alert
+        pending_today_qty = sum(
+            float(p.get("quantity", 0))
+            for p in arriving_today
+            if "PENDING" in str(p.get("status", ""))
+        )
+
         inbound_lines = []
 
         # Arriving today (show status: RECEIVED, PENDING, or REJECTED)
@@ -374,18 +381,19 @@ def _format_state_for_prompt(state: dict[str, Any], role: str = "manufacturer") 
         wh_avail = wh.get("available_capacity", "?")
         wh_pct = wh.get("usage_percentage", 0)
         wh_flag = " ⚠️ NEAR FULL" if float(wh_pct or 0) > 80 else ""
-        wh_line = f"{wh_used}/{wh_total} units used ({wh_pct:.0f}%){wh_flag} — {wh_avail} units free"
+        # orderable_space = space available for NEW orders placed today (today's arrivals also need to fit)
+        try:
+            orderable_space = max(0.0, float(wh_avail or 0) - pending_today_qty)
+        except (TypeError, ValueError):
+            orderable_space = float(wh_avail or 0)
+        orderable_note = f" | **{orderable_space:.0f} orderable** (free − today's arrivals {pending_today_qty:.0f})"
+        wh_line = f"{wh_used}/{wh_total} units used ({wh_pct:.0f}%){wh_flag} — {wh_avail} units free{orderable_note}"
 
         # Deadlock detection: compute if today's pending deliveries exceed free space
         try:
             avail_float = float(wh_avail or 0)
         except (TypeError, ValueError):
             avail_float = 0.0
-        pending_today_qty = sum(
-            float(p.get("quantity", 0))
-            for p in arriving_today
-            if "PENDING" in str(p.get("status", ""))
-        )
         # Identify which pending-today materials are below the 300-unit floor (highest priority)
         floor_breach_incoming = []
         for p in arriving_today:

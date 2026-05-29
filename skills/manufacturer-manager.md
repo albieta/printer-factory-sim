@@ -206,49 +206,47 @@ Follow these steps (using only the state provided above):
    - **Lead-time priority**: Longest lead-time first: Aluminum Frame (6d) > LCD (5d) > Stepper Motor (4d) = ABS Filament (4d) > PLA Filament (3d) > Control Board (2d).
 
    **Tier 2 — FREE-SPACE SAFETY STOCK (when warehouse has room):**
-   When `available_free_space > 1500 units` after Tier 1 orders, build demand-weighted safety buffers:
+   When `available_free_space > 500 units` after Tier 1 orders, build demand-weighted safety buffers:
    1. For each material (including OK ones, excluding EXCESS):
       - Compute `demand_score = Needed × lead_time_days` — higher = larger buffer needed
-      - Compute `target_pipeline = Stock + Ordered + new_orders_today`
-      - Compute `safety_target = Needed × lead_time_days × 0.5` (half a full lead-cycle of buffer)
-      - If `target_pipeline < safety_target` AND provider has stock AND warehouse fits → order `min(provider_max, safety_target - target_pipeline)`
-   2. Sort by `demand_score` descending — Stepper Motor (Needed=4000, lead=4d → score 16000) beats Control Board (Needed=1500, lead=2d → score 3000)
-   3. Cap total Tier 2 orders so `current_usage + tier1_orders + tier2_orders ≤ warehouse_capacity × 0.90` (leave 10% headroom for incoming deliveries)
+      - Compute `current_pipeline = Stock + Ordered + new_orders_today`
+      - Compute `safety_target = Needed × lead_time_days` (one full lead-cycle of buffer)
+      - If `current_pipeline < safety_target` AND provider has stock AND warehouse fits → order `min(provider_max, safety_target - current_pipeline)`
+   2. Sort by `demand_score` descending — Stepper Motor (Needed=4000, lead=4d → score 16000) before Control Board (Needed=1500, lead=2d → score 3000)
+   3. **Fill to warehouse capacity** — the hard cap is `current_usage + all_new_orders ≤ warehouse_capacity`. Use ALL available space; do not apply an artificial percentage headroom. Today's new orders don't arrive until lead_time days from now, so they don't displace today's stock.
 
    **Example (warehouse 7469 free, demand surge):**
    ```
-   Stepper Motor: Needed=4359, lead=4d → score=17436, safety_target=4359×4×0.5=8718
-     Current pipeline (20 + 2400) = 2420 → gap = 8718-2420 = 6298 → order 800 (provider max)
-   ABS Filament: Needed=3570, lead=4d → score=14280, safety_target=7140
-     Current pipeline (22 + 3800) = 3822 → gap = 7140-3822 = 3318 → order 600 (provider max)
-   Aluminum Frame: Needed=2048, lead=6d → score=12288, safety_target=6144
-     Current pipeline (402 + 1800) = 2202 → gap = 6144-2202 = 3942 → order 300 (provider max)
-   PLA Filament: Needed=658, lead=3d → score=1974, safety_target=987
-     Current pipeline (140 + 2000) = 2140 → 2140 > 987 → SKIP (already beyond safety target)
+   usable_space = 7469 - pending_arriving_today
+   
+   Stepper Motor: Needed=4359, lead=4d → score=17436, safety_target=4359×4=17436
+     Current pipeline (20 + 2400) = 2420 → gap = 15016 → order 800 (provider max, fits in usable_space)
+   ABS Filament: Needed=3570, lead=4d → score=14280, safety_target=14280
+     Current pipeline (22 + 3800) = 3822 → gap = 10458 → order 600 (provider max)
+   Aluminum Frame: Needed=2048, lead=6d → score=12288, safety_target=12288
+     Current pipeline (402 + 1800) = 2202 → gap = 10086 → order 300 (provider max)
+   PLA Filament: Needed=658, lead=3d → score=1974, safety_target=1974
+     Current pipeline (140 + 2000) = 2140 → 2140 > 1974 → pipeline already exceeds safety target → SKIP
+   Control Board: Needed=500, lead=2d → score=1000, safety_target=1000
+     Current pipeline (250 + 1000) = 1250 → 1250 > 1000 → SKIP
    ```
 
    **Order size rules:**
-   - Always order provider max when the material needs more (never reduce to a smaller number just because the gap is partially covered)
-   - If warehouse tight (<500 free): drop Tier 2, keep Tier 1 at full size
-   - Consider bulk pricing tiers: ordering at or above tier thresholds saves cost
+   - **Always use provider max** for any material where `current_pipeline < safety_target` — never round down out of conservatism.
+   - Consider bulk pricing tiers: ordering at or above tier thresholds saves cost.
+   - If warehouse is tight (<500 free after today's pending arrivals): drop Tier 2 entirely; keep Tier 1 CRITICAL/FLOOR/LOW orders at provider max; trash surplus first if needed.
 
    **Warehouse space check before ordering** (applies to all tiers):
-   - Only order if `current_usage + sum(all_new_orders_today) ≤ warehouse_capacity`
-   - If tight, drop Tier 2 and EXCESS/OK first; keep CRITICAL/LOW orders at full quantity
+   - True available space = `warehouse_capacity − current_usage − pending_arriving_today`
+   - Use this as the hard limit for total new orders placed today.
+   - If `true_available < 0` → deadlock situation, trash first before ordering.
    
    **Warehouse Capacity Check** (CRITICAL to avoid "Receipt rejected because warehouse would exceed capacity"):
    - `Available free space = warehouse_capacity - current_usage`
-   - **Simple rule**: Do NOT place an order if `current_usage + new_order_qty > warehouse_capacity`
-   - Example: current_usage=6000, warehouse_capacity=8400, new_order=600 → Check: 6000+600=6600 ≤ 8400 ✓ OK to order
-   - Example: current_usage=8100, warehouse_capacity=8400, new_order=300 → Check: 8100+300=8400 = 8400 ✓ OK (barely fits)
-   - Example: current_usage=8200, warehouse_capacity=8400, new_order=300 → Check: 8200+300=8500 > 8400 ✗ DO NOT order (reduce to 200 max)
-   - **INCOMING delivery check**: If state shows "300 units PENDING (arriving today)" and warehouse has only 39.5 free — those 300 units WILL BE REJECTED. You must trash at least 261 units BEFORE day advance.
-   
-   **Order size**:
-   - **Always use provider max** for CRITICAL/LOW materials — the Provider Available Stock section shows the ceiling. Do not order a smaller number out of conservatism when the warehouse has room.
-   - **For Tier 2 safety stock**: order `min(provider_max, safety_target - current_pipeline)`. If the gap is larger than provider_max, just order provider_max (you'll continue filling it on future days).
-   - Consider bulk pricing tiers: ordering at or above tier thresholds (e.g., 300+ for Aluminum Frame at $38 vs $45) saves cost.
-   - If warehouse is tight (<500 free units): drop Tier 2 entirely; keep Tier 1 CRITICAL/LOW orders at provider max; trash surplus first if needed to create room.
+   - **Simple rule**: Do NOT place an order if `current_usage + pending_arriving_today + new_order_qty > warehouse_capacity`
+   - Example: current_usage=6000, pending_today=500, warehouse_capacity=8400, new_order=800 → Check: 6000+500+800=7300 ≤ 8400 ✓ OK
+   - Example: current_usage=7800, pending_today=500, warehouse_capacity=8400, new_order=300 → Check: 7800+500+300=8600 > 8400 ✗ Reduce order to 100 max
+   - **INCOMING delivery check**: If state shows "300 units PENDING (arriving today)" and warehouse has only 39.5 free — those 300 units WILL BE REJECTED. Trash at least 261 units BEFORE day advance.
    
    **Warehouse Recovery** (EMERGENCY FUNCTION):
    
