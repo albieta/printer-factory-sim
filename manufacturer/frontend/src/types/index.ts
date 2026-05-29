@@ -243,6 +243,7 @@ export interface TimeSeriesData {
 export interface ManualAdjust {
   product_id: string;
   quantity: number;
+  reason?: string;
 }
 
 export interface ImportResult {

@@ -13,23 +13,27 @@ const Inventory: React.FC = () => {
   const [inventory, setInventory] = useState<InventoryLevel[]>([]);
   const [capacity, setCapacity] = useState<CapacityInfo | null>(null);
   const [materials, setMaterials] = useState<Product[]>([]);
+  const [adjustmentLogs, setAdjustmentLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adjustProductId, setAdjustProductId] = useState('');
   const [adjustQuantity, setAdjustQuantity] = useState('');
+  const [adjustReason, setAdjustReason] = useState('');
 
   const loadInventory = async () => {
     try {
       setLoading(true);
-      const [inventoryRes, capacityRes, materialsRes] = await Promise.all([
+      const [inventoryRes, capacityRes, materialsRes, logsRes] = await Promise.all([
         inventoryAPI.getInventory(),
         inventoryAPI.getCapacity(),
         materialsAPI.getMaterials(),
+        inventoryAPI.getAdjustmentLogs(),
       ]);
       setInventory(inventoryRes.data);
       setCapacity(capacityRes.data);
       setMaterials(materialsRes.data);
+      setAdjustmentLogs(logsRes.data);
       setError(null);
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to load inventory and warehouse data.'));
@@ -56,9 +60,10 @@ const Inventory: React.FC = () => {
     }
 
     try {
-      await inventoryAPI.manualAdjust({ product_id: adjustProductId, quantity });
+      await inventoryAPI.manualAdjust({ product_id: adjustProductId, quantity, reason: adjustReason || undefined });
       setAdjustProductId('');
       setAdjustQuantity('');
+      setAdjustReason('');
       setMessage(`Inventory adjusted by ${quantity > 0 ? '+' : ''}${quantity}.`);
       announceSimulationUpdate();
       await loadInventory();
@@ -179,6 +184,15 @@ const Inventory: React.FC = () => {
               />
               <Form.Text>Example: <span className="mono">+100</span> for an emergency receipt or <span className="mono">-25</span> for scrap and shrinkage.</Form.Text>
             </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label>Reason (optional)</Form.Label>
+              <Form.Control
+                type="text"
+                value={adjustReason}
+                onChange={(event) => setAdjustReason(event.target.value)}
+                placeholder="e.g., Inventory audit, Emergency supply, Shrinkage correction"
+              />
+            </Form.Group>
             <Button variant="primary" onClick={handleManualAdjust} disabled={!adjustProductId || !adjustQuantity}>
               Apply inventory adjustment
             </Button>
@@ -219,6 +233,44 @@ const Inventory: React.FC = () => {
             </Table>
           ) : (
             <div className="empty-state">Inventory will appear here once stock is seeded or purchase orders are delivered.</div>
+          )}
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-header">Material adjustments &amp; trash log</div>
+        <div className="card-body p-0">
+          {adjustmentLogs.length ? (
+            <Table responsive hover>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Material</th>
+                  <th>Type</th>
+                  <th>Quantity</th>
+                  <th>Reason</th>
+                  <th>Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                {adjustmentLogs.map((log) => (
+                  <tr key={log.id}>
+                    <td>{log.sim_date}</td>
+                    <td><strong>{log.product_name || log.product_id}</strong></td>
+                    <td>
+                      <span className={`badge ${log.adjustment_type === 'TRASHED' ? 'badge-danger' : 'badge-info'}`}>
+                        {log.adjustment_type === 'TRASHED' ? '🗑️ Trashed' : '✏️ Adjusted'}
+                      </span>
+                    </td>
+                    <td>{log.quantity > 0 ? '+' : ''}{formatNumber(log.quantity, 2)}</td>
+                    <td>{log.reason}</td>
+                    <td>{formatTimestamp(log.timestamp)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          ) : (
+            <div className="empty-state">No material adjustments or trash events yet.</div>
           )}
         </div>
       </div>

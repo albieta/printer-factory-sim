@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 
-from app.schemas.schemas import CapacityInfo, InventoryLevel, ManualAdjust
+from app.schemas.schemas import CapacityInfo, InventoryLevel, ManualAdjust, InventoryAdjustmentLog
 from app.utils.database import get_db
 
 router = APIRouter()
@@ -13,6 +13,13 @@ def get_inventory(db: Session = Depends(get_db)):
     from app.services.inventory_service import InventoryService
 
     return InventoryService(db).get_inventory_snapshot()
+
+
+@router.get("/adjustment-logs", response_model=List[InventoryAdjustmentLog])
+def get_adjustment_logs(db: Session = Depends(get_db)):
+    from app.services.inventory_service import InventoryService
+
+    return InventoryService(db).get_adjustment_logs()
 
 
 @router.get("/capacity", response_model=CapacityInfo)
@@ -35,6 +42,7 @@ def manual_adjust_inventory(adjust: ManualAdjust, db: Session = Depends(get_db))
         item = service.update_inventory(adjust.product_id, Decimal(str(abs(adjust.quantity))), operation)
         sim_date = ConfigService(db).get_sim_date()
         OrderService(db).recheck_blocked_orders(sim_date)
+        service.log_adjustment(adjust.product_id, adjust.quantity, "ADJUSTED", adjust.reason or "Manual adjustment", sim_date)
         accepted_order_demand = service.get_accepted_order_material_demand()
         pending_inbound_by_material = service.get_pending_inbound_material_quantity()
         return service.serialize_inventory_level(
@@ -89,6 +97,7 @@ def trash_inventory(adjust: ManualAdjust, db: Session = Depends(get_db)):
         item = service.update_inventory(adjust.product_id, final_stock, operation="set")
         sim_date = ConfigService(db).get_sim_date()
         OrderService(db).recheck_blocked_orders(sim_date)
+        service.log_adjustment(adjust.product_id, -trash_amount, "TRASHED", adjust.reason or "Material trashed", sim_date)
         accepted_order_demand = service.get_accepted_order_material_demand()
         pending_inbound_by_material = service.get_pending_inbound_material_quantity()
         return service.serialize_inventory_level(

@@ -39,6 +39,8 @@ class EventType(str, Enum):
     PO_REJECTED = "PO_REJECTED"
     PO_REJECTED_CAPACITY = "PO_REJECTED_CAPACITY"
     MATERIAL_CONSUMED = "MATERIAL_CONSUMED"
+    MATERIAL_TRASHED = "MATERIAL_TRASHED"
+    MATERIAL_ADJUSTED = "MATERIAL_ADJUSTED"
     INVENTORY_ADDED = "INVENTORY_ADDED"
     DAY_ADVANCED = "DAY_ADVANCED"
     PRODUCTION_BLOCKED_CAPACITY = "PRODUCTION_BLOCKED_CAPACITY"
@@ -143,6 +145,21 @@ class CapacityInfo(BaseModel):
 class ManualAdjust(BaseModel):
     product_id: str
     quantity: float
+    reason: Optional[str] = None
+
+
+class InventoryAdjustmentLog(BaseModel):
+    id: str
+    product_id: str
+    product_name: Optional[str] = None
+    adjustment_type: str
+    quantity: float
+    reason: Optional[str] = None
+    sim_date: date
+    timestamp: datetime
+
+    class Config:
+        from_attributes = True
 
 
 class ManufacturingOrderBase(BaseModel):

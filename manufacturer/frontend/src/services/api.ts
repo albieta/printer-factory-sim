@@ -137,6 +137,8 @@ export const inventoryAPI = {
   getInventory: () => api.get<InventoryLevel[]>('/inventory/'),
   getCapacity: () => api.get<CapacityInfo>('/inventory/capacity/'),
   manualAdjust: (adjust: ManualAdjust) => api.post<InventoryLevel>('/inventory/manual-adjust/', adjust),
+  trashMaterial: (adjust: ManualAdjust) => api.post<InventoryLevel>('/inventory/trash/', adjust),
+  getAdjustmentLogs: () => api.get<any[]>('/inventory/adjustment-logs/'),
 };
 
 export const ordersAPI = {

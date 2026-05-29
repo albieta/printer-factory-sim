@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, date
 from decimal import Decimal
 from typing import Any, List, Optional, cast
 
@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.models.models import (
     BillOfMaterials,
+    Event,
+    EventType,
     Inventory,
     ManufacturingOrder,
     OrderStatus,
@@ -175,3 +177,46 @@ class InventoryService:
             "accepted_order_demand": accepted_order_demand,
             "pending_inbound_quantity": pending_inbound_quantity,
         }
+
+    def log_adjustment(
+        self, product_id: str, quantity: float, adjustment_type: str, reason: str, sim_date: date
+    ) -> None:
+        event_type = EventType.MATERIAL_TRASHED if adjustment_type == "TRASHED" else EventType.MATERIAL_ADJUSTED
+        product = self.db.query(Product).filter(Product.id == product_id).first()
+        event = Event(
+            event_type=event_type,
+            sim_date=sim_date,
+            details={
+                "product_id": product_id,
+                "product_name": product.name if product else None,
+                "quantity": quantity,
+                "reason": reason,
+                "adjustment_type": adjustment_type,
+            },
+        )
+        self.db.add(event)
+        self.db.commit()
+
+    def get_adjustment_logs(self) -> list[dict[str, Any]]:
+        events = (
+            self.db.query(Event)
+            .filter(Event.event_type.in_([EventType.MATERIAL_TRASHED, EventType.MATERIAL_ADJUSTED]))
+            .order_by(Event.sim_date.desc(), Event.timestamp.desc())
+            .all()
+        )
+        result = []
+        for event in events:
+            details = event.details or {}
+            result.append(
+                {
+                    "id": event.id,
+                    "product_id": details.get("product_id"),
+                    "product_name": details.get("product_name"),
+                    "adjustment_type": details.get("adjustment_type"),
+                    "quantity": details.get("quantity"),
+                    "reason": details.get("reason"),
+                    "sim_date": event.sim_date,
+                    "timestamp": event.timestamp,
+                }
+            )
+        return result
