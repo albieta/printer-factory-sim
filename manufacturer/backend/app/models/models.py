@@ -237,7 +237,7 @@ class SimulationConfig(Base):
     __table_args__ = {"extend_existing": True}
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
-    warehouse_capacity: Mapped[int] = mapped_column(Integer, nullable=False, default=8400)
+    warehouse_capacity: Mapped[int] = mapped_column(Integer, nullable=False, default=12000)
     daily_assembly_hours: Mapped[float] = mapped_column(Float, nullable=False, default=8.0)
     assembly_lines: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     workers_per_line: Mapped[int] = mapped_column(Integer, nullable=False, default=1)

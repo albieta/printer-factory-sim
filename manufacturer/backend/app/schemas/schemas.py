@@ -253,7 +253,7 @@ class TimeSeriesData(BaseModel):
 
 
 class SimulationConfigBase(BaseModel):
-    warehouse_capacity: int = 8400
+    warehouse_capacity: int = 12000
     daily_assembly_hours: float = 8.0
     assembly_lines: int = 1
     workers_per_line: int = 1

@@ -107,7 +107,7 @@ class InventoryService:
         config_service = ConfigService(self.db)
         config = config_service.get_config()
         total_inventory = self.get_total_inventory_count()
-        warehouse_capacity = config.warehouse_capacity if config else 8400
+        warehouse_capacity = config.warehouse_capacity if config else 12000
         available_capacity = float(warehouse_capacity - total_inventory)
 
         return {
@@ -123,7 +123,7 @@ class InventoryService:
     def has_capacity_for(self, quantity: Decimal) -> bool:
         config = self.db.query(SimulationConfig).first()
         total_inventory = self.get_total_inventory_count()
-        warehouse_capacity = config.warehouse_capacity if config else 8400
+        warehouse_capacity = config.warehouse_capacity if config else 12000
         return (total_inventory + quantity) <= warehouse_capacity
 
     def get_accepted_order_material_demand(self) -> dict[str, float]:

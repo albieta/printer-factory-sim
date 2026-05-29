@@ -168,11 +168,11 @@ class TestWarehouseCapacityTracking:
 
         capacity = inventory_service.get_capacity_info()
 
-        # Should be roughly 23% (1950 out of 8400)
+        # Should be roughly 16.25% (1950 out of 12000)
         usage_percent = capacity["usage_percentage"]
         assert (
-            20 < usage_percent < 25
-        ), f"Initial usage {usage_percent}% outside expected 20-25%"
+            15 < usage_percent < 18
+        ), f"Initial usage {usage_percent}% outside expected 15-18%"
 
 
 class TestFinancialTransactionConsistency:

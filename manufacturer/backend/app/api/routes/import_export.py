@@ -388,7 +388,7 @@ def import_full_state_payload(db: Session, payload: dict[str, Any]) -> ImportRes
 
         config = SimulationConfig(
             id=int(config_payload.get("id", 1)),
-            warehouse_capacity=int(config_payload.get("warehouse_capacity", 8400)),
+            warehouse_capacity=int(config_payload.get("warehouse_capacity", 12000)),
             daily_assembly_hours=float(config_payload.get("daily_assembly_hours", 8.0)),
             assembly_lines=int(config_payload.get("assembly_lines", 1)),
             workers_per_line=int(config_payload.get("workers_per_line", 1)),
