@@ -222,15 +222,15 @@ const Reports: React.FC = () => {
         const backordered = retailers.reduce((acc, r) => acc + (r.customer_orders?.backordered_today ?? 0), 0);
         const queuedHours = metric.manufacturer?.queued_assembly_hours ?? 0;
         const queueLoad = metric.manufacturer?.queue_load_percentage ?? 0;
-        const costs = metric.manufacturer?.daily_financials?.costs ?? 0;
-        const revenue = metric.manufacturer?.daily_financials?.revenue ?? 0;
+        const totalCosts = metric.manufacturer?.financials?.total_costs ?? 0;
+        const totalRevenue = metric.manufacturer?.financials?.total_revenue ?? 0;
 
         // CRITICAL fields (required for queued hours, queue load, and financial charts)
         let criticalFields = 0;
         if (queuedHours > 0) criticalFields++;
         if (queueLoad > 0) criticalFields++;
-        if (costs > 0) criticalFields++;
-        if (revenue > 0) criticalFields++;
+        if (totalCosts > 0) criticalFields++;
+        if (totalRevenue > 0) criticalFields++;
 
         // Score critical fields very heavily (they fix 3 broken charts)
         points += criticalFields * 5000;
@@ -467,13 +467,30 @@ const Reports: React.FC = () => {
   }, [uniqueMetrics, dayLabels]);
 
   // MANUFACTURER — daily financials
+  // Derived from deltas of cumulative totals rather than per-transaction sim_day queries,
+  // which are unreliable for one-time costs (line openings, hirings) due to SQLite
+  // transaction isolation — the cumulative total is always correct.
   const dailyFinancialsChart = useMemo(() => {
     if (!uniqueMetrics.length) return null;
-    const df = (m: MetricsSnapshot) => m.manufacturer?.daily_financials ?? {};
+    const fin = (m: MetricsSnapshot) => m.manufacturer?.financials ?? {};
     return {
-      revenue: uniqueMetrics.map((m) => df(m).revenue ?? 0),
-      costs: uniqueMetrics.map((m) => df(m).costs ?? 0),
-      net_profit: uniqueMetrics.map((m) => df(m).net_profit ?? 0),
+      revenue: uniqueMetrics.map((m, i) => {
+        const curr = fin(m).total_revenue ?? 0;
+        const prev = i > 0 ? (fin(uniqueMetrics[i - 1]).total_revenue ?? 0) : 0;
+        return Math.max(0, curr - prev);
+      }),
+      costs: uniqueMetrics.map((m, i) => {
+        const curr = fin(m).total_costs ?? 0;
+        const prev = i > 0 ? (fin(uniqueMetrics[i - 1]).total_costs ?? 0) : 0;
+        return Math.max(0, curr - prev);
+      }),
+      net_profit: uniqueMetrics.map((m, i) => {
+        const currRev = fin(m).total_revenue ?? 0;
+        const prevRev = i > 0 ? (fin(uniqueMetrics[i - 1]).total_revenue ?? 0) : 0;
+        const currCost = fin(m).total_costs ?? 0;
+        const prevCost = i > 0 ? (fin(uniqueMetrics[i - 1]).total_costs ?? 0) : 0;
+        return (currRev - prevRev) - (currCost - prevCost);
+      }),
     };
   }, [uniqueMetrics]);
 
