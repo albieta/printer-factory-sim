@@ -440,10 +440,10 @@ const Reports: React.FC = () => {
     };
   }, [uniqueMetrics]);
 
-  // MANUFACTURER — blocked by material shortage evolution
+  // MANUFACTURER — blocked by material shortage evolution (total backlog, not daily delta)
   const mfgBlockedChart = useMemo(() => {
     if (!uniqueMetrics.length) return null;
-    return uniqueMetrics.map((m) => m.manufacturer?.sales_orders_today?.blocked ?? 0);
+    return uniqueMetrics.map((m) => m.manufacturer?.blocked_orders ?? 0);
   }, [uniqueMetrics]);
 
   // RETAILER — demand per model evolution

@@ -187,11 +187,11 @@ Follow these steps (using only the state provided above):
    - **Supplier lead_time_days**: How long this material takes to arrive (critical to ordering decision)
    
    **MATERIAL ORDERING BY LEAD TIME**:
-   - **High lead_time (4+ days)**: Order when `Stock + Ordered < 7 × daily_demand`. Target: 500–800 units.
+   - **High lead_time (4+ days)**: Order when `Stock + Ordered < 7 × daily_demand`. Target: 500–1200 units.
    - **Medium lead_time (2–3 days)**: Order when `Stock + Ordered < 5 × daily_demand`. Target: 200–300 units.
    - **Low lead_time (1 day)**: Order when `Stock + Ordered < 3 × daily_demand`. Target: 100–200 units.
 
-   WARNING: The target stock levels above are general guidelines. If you detect a material is proportionally more demanded than others, or if demand_modifier is rising, you may want to order more or less aggressively.
+   WARNING: The target stock levels above are general guidelines. If you detect a material is proportionally more demanded than others, or if demand_modifier is rising, you may want to order more aggressively.
    
    **Order Trigger**:
    - Calculate: `Target = Needed + (lead_time_days × expected_daily_demand × demand_modifier) + 200 buffer`

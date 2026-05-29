@@ -182,12 +182,14 @@ def _manufacturer_snapshot(mfr_cfg: dict[str, Any], day: int, logger: ApiLogger 
         cost = abs(sum(_to_float(t.get("amount")) for t in transactions_data if isinstance(t, dict) and t.get("type") != "PRODUCT_SOLD"))
         daily_financials = {"revenue": rev, "costs": cost, "net_profit": rev - cost}
 
-    # Extract queued assembly hours and queue load percentage from simulation status
+    # Extract queued assembly hours, queue load percentage, and blocked orders from simulation status
     queued_assembly_hours: float | None = None
     queue_load_percentage: float | None = None
+    blocked_orders: int | None = None
     if isinstance(simulation_status_data, dict):
         queued_assembly_hours = _to_float(simulation_status_data.get("queued_assembly_hours"))
         queue_load_percentage = _to_float(simulation_status_data.get("queue_load_percentage"))
+        blocked_orders = _to_int(simulation_status_data.get("blocked_orders"))
 
     all_data = (inventory_data, prices_data, sales_data, production_data, capacity_data, financial_data, transactions_data, orders_daily_data, simulation_status_data)
     result = {
@@ -206,11 +208,12 @@ def _manufacturer_snapshot(mfr_cfg: dict[str, Any], day: int, logger: ApiLogger 
             if isinstance(value, dict) and "error" in value
         ],
     }
-    # Add queued assembly hours and queue load percentage if available
     if queued_assembly_hours is not None:
         result["queued_assembly_hours"] = queued_assembly_hours
     if queue_load_percentage is not None:
         result["queue_load_percentage"] = queue_load_percentage
+    if blocked_orders is not None:
+        result["blocked_orders"] = blocked_orders
     return result
 
 

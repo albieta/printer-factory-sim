@@ -447,6 +447,10 @@ class SimulationService:
         except Exception:
             pass
 
+        total_blocked = self.db.query(ManufacturingOrder).filter(
+            ManufacturingOrder.status == OrderStatus.BLOCKED
+        ).count()
+
         manufacturer_snapshot: dict[str, Any] = {
             "name": "Factory",
             "inventory": inventory,
@@ -459,6 +463,7 @@ class SimulationService:
             "daily_financials": daily_financials,
             "queued_assembly_hours": round(queued_assembly_hours, 1),
             "queue_load_percentage": round(queue_load_percentage, 1),
+            "blocked_orders": total_blocked,
             "errors": [],
         }
 

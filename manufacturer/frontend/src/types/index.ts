@@ -426,6 +426,7 @@ export interface MetricsSnapshot {
     };
     queued_assembly_hours: number;
     queue_load_percentage: number;
+    blocked_orders?: number;
     errors: string[];
   };
   providers: Array<{
