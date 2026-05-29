@@ -30,7 +30,7 @@ def open_assembly_line(db: Session = Depends(get_db)):
     config = config_service.get_config()
     new_lines = config.assembly_lines + 1
     config_service.update_config(SimulationConfigUpdate(assembly_lines=new_lines))
-    financial_service.record_assembly_line_opened(config.sim_day)
+    financial_service.record_assembly_line_opened(config.sim_day + 1)
     return config_service.serialize_config()
 
 
@@ -46,7 +46,7 @@ def hire_worker(db: Session = Depends(get_db)):
         )
     new_workers = config.workers_per_line + 1
     config_service.update_config(SimulationConfigUpdate(workers_per_line=new_workers))
-    financial_service.record_worker_hired(config.sim_day)
+    financial_service.record_worker_hired(config.sim_day + 1)
     return config_service.serialize_config()
 
 
@@ -64,7 +64,7 @@ def fire_worker(db: Session = Depends(get_db)):
 
     new_workers = config.workers_per_line - 1
     config_service.update_config(SimulationConfigUpdate(workers_per_line=new_workers))
-    financial_service.record_worker_fired(config.sim_day)
+    financial_service.record_worker_fired(config.sim_day + 1)
     return config_service.serialize_config()
 
 
@@ -82,7 +82,7 @@ def close_assembly_line(db: Session = Depends(get_db)):
 
     new_lines = config.assembly_lines - 1
     config_service.update_config(SimulationConfigUpdate(assembly_lines=new_lines))
-    financial_service.record_assembly_line_closed(config.sim_day)
+    financial_service.record_assembly_line_closed(config.sim_day + 1)
     return config_service.serialize_config()
 
 
