@@ -55,13 +55,14 @@ Financial Costs (operator-configured, you cannot change):
 
 ## Minimum Stock Floor
 
-**Every material must maintain a minimum of 300 units in stock at all times.**
+**Every material must maintain a minimum stock equal to `warehouse_capacity × 0.30 ÷ num_materials`.**
 
-- This is the absolute floor, regardless of Needed, demand_modifier, or order pipeline.
-- The **Trashable (floor=300)** column in the inventory table = `max(0, stock − 300)` — this is how many units can be safely trashed from that material without breaking the floor.
-- **When any material is below 300 and has an inbound delivery today**, that delivery MUST be received. If the warehouse is too full, trash other materials down to their 300-floor to make room.
-- When a material shows `🚨 FLOOR BREACH` (stock < 300, nothing inbound): order it immediately at provider max, every day, until it reaches 300+.
-- When a material shows `⚠️ FLOOR (ordered)` (stock < 300, pipeline exists): continue daily ordering AND verify incoming deliveries will have space.
+- Example: 8400 capacity, 6 materials → floor = 8400 × 0.30 / 6 = **420 units per material**.
+- The computed floor is shown in the inventory table column header: `Trashable (floor=NNN)`. Read NNN from there — do not guess.
+- The **Trashable (floor=NNN)** column value = `max(0, stock − floor)` — how many units can be safely trashed from that material without breaking the floor.
+- **When any material is below the floor and has an inbound delivery today**, that delivery MUST be received. If the warehouse is too full, trash other materials (down to their floor) to make room.
+- When a material shows `🚨 FLOOR BREACH` (stock < floor, nothing inbound): order it immediately at provider max, every day, until it reaches floor+.
+- When a material shows `⚠️ FLOOR (ordered)` (stock < floor, pipeline exists): continue daily ordering AND verify incoming deliveries will have space.
 
 ## DO NOT
 - Do not call `day advance`.
@@ -80,7 +81,7 @@ Financial Costs (operator-configured, you cannot change):
 - Do not assume "inbound POs will arrive" when warehouse is >95% full — they will be REJECTED unless you first trash surplus materials to make room.
 - Do not stop ordering a critical material just because the warehouse is full — trash surplus first, then order immediately after.
 - Do not pause ordering when demand_modifier > 1.0 — build safety stock during high demand.
-- Do not let any material sit at stock < 300 without immediate action (order + ensure incoming deliveries have space).
+- Do not let any material sit below its stock floor (see `Trashable (floor=NNN)` column header for the computed value) without immediate action (order + ensure incoming deliveries have space).
 
 ## Command Syntax (Batch Operations)
 
@@ -146,14 +147,15 @@ Follow these steps (using only the state provided above):
      3. **If warehouse still has >1500 free after step 2**: build demand-weighted safety stock for OK materials too. Rank by `Needed × lead_time_days` — highest first.
      4. Prioritize by lead time and demand: `demand_score = Needed × lead_time_days`
      5. Check warehouse space: `current_usage + sum(all_new_orders) ≤ warehouse_capacity × 0.90`
-   - Inventory table: **Stock | Needed | Trashable (floor=300) | Ordered | Status**
-     - **🚨 FLOOR BREACH**: Stock < 300, nothing inbound — ORDER IMMEDIATELY at provider max.
-     - **⚠️ FLOOR (ordered)**: Stock < 300, pipeline exists — keep ordering AND verify incoming will fit.
-     - **⚠️ CRITICAL**: Stock << Needed, stock ≥ 300 — order provider max every day.
-     - **⚠️ LOW (ordered)**: Stock < Needed, stock ≥ 300, pipeline exists — order provider max.
-     - **OK**: Stock ≥ Needed, stock ≥ 300 — order only if Tier 2 safety stock formula says to.
+   - Inventory table: **Stock | Needed | Trashable (floor=NNN) | Ordered | Status**
+     - Read the floor value `NNN` from the column header (`warehouse_capacity × 0.30 ÷ num_materials`).
+     - **🚨 FLOOR BREACH**: Stock < floor, nothing inbound — ORDER IMMEDIATELY at provider max.
+     - **⚠️ FLOOR (ordered)**: Stock < floor, pipeline exists — keep ordering AND verify incoming will fit.
+     - **⚠️ CRITICAL**: Stock << Needed, stock ≥ floor — order provider max every day.
+     - **⚠️ LOW (ordered)**: Stock < Needed, stock ≥ floor, pipeline exists — order provider max.
+     - **OK**: Stock ≥ Needed, stock ≥ floor — order only if Tier 2 safety stock formula says to.
      - **⚡ EXCESS**: SKIP — do not order under any circumstance.
-     - **Trashable (floor=300)** = `max(0, stock − 300)`. This is how much can be trashed from this material. Even "CRITICAL" and "LOW" materials can be trashed if their stock is above 300.
+     - **Trashable (floor=NNN)** = `max(0, stock − floor)`. Even CRITICAL/LOW materials can be trashed if their stock exceeds the floor.
    - PENDING sales orders (all awaiting release)
    - Inbound purchase orders (arriving materials + expected arrival dates)
    - Wholesale prices (current pricing)
@@ -262,24 +264,24 @@ Follow these steps (using only the state provided above):
    
    **To break deadlock**:
    1. **Detect**: State shows `🚨 DELIVERY REJECTION IMMINENT` OR `⚠️ FLOOR BREACH DELIVERY AT RISK` OR warehouse >95% full AND inbound today > available space.
-   2. **Identify trashable**: Use the **Trashable (floor=300)** column — `max(0, stock − 300)` per material. Even CRITICAL/LOW materials can be trashed if their stock is above 300.
+   2. **Identify trashable**: Use the **Trashable (floor=NNN)** column — `max(0, stock − floor)` per material. Even CRITICAL/LOW materials can be trashed if their stock exceeds the floor.
    3. **Calculate**: `trash_qty = incoming_qty − available_free_space + 50` (50-unit buffer). Trash from the material with the highest Trashable value first.
    4. **Act**: Use `bin/manufacturer-cli inventory-trash --item "MATERIAL_NAME:QUANTITY"` immediately — BEFORE day advance.
    5. **Re-order**: After trashing, immediately order the critical material to replenish the pipeline.
-   6. **Priority rule**: If the inbound material has stock < 300 (FLOOR BREACH/FLOOR status), it MUST receive its delivery. Trash whatever is needed from above-floor materials to guarantee it fits.
+   6. **Priority rule**: If the inbound material shows FLOOR BREACH/FLOOR status, it MUST receive its delivery. Trash whatever is needed from above-floor materials to guarantee it fits.
    
-   **Deadlock example scenario**:
+   **Deadlock example scenario** (8400 warehouse, 6 materials → floor = 8400×0.30/6 = **420**):
    ```
    Warehouse: 8361/8400 (100%) ⚠️ NEAR FULL — 39 units free
    🚨 DELIVERY REJECTION IMMINENT: 300 units arriving TODAY but only 39 free — overflow 261 units.
-   PRIORITY: Aluminum Frame (stock=0) is below 300-unit floor — MUST receive its delivery.
-   Trashable (keeping 300-unit floor): Control Board (trash up to 2765), ABS Filament (trash up to 1336)
+   PRIORITY: Aluminum Frame (stock=0) is below the 420-unit floor — MUST receive its delivery.
+   Trashable (keeping 420-unit floor): Control Board (trash up to 2645), ABS Filament (trash up to 1216)
 
    Inventory:
-   | Material       | Stock | Needed | Trashable (floor=300) | Ordered | Status         |
-   | Control Board  | 3065  | 1730   | +2765                 | 0       | ⚡ EXCESS      |
+   | Material       | Stock | Needed | Trashable (floor=420) | Ordered | Status         |
+   | Control Board  | 3065  | 1730   | +2645                 | 0       | ⚡ EXCESS      |
    | Aluminum Frame | 0     | 1878   | 0                     | 1800    | 🚨 FLOOR BREACH|
-   | ABS Filament   | 1636  | 2320   | +1336                 | 600     | ⚠️ LOW (ordered)|
+   | ABS Filament   | 1636  | 2320   | +1216                 | 600     | ⚠️ LOW (ordered)|
    
    Inbound today: Aluminum Frame 300 units PENDING (stock=0, MUST be received)
    → With only 39 free, this delivery WILL BE REJECTED.
@@ -288,10 +290,10 @@ Follow these steps (using only the state provided above):
    **Emergency action**: **TRASH Control Board:350** (261 overflow + 89 buffer)
    - Frees 350 units → warehouse drops to 8011/8400 (390 free)
    - Incoming 300 Aluminum Frames CAN NOW ARRIVE
-   - Control Board still has 2715 units (well above its 300 floor)
+   - Control Board still has 2715 units (well above its 420 floor)
    - Then ORDER 300 more Aluminum Frames from ChipSupply Co for the pipeline
    
-   **Key insight**: ABS Filament (stock=1636) is LOW relative to needed (2320), but its Trashable = 1336 (1636−300). It can be trashed if Control Board isn't enough — CRITICAL/LOW status does NOT mean non-trashable as long as stock > 300.
+   **Key insight**: ABS Filament (stock=1636) is LOW relative to needed (2320), but its Trashable = 1216 (1636−420). It can be trashed if Control Board isn't enough — CRITICAL/LOW status does NOT mean non-trashable as long as stock > floor.
    
    **CRITICAL**: This is an emergency function. Use when:
    - Purchase orders are about to be rejected/cancelled due to space OR

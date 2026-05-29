@@ -292,9 +292,14 @@ def _format_state_for_prompt(state: dict[str, Any], role: str = "manufacturer") 
                 if name:
                     inv_detail[name] = item
 
-        STOCK_FLOOR = 300.0
+        # Dynamic stock floor: 30% of warehouse capacity spread equally across all materials
+        _wh_cap_raw = state.get("warehouse_capacity", {})
+        _wh_total_cap = float(_wh_cap_raw.get("warehouse_capacity", 0) or 0)
+        _num_materials = max(1, len(inventory))
+        STOCK_FLOOR = round(_wh_total_cap * 0.30 / _num_materials) if _wh_total_cap > 0 else 300.0
+
         inv_lines = [
-            "| Material | Stock | Needed (accepted orders) | Trashable (floor=300) | Ordered (not delivered) | Storage Status |",
+            f"| Material | Stock | Needed (accepted orders) | Trashable (floor={STOCK_FLOOR:.0f}) | Ordered (not delivered) | Storage Status |",
             "|-|-|-|-|-|-|",
         ]
         for mat, qty in inventory.items():
@@ -417,12 +422,12 @@ def _format_state_for_prompt(state: dict[str, Any], role: str = "manufacturer") 
             floor_note = ""
             if floor_breach_incoming:
                 names = ", ".join(f"{m} (stock={s:.0f})" for m, s, _ in floor_breach_incoming)
-                floor_note = f"\nPRIORITY: {names} are below 300-unit floor — MUST receive their delivery."
+                floor_note = f"\nPRIORITY: {names} are below the {STOCK_FLOOR:.0f}-unit floor — MUST receive their delivery."
             deadlock_alert = (
                 f"\n\n🚨 **DELIVERY REJECTION IMMINENT**: {pending_today_qty:.0f} units are arriving TODAY "
                 f"but warehouse only has {avail_float:.0f} units free — overflow by {overflow:.0f} units. "
                 f"These deliveries WILL BE REJECTED unless you trash at least {overflow:.0f} units NOW.{floor_note}\n"
-                f"Trashable (keeping each material's 300-unit floor): {trash_text or 'none — all materials near floor'}\n"
+                f"Trashable (keeping each material's {STOCK_FLOOR:.0f}-unit floor): {trash_text or 'none — all materials near floor'}\n"
                 f"→ Use `inventory-trash` immediately. Trash the material with the most trashable units first."
             )
         elif floor_breach_incoming and avail_float < sum(q for _, _, q in floor_breach_incoming):
@@ -439,10 +444,10 @@ def _format_state_for_prompt(state: dict[str, Any], role: str = "manufacturer") 
             trash_text = ", ".join(f"{m} (trash up to {t:.0f})" for m, t in trash_candidates[:4])
             names = ", ".join(f"{m}" for m, _, _ in floor_breach_incoming)
             deadlock_alert = (
-                f"\n\n⚠️ **FLOOR BREACH DELIVERY AT RISK**: {names} are below 300-unit minimum and have "
+                f"\n\n⚠️ **FLOOR BREACH DELIVERY AT RISK**: {names} are below the {STOCK_FLOOR:.0f}-unit floor and have "
                 f"inbound deliveries today ({total_floor_inbound:.0f} units), but only {avail_float:.0f} free. "
                 f"Trash at least {overflow:.0f} units to guarantee receipt.\n"
-                f"Trashable (keeping 300-unit floor): {trash_text or 'none'}\n"
+                f"Trashable (keeping {STOCK_FLOOR:.0f}-unit floor): {trash_text or 'none'}\n"
                 f"→ Use `inventory-trash` immediately."
             )
         else:
