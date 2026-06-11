@@ -1,0 +1,4 @@
+# LF-only copies of shell scripts for use inside Linux dev containers.
+# The originals (post-create.sh, post-start.sh, dev-start.sh) keep their
+# Windows CRLF endings so they remain easily editable on Windows.
+*-lf.sh     text eol=lf

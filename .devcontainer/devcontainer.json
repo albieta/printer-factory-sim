@@ -1,9 +1,10 @@
 {
   "name": "DGSI Lab (Ubuntu 22.04)",
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu-22.04",
+  "remoteUser": "root",
   "waitFor": "postCreateCommand",
-  "postCreateCommand": "bash .devcontainer/post-create.sh",
-  "postStartCommand": "bash .devcontainer/post-start.sh",
+  "postCreateCommand": "bash .devcontainer/post-create-lf.sh",
+  "postStartCommand": "bash .devcontainer/post-start-lf.sh",
   "customizations": {
     "vscode": {
       "extensions": [

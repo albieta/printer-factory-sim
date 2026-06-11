@@ -71,6 +71,9 @@ Financial Costs (operator-configured, you cannot change):
 - Do not assume warehouse free space is wasted — it's your buffer against long lead times.
 - Do not rely on PENDING orders alone — use demand_modifier + events to forecast demand shifts.
 - Do not release beyond daily capacity.
+- Do not interpret an empty assembly queue (`0.0h queued`) as "no production possible" — it means the factory is idle and PENDING orders must be released immediately.
+- Do not use `Needed = 0` as a reason to skip releasing — `Needed` is 0 because nothing is in production yet. Check PENDING sales orders directly.
+- Do not treat the stock floor as a release gate — release orders as long as the BOM materials are available, even if some materials are below their floor.
 - Do not order materials that show ⚡ EXCESS status — their pipeline is already oversupplied; redirect that order budget to bottleneck materials instead.
 - Do not treat a large "Ordered" total as a reason to skip ordering a CRITICAL/LOW material. "Ordered" is spread across future delivery days — today's order fills a slot lead_time days from now, which is always needed when stock is below demand.
 - Do not invent flags, product names, supplier names, or order IDs.
@@ -130,11 +133,13 @@ Best practice: Read the provided state once, decide all actions, then chain them
 
 Follow these steps (using only the state provided above):
 
-
+**Step 0 — Release PENDING orders first, every day, no exceptions.**
+Before anything else: if there are PENDING sales orders AND `queued_assembly_hours < daily_assembly_hours × 3` (room in queue), release as many as capacity allows. An empty queue (`0.0h queued`) is NOT a blocker — it means the factory is idle and needs work. `Needed = 0` simply means no orders are in production yet; check PENDING sales orders directly. The stock floor is an ordering target, not a release gate — release any order whose BOM materials are available on hand.
 
 1. **Assess**: Review the provided state above:
    - **Capacity metrics**: assembly_lines, workers_per_line, max_workers_per_line, daily_assembly_hours, queued_assembly_hours
      - Calculate queue backlog in days: `queued_assembly_hours / daily_assembly_hours`
+     - **Empty queue = factory idle = release pending orders NOW.** Only skip releasing if you lack the BOM materials on hand.
      - This shows if you're backed up (>3 days = critical, >5 days = open new line)
    - **Warehouse**: total_capacity, current_usage, available_free_space
      - Critical: ensure all pending purchase orders PLUS any new orders fit within capacity

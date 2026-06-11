@@ -1,0 +1,1 @@
+{"ts": "2026-06-09T17:59:17.596687", "day": 29, "role": "Factory", "command": "bin/manufacturer-cli fire-worker", "exit_code": 0, "stdout": "Worker fired. Workers per line: 4 \u00d7 8 lines = 32 total workers, Daily capacity: 256.0 hours", "stderr": null}

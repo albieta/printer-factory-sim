@@ -1,0 +1,1 @@
+{"ts": "2026-06-10T10:44:39.667510", "day": 26, "role": "PrinterWorld", "command": "bin/retailer-cli customers orders --status PENDING", "exit_code": 0, "stdout": "id | customer | model | qty | status | day\n---+----------+-------+-----+--------+----", "stderr": null}

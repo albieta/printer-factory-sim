@@ -19,6 +19,7 @@ ENV/
 S2/.env
 S3/function-calling/.env
 S3/math-solver/.env
+fae.md
 
 # Node / frontend artifacts
 **/node_modules/
