@@ -346,11 +346,17 @@ The queued hours chart (Figure 3) shows the factory was under sustained load unt
 
 **What the agent is bad at:** The clearest failure was not closing assembly lines after demand collapsed on day 26, the agent only reduced workers per line (from 10 down to 3 by day 35), leaving all 6 lines open and paying fixed costs throughout. It did correctly stop releasing new production orders from day 26 onwards (the retailer already had 493+ printers against ~10 orders/day) and fulfilled 100% of customer orders through to day 35, but the idle assembly lines kept burning fixed costs with no output.
 
-**Skill rewrites:** Two bugs were identified by watching the agent fail and one fix was kept.
+**Skill updates:** The PRD-week7 proposed a six-section skeleton. The final file kept that structure and added the following through iterative refinement:
 
-- **Empty queue misread as "no capacity":** In an early calm-market run, the agent logged *"The assembly queue is empty (0.0h), so no production release is possible"* and released zero orders for multiple days despite 34+ PENDING sales orders and full stock. The reasoning was backwards: an empty queue means the factory is idle, not blocked. The fix added a **Step 0** block at the top of the decision framework ("Release PENDING orders first, every day, no exceptions") and three DO NOT rules: do not treat `0.0h queued` as a blocker, do not use `Needed = 0` as a reason to skip releasing, and do not treat the stock floor as a release gate.
+- **Step 0 — Release PENDING orders first:** Added after the agent logged *"The assembly queue is empty (0.0h), so no production release is possible"* and sat idle for two days with 34+ PENDING orders. Step 0 is placed before all other steps so the empty-queue signal cannot create a blocker before any analysis. Three DO NOT rules were added alongside it: do not treat `0.0h queued` as a blocker, do not use `Needed = 0` as a reason to skip releasing, do not treat the stock floor as a release gate.
 
-- **Assembly line over-expansion:** In a Gemini-driven run, the agent opened 8 assembly lines despite `demand_modifier = 1.0` and zero backlog throughout, burning $13,600/day in fixed costs with no output (net loss −$859,397 at day 35). A stricter fix was drafted — a three-question gate before any `open-assembly-line` call, tighter scaling thresholds, and four additional DO NOT rules — but it was reverted before being tested, because the subsequent Claude/Haiku run stayed at 2 lines without it. The over-expansion appears to be a model-specific behaviour: Gemini ignored the existing `backlog_days` rule; Claude followed it.
+- **Three-tier ordering system:** The original "order when below 50% of starting" rule was replaced with a tiered structure: Tier 0 = never order EXCESS materials; Tier 1 = order provider max every day for CRITICAL/LOW materials regardless of pipeline size; Tier 2 = demand-weighted safety stock when warehouse has room. This fixed chronic under-ordering of long-lead-time materials during demand surges.
+
+- **Warehouse deadlock detection:** The `inventory-trash` emergency command and a full deadlock detection workflow were added after runs where incoming purchase orders were rejected because the warehouse was full, which blocked the materials that were needed to release the queued production orders. The skill now checks whether `current_usage + pending_arriving_today > warehouse_capacity` and guides the agent to trash surplus materials before the delivery arrives.
+
+- **Assembly line scaling table:** A table mapping `backlog_days` and `demand_modifier` to hire/fire/open/close decisions replaced the vague "scale if busy" guidance. An ROI check was added before any hire or open call.
+
+- **Assembly line over-expansion (Gemini-specific, fix reverted):** In a Gemini-driven calm-market run, the agent opened 8 assembly lines despite `demand_modifier = 1.0` and zero backlog, burning $13,600/day with no output (net loss −$859,397 at day 35). A stricter fix was drafted but reverted: the subsequent Claude/Haiku run stayed at 2 lines on the original skill, so the over-expansion was model-specific. Tightening the rules for Gemini would have over-constrained Claude.
 
 ---
 
@@ -365,6 +371,13 @@ The provider agent manages six raw material lines for ChipSupply Co. Its job eac
 **What the agent is bad at:** Aluminum Frame and ABS Filament showed erratic price oscillations (roughly $22–$38 and $11–$24 respectively) that were not clearly tied to stock levels or scenario events, prices moved up and down without a sustained trend in either direction. This suggests the agent was reacting to small day-to-day stock fluctuations rather than following a consistent pricing strategy.
 
 ![Material prices (provider components)](images/1_Material_prices_provider_components.png)
+
+**Skill updates:** The week8 brief proposed a minimal five-section template. Key changes applied:
+
+- **Starting Stock Reference table added:** explicit target quantities per product (Control Board: 500, Stepper Motor: 800, Aluminum Frame: 300, etc.) so the agent has a stable reorder target without calling `catalog` each day.
+- **Restock triggers expanded:** the original "restock if below 50% of starting level" rule was extended with two new conditions: restock earlier when `lead_time_modifier > 1.0` (treating 75% of target as the reorder point because replenishment will arrive slower), and restock conservatively when `supply_modifier < 0.7` (prioritise products tied to pending orders rather than blanket refills).
+- **"No price cuts while orders are pending" rule added:** the original DO NOT only said no >15% change in one day and no zero stock. A third rule was added to prevent the agent from lowering prices during scarcity while accepted orders were still in progress.
+- **`lead_time_modifier` added to Market Signals:** the proposed template only covered `supply_modifier < 0.7` and `demand_modifier > 1.5`. The current file adds a steady-state band (0.8–1.2 = no action) and `lead_time_modifier > 1.0` as a restock trigger.
 
 ---
 
@@ -381,6 +394,14 @@ The retail agent manages PrinterWorld. Each day it fulfills or backorders pendin
 
 ![Retailer stock per product](images/3_Retailer_stock_per_product.png)
 *Figure 5 — Retailer stock per printer model (Basic300 and Pro450)*
+
+**Skill updates:** The week8 brief proposed a minimal five-section template. Key changes applied:
+
+- **`price list` command removed:** the proposed template listed it under Available Commands, but the retailer CLI does not have this command. The agent was calling it and getting errors. Replaced with an explicit DO NOT rule.
+- **Safety Stock Targets made explicit:** the proposal used a "stock < 3 days of recent average demand" formula to trigger reorders. This was replaced with fixed floor quantities (Basic300: 30 units, Pro450: 15 units, Elite700: 5 units) after the agent produced inconsistent reorder quantities by estimating daily demand differently on each turn.
+- **Reorder formula reworked:** the current skill uses the **Still Short** column from the state table (`order_qty = still_short + safety_stock_target − already_inbound`) and provides a daily demand baseline (≈5/3/2 for Basic300/Pro450/Elite700) so the agent does not have to estimate from history.
+- **Pricing model rebuilt:** the proposal had a simple ±5% rule based on whether stock was above or below a threshold. The current skill uses a two-layer model: first enforce the non-negotiable floor (retail ≥ wholesale × 1.15), then apply a demand-based adjustment table with seven conditions mapping `demand_modifier`, backorder count, and `price_sensitivity: high` to adjustment percentages (−8% to +8%). The 30% default margin becomes a target rather than a floor, and demand signals override it. This change was driven by the agent raising prices too slowly during Black Friday and cutting them too slowly after the post-holiday lull.
+- **Markup floor corrected:** the proposal said "do not set retail below wholesale + 20%." The actual CLI validation is wholesale × 1.15 (15%). The skill was updated to match the real constraint and sets 30% as the default working target.
 
 ---
 

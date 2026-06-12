@@ -1,0 +1,42 @@
+flowchart LR
+    subgraph Engine["Turn Engine (engine/)"]
+        TE[turn_engine.py]
+        AG[agent_runner.py]
+        DM[demand.py]
+        ME[metrics.py]
+    end
+    subgraph Provider["ChipSupply Co — port 8001"]
+        PAPI[FastAPI]
+        PSVC[Service Layer]
+        PDB[(provider.db)]
+        PCLI[provider-cli]
+    end
+    subgraph Manufacturer["Factory — port 8002"]
+        MUI[React + Vite UI\nport 3000]
+        MAPI[FastAPI]
+        MSVC[Service Layer]
+        MDB[(manufacturer.db)]
+        MCLI[manufacturer-cli]
+    end
+    subgraph Retailer["PrinterWorld — port 8003"]
+        RAPI[FastAPI]
+        RSVC[Service Layer]
+        RDB[(retailer.db)]
+        RCLI[retailer-cli]
+    end
+    TE -->|"① inject demand\nPOST /api/orders"| RAPI
+    TE -->|"② run agent\nclaude --print"| AG
+    AG -->|skill prompts| RCLI
+    AG -->|skill prompts| MCLI
+    AG -->|skill prompts| PCLI
+    TE -->|"③ advance days\nPOST /api/day/advance"| RAPI
+    TE -->|"③ advance days\nPOST /api/day/advance"| MAPI
+    TE -->|"③ advance days\nPOST /api/day/advance"| PAPI
+    RCLI --> RSVC --> RDB
+    MCLI --> MSVC --> MDB
+    PCLI --> PSVC --> PDB
+    RAPI --> RSVC
+    MAPI --> MSVC
+    PAPI --> PSVC
+    MSVC -->|"httpx: POST /api/orders\nGET /api/orders/{id}"| PAPI
+    RAPI -->|"place sales orders\nPOST /api/sales/orders"| MAPI
